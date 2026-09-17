@@ -14,6 +14,7 @@
 set -eu
 
 AUTH_FRAGMENT=/etc/nginx/basic-auth.conf
+AUTH_STATUS=/usr/share/nginx/html/auth-status.json
 
 if [ -n "${AURUM_BASIC_AUTH_USER:-}" ] && [ -n "${AURUM_BASIC_AUTH_PASSWORD:-}" ]; then
   HASH="$(openssl passwd -apr1 "$AURUM_BASIC_AUTH_PASSWORD")"
@@ -22,9 +23,11 @@ if [ -n "${AURUM_BASIC_AUTH_USER:-}" ] && [ -n "${AURUM_BASIC_AUTH_PASSWORD:-}" 
 auth_basic "Aurum";
 auth_basic_user_file /etc/nginx/.htpasswd;
 EOF
+  printf '{"enabled":true}\n' > "$AUTH_STATUS"
   echo "[aurum] Basic auth enabled for user '${AURUM_BASIC_AUTH_USER}'."
 else
   : > "$AUTH_FRAGMENT"
+  printf '{"enabled":false}\n' > "$AUTH_STATUS"
   echo "[aurum] WARNING: AURUM_BASIC_AUTH_USER / AURUM_BASIC_AUTH_PASSWORD are not set." >&2
   echo "[aurum] This instance has NO authentication — anyone who can reach it can read," >&2
   echo "[aurum] edit, and delete all financial data. Fine for 'localhost only'. Before" >&2

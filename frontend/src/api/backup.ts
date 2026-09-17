@@ -1,15 +1,10 @@
 import { api } from "@/api/client";
-import { getAuthHeader } from "@/lib/auth";
 import { t } from "@/lib/i18n";
 
 export async function exportBackup(): Promise<void> {
-  // Raw fetch (not api/client.ts's request()) — the response is a file
-  // download, not JSON — so the Authorization header has to be attached
-  // here by hand too, same as every other request.
-  const authHeader = getAuthHeader();
-  const response = await fetch("/api/backup/export", {
-    headers: authHeader ? { Authorization: authHeader } : {},
-  });
+  // Raw fetch (not api/client.ts's request()) because the response is a
+  // file. The browser supplies the origin's Basic Auth credentials.
+  const response = await fetch("/api/backup/export");
   if (!response.ok) {
     throw new Error(await response.text());
   }

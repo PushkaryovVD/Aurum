@@ -4,7 +4,7 @@ import { useTranslation } from "@/lib/i18n";
 
 const ACK_KEY = "aurum:noAuthAcknowledged";
 
-/** Shown by LoginGate once (ever, per browser) when this instance has no
+/** Shown by AuthStatusGate once (ever, per browser) when this instance has no
  * AURUM_BASIC_AUTH_USER/PASSWORD configured (see frontend/docker-entrypoint.d/
  * 20-basic-auth.sh) — that state is otherwise only logged to the container's
  * stderr at startup, which most self-hosters never look at. Unlike a normal

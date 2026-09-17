@@ -55,7 +55,7 @@ private instance. Access control is whatever you put in front of it:
 - **Nothing set:** if `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` are empty in `.env`
   (the default), the API is completely open to anyone who can reach the host — no credentials
   needed. Fine for `localhost`-only or a private network; **not** fine on the public internet.
-- **HTTP Basic Auth:** set both `AURUM_BASIC_AUTH_USER` and `AURUM_BASIC_AUTH_PASSWORD` in `.env`
+- **HTTP Basic Auth:** set both `AURUM_BASIC_AUTH_USER` and `AURUM_BASIC_AUTH_PASSWORD` in `.env`; nginx protects the entire site and the browser shows its native login prompt
   and restart (`docker compose up -d`). Every request — UI and API alike — then requires an
   `Authorization: Basic <base64(user:password)>` header, or the equivalent `-u user:password` flag
   in curl.

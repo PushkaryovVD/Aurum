@@ -1,5 +1,3 @@
-import { clearCredentials, getAuthHeader } from "@/lib/auth";
-
 const API_BASE = "/api";
 
 export class ApiError extends Error {
@@ -11,21 +9,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const authHeader = getAuthHeader();
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
-      ...(authHeader ? { Authorization: authHeader } : {}),
     },
     ...init,
   });
-
-  if (response.status === 401) {
-    // Stored credentials are missing/stale (password changed, or Basic Auth
-    // was just turned on) — drop them so LoginGate falls back to the login
-    // screen instead of every request failing silently forever.
-    clearCredentials();
-  }
 
   if (!response.ok) {
     const body = await response.text();

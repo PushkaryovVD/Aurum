@@ -122,7 +122,7 @@ At minimum, change these two before going any further:
 | Variable | What it does |
 |---|---|
 | `AURUM_POSTGRES_PASSWORD` | Password for Aurum's own Postgres container. The template ships with `change-me` on purpose — replace it with something real. |
-| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | **Aurum has no login screen of its own.** Leave these blank and the app has no password at all — fine if it's only reachable from `localhost`, not fine anywhere else. Set both to put an HTTP Basic Auth prompt in front of the whole app. See [Security & Self-Hosting](#-security--self-hosting) below. |
+| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | **Aurum has no login screen of its own.** Leave these blank and the app has no password at all — fine if it's only reachable from `localhost`, not fine anywhere else. Set both to protect the entire site and API with the browser's standard HTTP Basic Auth prompt. See [Security & Self-Hosting](#-security--self-hosting) below. |
 
 Everything else in `.env` (currency, CORS, the port Aurum listens on) has a sensible default and can be left alone for a first run.
 
@@ -174,7 +174,7 @@ or open `/api/docs` on your running instance for interactive Swagger docs.
 **Aurum has no built-in login system.** It's built for one person to self-host one private instance of their own financial data — not as a multi-tenant service with per-user accounts. That's a deliberate trade-off, not an oversight, but it means:
 
 - If you leave `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` unset in `.env`, **anyone who can reach the container can read, edit, and delete all of it — no password prompt at all.** The app itself now says so on first load, with a warning you have to dismiss. This is fine if Aurum is only reachable from `localhost`.
-- Set both variables before exposing your instance beyond your own machine (a VPS, a subdomain, a Tailscale/VPN endpoint someone else might share). This turns on an HTTP Basic Auth prompt in front of the entire app, UI and API alike.
+- Set both variables before exposing your instance beyond your own machine (a VPS, a subdomain, a Tailscale/VPN endpoint someone else might share). This turns on the browser's standard HTTP Basic Auth prompt in front of the entire app, static assets and API alike. Aurum never stores or injects the credentials in JavaScript.
 
 ### Two settings that decide who can reach you
 

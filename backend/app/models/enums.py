@@ -23,6 +23,20 @@ class TransactionType(str, enum.Enum):
     TRANSFER = "transfer"
 
 
+class ExchangeRateSource(str, enum.Enum):
+    NBK = "nbk"
+    MANUAL = "manual"
+    CSV = "csv"
+
+
+class TransactionPurpose(str, enum.Enum):
+    ORDINARY = "ordinary"
+    INVESTMENT_TRADE = "investment_trade"
+    DIVIDEND = "dividend"
+    FEE = "fee"
+    TAX = "tax"
+
+
 class AssetClass(str, enum.Enum):
     """Net-worth categories tracked manually (Cash is derived from Account
     balances instead — see services/net_worth_service.py)."""

@@ -9,8 +9,9 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_session
 from app.core.audit import log_destructive
+from app.models.account import Account
 from app.models.category import Category
-from app.models.enums import CategoryKind, TransactionType
+from app.models.enums import CategoryKind, ExchangeRateSource, TransactionType
 from app.models.tag import Tag
 from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.transaction import (
@@ -24,6 +25,7 @@ from app.schemas.transaction import (
     split_rule_violation,
     transfer_rule_violation,
 )
+from app.services.exchange_rate_service import get_exchange_rate
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -49,6 +51,70 @@ _TYPE_TO_CATEGORY_KIND = {
     TransactionType.INCOME: CategoryKind.INCOME,
     TransactionType.EXPENSE: CategoryKind.EXPENSE,
 }
+
+
+async def _currency_fields(
+    session: AsyncSession, values: dict, current: Transaction | None = None
+) -> dict:
+    """Resolve account currencies and freeze the KZT conversion snapshot.
+
+    The caller may submit a manual/CSV rate; otherwise the official NBK rate
+    for the transaction date is cached and used. Client-supplied base amounts
+    are never trusted because they must remain consistent with amount*rate.
+    """
+    account_id = values.get("account_id", current.account_id if current else None)
+    amount = values.get("amount", current.amount if current else None)
+    tx_date = values.get("date", current.date if current else None)
+    tx_type = values.get("type", current.type if current else None)
+    transfer_account_id = values.get(
+        "transfer_account_id", current.transfer_account_id if current else None
+    )
+    account = await session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(status_code=400, detail="Account not found")
+
+    explicit_rate = values.get("exchange_rate_to_kzt")
+    if explicit_rate is not None:
+        rate = explicit_rate
+        source = values.get("exchange_rate_source") or ExchangeRateSource.MANUAL
+    elif current is not None and not ({"account_id", "amount", "date"} & values.keys()):
+        rate = current.exchange_rate_to_kzt
+        source = current.exchange_rate_source
+    elif account.currency.upper() == "KZT":
+        rate = Decimal("1")
+        source = ExchangeRateSource.NBK
+    else:
+        try:
+            official = await get_exchange_rate(session, tx_date, account.currency)
+            rate = official.rate_to_kzt
+            source = ExchangeRateSource.NBK
+        except HTTPException as exc:
+            if exc.status_code not in {422, 503}:
+                raise
+            # Offline entry must remain possible. Cross-currency reports will
+            # treat this row as unresolved until /exchange-rates/sync or a
+            # manual edit supplies the missing snapshot.
+            rate = None
+            source = None
+
+    values["exchange_rate_to_kzt"] = rate
+    values["base_amount_kzt"] = (amount * rate).quantize(Decimal("0.01")) if rate is not None else None
+    values["exchange_rate_source"] = source
+
+    if tx_type == TransactionType.TRANSFER:
+        destination = await session.get(Account, transfer_account_id)
+        if destination is None:
+            raise HTTPException(status_code=400, detail="Transfer account not found")
+        supplied = values.get("transfer_amount", current.transfer_amount if current else None)
+        if account.currency.upper() == destination.currency.upper():
+            if supplied is not None and supplied != amount:
+                raise HTTPException(status_code=422, detail="Same-currency transfer_amount must equal amount")
+            values["transfer_amount"] = amount
+        elif supplied is None:
+            raise HTTPException(status_code=422, detail="transfer_amount is required for a cross-currency transfer")
+    else:
+        values["transfer_amount"] = None
+    return values
 
 
 async def _ensure_category_matches_type(
@@ -197,6 +263,7 @@ async def list_transaction_years(session: AsyncSession = Depends(get_session)) -
 async def create_transaction(payload: TransactionCreate, session: AsyncSession = Depends(get_session)) -> Transaction:
     await _ensure_category_matches_type(session, payload.category_id, payload.type)
     fields = payload.model_dump(exclude={"tag_ids", "splits"})
+    fields = await _currency_fields(session, fields)
     transaction = Transaction(**fields)
     transaction.tags = await _resolve_tags(session, payload.tag_ids)
     if payload.splits:
@@ -221,7 +288,8 @@ async def bulk_create_transactions(
 
     transactions = []
     for item in payload.items:
-        transaction = Transaction(**item.model_dump(exclude={"tag_ids", "splits"}))
+        fields = await _currency_fields(session, item.model_dump(exclude={"tag_ids", "splits"}))
+        transaction = Transaction(**fields)
         transaction.tags = await _resolve_tags(session, item.tag_ids)
         if item.splits:
             transaction.splits = await _build_splits(session, item.splits, item.type)
@@ -289,6 +357,8 @@ async def update_transaction(
     )
     if split_violation:
         raise HTTPException(status_code=400, detail=split_violation)
+
+    updates = await _currency_fields(session, updates, transaction)
 
     for field, value in updates.items():
         setattr(transaction, field, value)

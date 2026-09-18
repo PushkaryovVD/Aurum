@@ -1,17 +1,18 @@
 """A single money movement: income, expense, or a transfer between accounts."""
 from datetime import date as date_
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import TransactionType
+from app.models.enums import ExchangeRateSource, TransactionPurpose, TransactionType
 from app.models.mixins import TimestampMixin
 from app.models.tag import transaction_tags
 
 
 class Transaction(Base, TimestampMixin):
     __tablename__ = "transactions"
+    __table_args__ = (UniqueConstraint("account_id", "external_id", name="uq_transaction_account_external_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False)
@@ -26,6 +27,27 @@ class Transaction(Base, TimestampMixin):
     )
     # Always stored positive; `type` carries the sign/direction.
     amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
+    # Immutable conversion snapshot used by cross-account reports. `amount`
+    # remains the real account-currency movement and therefore still drives
+    # the account balance.
+    exchange_rate_to_kzt: Mapped[Numeric | None] = mapped_column(Numeric(20, 10), nullable=True)
+    base_amount_kzt: Mapped[Numeric | None] = mapped_column(Numeric(18, 2), nullable=True)
+    exchange_rate_source: Mapped[ExchangeRateSource | None] = mapped_column(
+        Enum(ExchangeRateSource, name="exchange_rate_source", native_enum=False, length=10), nullable=True
+    )
+    # Optional merchant/original-currency information for a card purchase.
+    original_amount: Mapped[Numeric | None] = mapped_column(Numeric(14, 2), nullable=True)
+    original_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    original_to_account_rate: Mapped[Numeric | None] = mapped_column(Numeric(20, 10), nullable=True)
+    # Destination-side movement for a transfer. It equals amount for same-
+    # currency accounts and may differ for FX transfers.
+    transfer_amount: Mapped[Numeric | None] = mapped_column(Numeric(14, 2), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    purpose: Mapped[TransactionPurpose] = mapped_column(
+        Enum(TransactionPurpose, name="transaction_purpose", native_enum=False, length=20),
+        nullable=False,
+        default=TransactionPurpose.ORDINARY,
+    )
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     merchant: Mapped[str | None] = mapped_column(String(150), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

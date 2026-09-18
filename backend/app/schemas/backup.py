@@ -11,9 +11,11 @@ from app.models.enums import (
     CapitalRole,
     CategoryKind,
     CryptoTransactionType,
+    ExchangeRateSource,
     RecurringFrequency,
     RiskLevel,
     TransactionType,
+    TransactionPurpose,
 )
 
 
@@ -59,6 +61,15 @@ class TransactionBackup(BaseModel):
     transfer_account_id: int | None
     type: TransactionType
     amount: Decimal
+    exchange_rate_to_kzt: Decimal | None = None
+    base_amount_kzt: Decimal | None = None
+    exchange_rate_source: ExchangeRateSource | None = None
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
+    original_to_account_rate: Decimal | None = None
+    transfer_amount: Decimal | None = None
+    external_id: str | None = None
+    purpose: TransactionPurpose = TransactionPurpose.ORDINARY
     description: str
     merchant: str | None
     notes: str | None
@@ -103,6 +114,8 @@ class AssetValuationBackup(BaseModel):
     id: int
     asset_id: int
     value: Decimal
+    exchange_rate_to_kzt: Decimal | None = None
+    base_value_kzt: Decimal | None = None
     as_of_date: date_
 
 
@@ -216,6 +229,18 @@ class AppSettingsBackup(BaseModel):
     idle_cash_threshold_days: int = 60
 
 
+class ExchangeRateBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    requested_date: date_
+    effective_date: date_
+    currency: str
+    rate_to_kzt: Decimal
+    source: str
+    fetched_at: datetime
+
+
 class BackupPayload(BaseModel):
     """A full, portable snapshot of every table. `aurum_backup_version` is
     checked on import so an incompatible/future file is rejected cleanly
@@ -230,6 +255,7 @@ class BackupPayload(BaseModel):
     # cleanly under the same format version.
     tags: list[TagBackup] = Field(default_factory=list)
     transactions: list[TransactionBackup]
+    exchange_rates: list[ExchangeRateBackup] = Field(default_factory=list)
     # Defaulted so a backup exported before transaction splitting existed
     # still imports cleanly under the same format version.
     transaction_splits: list[TransactionSplitBackup] = Field(default_factory=list)

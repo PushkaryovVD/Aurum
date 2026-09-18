@@ -1,6 +1,8 @@
 export type AccountType = "checking" | "debit_card" | "savings" | "credit_card" | "cash" | "investment" | "other";
 export type CategoryKind = "income" | "expense";
 export type TransactionType = "income" | "expense" | "transfer";
+export type ExchangeRateSource = "nbk" | "manual" | "csv";
+export type TransactionPurpose = "ordinary" | "investment_trade" | "dividend" | "fee" | "tax";
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 
 export interface Account {
@@ -24,6 +26,7 @@ export interface AccountWithBalance extends Account {
 export interface AccountInput {
   name: string;
   type: AccountType;
+  currency?: string;
 }
 
 export interface Category {
@@ -88,6 +91,15 @@ export interface Transaction {
   transfer_account_id: number | null;
   type: TransactionType;
   amount: string;
+  exchange_rate_to_kzt: string | null;
+  base_amount_kzt: string | null;
+  exchange_rate_source: ExchangeRateSource | null;
+  original_amount: string | null;
+  original_currency: string | null;
+  original_to_account_rate: string | null;
+  transfer_amount: string | null;
+  external_id: string | null;
+  purpose: TransactionPurpose;
   description: string;
   merchant: string | null;
   notes: string | null;
@@ -111,6 +123,14 @@ export interface TransactionInput {
   transfer_account_id: number | null;
   type: TransactionType;
   amount: string;
+  exchange_rate_to_kzt?: string | null;
+  exchange_rate_source?: ExchangeRateSource | null;
+  original_amount?: string | null;
+  original_currency?: string | null;
+  original_to_account_rate?: string | null;
+  transfer_amount?: string | null;
+  external_id?: string | null;
+  purpose?: TransactionPurpose;
   description: string;
   merchant?: string | null;
   notes?: string | null;
@@ -208,7 +228,9 @@ export interface Asset {
   monthly_cash_flow: string | null;
   risk_level: RiskLevel;
   current_value: string;
+  current_base_value_kzt: string | null;
   as_of_date: string;
+  exchange_rate_to_kzt?: string | null;
 }
 
 export interface AssetInput {
@@ -235,6 +257,7 @@ export interface AssetUpdateInput {
 export interface AssetValuationInput {
   value: string;
   as_of_date: string;
+  exchange_rate_to_kzt?: string | null;
 }
 
 export interface NetWorthPoint {
@@ -569,4 +592,3 @@ export interface AppSettings {
    * from /api/health, which is served without auth. */
   app_version: string;
 }
-

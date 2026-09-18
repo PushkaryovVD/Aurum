@@ -13,6 +13,7 @@ from app.api.routes import (
     categories,
     crypto,
     dashboard,
+    exchange_rates,
     goals,
     insights,
     net_worth,
@@ -87,6 +88,7 @@ app.include_router(recurring.router, prefix="/api")
 app.include_router(cash_flow.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 app.include_router(crypto.router, prefix="/api")
+app.include_router(exchange_rates.router, prefix="/api")
 
 
 @app.get("/api/health")

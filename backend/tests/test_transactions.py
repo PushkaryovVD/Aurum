@@ -132,7 +132,14 @@ async def test_valid_transfer_between_two_accounts_succeeds(client: AsyncClient,
     other = await client.post("/accounts", json={"name": "Savings", "type": "savings", "currency": "USD"})
     other_id = other.json()["id"]
     resp = await client.post(
-        "/transactions", json=_txn(account_id, type="transfer", amount="50.00", transfer_account_id=other_id)
+        "/transactions",
+        json=_txn(
+            account_id,
+            type="transfer",
+            amount="50.00",
+            transfer_amount="0.10",
+            transfer_account_id=other_id,
+        ),
     )
     assert resp.status_code == 201
 

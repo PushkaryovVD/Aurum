@@ -80,17 +80,15 @@ def _net_worth_decline_streak(summary: NetWorthSummary) -> int:
 
 
 async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Decimal, threshold_days: int) -> int:
-    eligible_ids = set(
-        (
+    eligible_rows = (
             await session.execute(
-                select(Account.id).where(
+                select(Account.id, Account.currency).where(
                     Account.is_archived.is_(False), Account.type.in_(_IDLE_CASH_ACCOUNT_TYPES)
                 )
             )
-        )
-        .scalars()
-        .all()
-    )
+        ).all()
+    eligible_ids = {account_id for account_id, _ in eligible_rows}
+    currencies = {account_id: currency.upper() for account_id, currency in eligible_rows}
     if not eligible_ids:
         return 0
 
@@ -98,7 +96,14 @@ async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Deci
     # never stored, only ever summed from the full transaction history — plus
     # tracking the most recent date that touched each account along the way.
     rows = await session.execute(
-        select(Transaction.type, Transaction.amount, Transaction.account_id, Transaction.transfer_account_id, Transaction.date)
+        select(
+            Transaction.type,
+            Transaction.amount,
+            Transaction.base_amount_kzt,
+            Transaction.account_id,
+            Transaction.transfer_account_id,
+            Transaction.date,
+        )
     )
     balances: dict[int, Decimal] = defaultdict(Decimal)
     last_activity: dict[int, date] = {}
@@ -107,15 +112,18 @@ async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Deci
         if account_id in eligible_ids and (account_id not in last_activity or tx_date > last_activity[account_id]):
             last_activity[account_id] = tx_date
 
-    for tx_type, amount, account_id, transfer_account_id, tx_date in rows.all():
+    for tx_type, amount, base_amount, account_id, transfer_account_id, tx_date in rows.all():
+        converted = base_amount if base_amount is not None else (amount if currencies.get(account_id) == "KZT" else None)
+        if converted is None:
+            continue
         if tx_type == TransactionType.INCOME:
-            balances[account_id] += amount
+            balances[account_id] += converted
         elif tx_type == TransactionType.EXPENSE:
-            balances[account_id] -= amount
+            balances[account_id] -= converted
         elif tx_type == TransactionType.TRANSFER:
-            balances[account_id] -= amount
+            balances[account_id] -= converted
             if transfer_account_id is not None:
-                balances[transfer_account_id] += amount
+                balances[transfer_account_id] += converted
         touch(account_id, tx_date)
         touch(transfer_account_id, tx_date)
 

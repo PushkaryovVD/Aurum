@@ -4,7 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.text import capitalize_first_letter
-from app.models.enums import TransactionType
+from app.models.enums import ExchangeRateSource, TransactionPurpose, TransactionType
 from app.schemas.account import AccountRead
 from app.schemas.category import CategoryRead
 from app.schemas.tag import TagRead
@@ -84,6 +84,15 @@ class TransactionFields(BaseModel):
     transfer_account_id: int | None = None
     type: TransactionType
     amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    exchange_rate_to_kzt: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
+    base_amount_kzt: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    exchange_rate_source: ExchangeRateSource | None = None
+    original_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    original_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    original_to_account_rate: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
+    transfer_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    external_id: str | None = Field(default=None, max_length=150)
+    purpose: TransactionPurpose = TransactionPurpose.ORDINARY
     description: str = Field(min_length=1, max_length=255)
     merchant: str | None = Field(default=None, max_length=150)
     notes: str | None = Field(default=None, max_length=2000)
@@ -95,6 +104,18 @@ class TransactionFields(BaseModel):
     @classmethod
     def _capitalize_description(cls, value: str) -> str:
         return capitalize_first_letter(value)
+
+    @field_validator("original_currency")
+    @classmethod
+    def _uppercase_original_currency(cls, value: str | None) -> str | None:
+        return value.upper() if value is not None else None
+
+    @model_validator(mode="after")
+    def _validate_original_currency_fields(self) -> "TransactionFields":
+        supplied = (self.original_amount, self.original_currency, self.original_to_account_rate)
+        if any(value is not None for value in supplied) and any(value is None for value in supplied):
+            raise ValueError("original_amount, original_currency and original_to_account_rate must be supplied together")
+        return self
 
 
 class TransactionBase(TransactionFields):
@@ -150,6 +171,15 @@ class TransactionUpdate(BaseModel):
     transfer_account_id: int | None = None
     type: TransactionType | None = None
     amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    exchange_rate_to_kzt: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
+    base_amount_kzt: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    exchange_rate_source: ExchangeRateSource | None = None
+    original_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    original_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    original_to_account_rate: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
+    transfer_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    external_id: str | None = Field(default=None, max_length=150)
+    purpose: TransactionPurpose | None = None
     description: str | None = Field(default=None, min_length=1, max_length=255)
     merchant: str | None = Field(default=None, max_length=150)
     notes: str | None = Field(default=None, max_length=2000)

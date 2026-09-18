@@ -14,11 +14,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.budget import Budget
+from app.models.account import Account
 from app.models.category import Category
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 from app.schemas.advice import AdviceItem, AdviceResponse
 from app.services.dashboard_service import get_dashboard_summary
+from app.services.currency import transaction_amount_kzt
 
 TRAILING_MONTHS = 3
 RISING_CATEGORY_THRESHOLD_PERCENT = 25
@@ -37,7 +39,8 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
 async def _category_expense_totals(session: AsyncSession, year: int, month: int) -> dict[int, Decimal]:
     start, end = _month_bounds(year, month)
     stmt = (
-        select(Transaction.category_id, func.sum(Transaction.amount))
+        select(Transaction.category_id, func.sum(transaction_amount_kzt()))
+        .join(Account, Account.id == Transaction.account_id)
         .where(
             Transaction.type == TransactionType.EXPENSE,
             Transaction.category_id.is_not(None),

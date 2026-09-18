@@ -23,6 +23,7 @@ from app.models.asset import Asset, AssetValuation
 from app.models.budget import Budget
 from app.models.category import Category
 from app.models.crypto import CryptoHolding, CryptoPortfolio, CryptoTransaction
+from app.models.exchange_rate import ExchangeRate
 from app.models.goal import Goal, GoalContribution
 from app.models.recurring import RecurringTransaction
 from app.models.settings import AppSettings
@@ -39,6 +40,7 @@ from app.schemas.backup import (
     CryptoHoldingBackup,
     CryptoPortfolioBackup,
     CryptoTransactionBackup,
+    ExchangeRateBackup,
     GoalBackup,
     GoalContributionBackup,
     RecurringTransactionBackup,
@@ -49,7 +51,7 @@ from app.schemas.backup import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 1
+BACKUP_FORMAT_VERSION = 2
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -57,6 +59,7 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
     categories = (await session.execute(select(Category))).scalars().all()
     tags = (await session.execute(select(Tag))).scalars().all()
     transactions = (await session.execute(select(Transaction).options(selectinload(Transaction.tags)))).scalars().all()
+    exchange_rates = (await session.execute(select(ExchangeRate))).scalars().all()
     transaction_splits = (await session.execute(select(TransactionSplit))).scalars().all()
     assets = (await session.execute(select(Asset))).scalars().all()
     valuations = (await session.execute(select(AssetValuation))).scalars().all()
@@ -82,6 +85,7 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
             )
             for row in transactions
         ],
+        exchange_rates=[ExchangeRateBackup.model_validate(row) for row in exchange_rates],
         transaction_splits=[TransactionSplitBackup.model_validate(row) for row in transaction_splits],
         assets=[AssetBackup.model_validate(row) for row in assets],
         asset_valuations=[AssetValuationBackup.model_validate(row) for row in valuations],
@@ -182,7 +186,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version != BACKUP_FORMAT_VERSION:
+    if payload.aurum_backup_version not in {1, BACKUP_FORMAT_VERSION}:
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "
@@ -206,6 +210,7 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         # here anyway to keep this block's ordering self-documenting.
         await session.execute(delete(TransactionSplit))
         await session.execute(delete(Transaction))
+        await session.execute(delete(ExchangeRate))
         await session.execute(delete(Tag))
         await session.execute(delete(Asset))
         await session.execute(delete(Category))
@@ -235,6 +240,7 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
             row.id: Transaction(**row.model_dump(exclude={"tag_ids"}), tags=[]) for row in payload.transactions
         }
         session.add_all(transactions_by_id.values())
+        session.add_all(ExchangeRate(**row.model_dump()) for row in payload.exchange_rates)
         session.add_all(TransactionSplit(**row.model_dump()) for row in payload.transaction_splits)
 
         session.add_all(AssetValuation(**row.model_dump()) for row in payload.asset_valuations)
@@ -280,6 +286,7 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         await _reset_sequence(session, "tags", payload.tags)
         await _reset_sequence(session, "assets", payload.assets)
         await _reset_sequence(session, "transactions", payload.transactions)
+        await _reset_sequence(session, "exchange_rates", payload.exchange_rates)
         await _reset_sequence(session, "transaction_splits", payload.transaction_splits)
         await _reset_sequence(session, "asset_valuations", payload.asset_valuations)
         # Only needed for explicit-id portfolios from payload — a fallback

@@ -19,10 +19,16 @@ from app.schemas.account import AccountCreate, AccountUpdate, AccountWithBalance
 
 async def _account_balances(session: AsyncSession) -> dict[int, Decimal]:
     result = await session.execute(
-        select(Transaction.type, Transaction.amount, Transaction.account_id, Transaction.transfer_account_id)
+        select(
+            Transaction.type,
+            Transaction.amount,
+            Transaction.transfer_amount,
+            Transaction.account_id,
+            Transaction.transfer_account_id,
+        )
     )
     balances: dict[int, Decimal] = defaultdict(Decimal)
-    for tx_type, amount, account_id, transfer_account_id in result.all():
+    for tx_type, amount, transfer_amount, account_id, transfer_account_id in result.all():
         if tx_type == TransactionType.INCOME:
             balances[account_id] += amount
         elif tx_type == TransactionType.EXPENSE:
@@ -30,7 +36,7 @@ async def _account_balances(session: AsyncSession) -> dict[int, Decimal]:
         elif tx_type == TransactionType.TRANSFER:
             balances[account_id] -= amount
             if transfer_account_id is not None:
-                balances[transfer_account_id] += amount
+                balances[transfer_account_id] += transfer_amount if transfer_amount is not None else amount
     return balances
 
 

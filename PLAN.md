@@ -45,7 +45,7 @@ branches. A branch updates this checklist before it is merged.
 - Convert dashboard, cash flow, budgets, reports, alerts and net worth to KZT;
   account balances stay in their native currencies.
 
-### Transaction currency UX (`feature/transaction-currency-ux`) — next
+### Transaction currency UX (`feature/transaction-currency-ux`) — completed
 
 The ledger currency of a transaction is the currency of its selected account.
 It must not be an unrelated free-form currency, because that would make the

@@ -16,6 +16,7 @@ from app.api.routes import (
     exchange_rates,
     goals,
     insights,
+    investments,
     net_worth,
     recurring,
     reports,
@@ -89,6 +90,7 @@ app.include_router(cash_flow.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 app.include_router(crypto.router, prefix="/api")
 app.include_router(exchange_rates.router, prefix="/api")
+app.include_router(investments.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -10,7 +10,7 @@ from decimal import Decimal
 from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import TransactionType
+from app.models.enums import TransactionPurpose, TransactionType
 from app.models.account import Account
 from app.models.transaction import Transaction
 from app.schemas.cash_flow import CashFlowPoint, CashFlowResponse
@@ -25,7 +25,8 @@ async def get_cash_flow(
     session: AsyncSession, start_date: date_ | None, end_date: date_ | None
 ) -> CashFlowResponse:
     bounds_stmt = select(func.min(Transaction.date), func.max(Transaction.date)).where(
-        Transaction.type != TransactionType.TRANSFER
+        Transaction.type != TransactionType.TRANSFER,
+        Transaction.purpose != TransactionPurpose.INVESTMENT_TRADE,
     )
     if start_date:
         bounds_stmt = bounds_stmt.where(Transaction.date >= start_date)
@@ -57,6 +58,7 @@ async def get_cash_flow(
         .join(Account, Account.id == Transaction.account_id)
         .where(
             Transaction.type != TransactionType.TRANSFER,
+            Transaction.purpose != TransactionPurpose.INVESTMENT_TRADE,
             Transaction.date >= effective_start,
             Transaction.date <= effective_end,
         )

@@ -46,6 +46,11 @@ async def remove_trade(trade_id: int, session: AsyncSession = Depends(get_sessio
     return await investment_service.delete_trade(session, trade_id)
 
 
+@router.patch("/trades/{trade_id}", response_model=SecurityPositionRead)
+async def edit_trade(trade_id: int, payload: SecurityTradeCreate, session: AsyncSession = Depends(get_session)):
+    return await investment_service.update_trade(session, trade_id, payload)
+
+
 @router.post("/securities/{asset_id}/dividends", response_model=SecurityPositionRead, status_code=201)
 async def add_dividend(asset_id: int, payload: SecurityDividendCreate, session: AsyncSession = Depends(get_session)):
     return await investment_service.create_dividend(session, asset_id, payload)
@@ -54,6 +59,11 @@ async def add_dividend(asset_id: int, payload: SecurityDividendCreate, session: 
 @router.delete("/dividends/{dividend_id}", response_model=SecurityPositionRead)
 async def remove_dividend(dividend_id: int, session: AsyncSession = Depends(get_session)):
     return await investment_service.delete_dividend(session, dividend_id)
+
+
+@router.patch("/dividends/{dividend_id}", response_model=SecurityPositionRead)
+async def edit_dividend(dividend_id: int, payload: SecurityDividendCreate, session: AsyncSession = Depends(get_session)):
+    return await investment_service.update_dividend(session, dividend_id, payload)
 
 
 @router.put("/securities/{asset_id}/price", response_model=SecurityPositionRead)

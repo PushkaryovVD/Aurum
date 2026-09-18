@@ -84,3 +84,33 @@ async def test_deleting_trade_removes_generated_cash_movements(client: AsyncClie
     assert money(deleted.json()["quantity"]) == money("0")
     transactions = (await client.get("/transactions", params={"page_size": 100})).json()["items"]
     assert not transactions
+
+
+async def test_editing_trade_and_dividend_keeps_cash_movements_in_sync(client: AsyncClient):
+    security = await _security(client)
+    trade = await client.post(
+        f"/investments/securities/{security['asset_id']}/trades",
+        json={"type": "buy", "quantity": "2", "price_per_unit": "100", "fee": "5", "date": "2026-01-01"},
+    )
+    trade_id = trade.json()["trades"][0]["id"]
+    edited = await client.patch(
+        f"/investments/trades/{trade_id}",
+        json={"type": "buy", "quantity": "3", "price_per_unit": "120", "fee": "0", "date": "2026-01-02"},
+    )
+    assert edited.status_code == 200, edited.text
+    assert money(edited.json()["cost_basis"]) == money("360")
+
+    dividend = await client.post(
+        f"/investments/securities/{security['asset_id']}/dividends",
+        json={"gross_amount": "40", "tax_amount": "4", "date": "2026-02-01"},
+    )
+    dividend_id = dividend.json()["dividends"][0]["id"]
+    edited_dividend = await client.patch(
+        f"/investments/dividends/{dividend_id}",
+        json={"gross_amount": "50", "tax_amount": "0", "date": "2026-02-02"},
+    )
+    assert edited_dividend.status_code == 200, edited_dividend.text
+    assert money(edited_dividend.json()["net_dividends"]) == money("50")
+    transactions = (await client.get("/transactions", params={"page_size": 100})).json()["items"]
+    assert len(transactions) == 2
+    assert {row["purpose"] for row in transactions} == {"investment_trade", "dividend"}

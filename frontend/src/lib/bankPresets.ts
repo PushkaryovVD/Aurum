@@ -22,6 +22,11 @@ export interface ImportMapping {
   merchant: string;
   notes: string;
   category: string;
+  currency: string;
+  originalAmount: string;
+  originalCurrency: string;
+  exchangeRate: string;
+  externalId: string;
 }
 
 /** Matches a header cell by normalised prefix — see normalizeHeader(). A
@@ -78,6 +83,9 @@ export const BANK_PRESETS: readonly BankPreset[] = [
       amount: ["сумма платежа"],
       description: ["описание"],
       category: ["категория"],
+      currency: ["валюта платежа"],
+      originalAmount: ["сумма операции"],
+      originalCurrency: ["валюта операции"],
     },
     dateFormat: "DD.MM.YYYY",
     amountFormat: "comma-decimal",
@@ -94,6 +102,8 @@ export const BANK_PRESETS: readonly BankPreset[] = [
       date: ["дата і час операції"],
       amount: ["сума в валюті картки"],
       description: ["деталі операції"],
+      originalAmount: ["сума в валюті операції"],
+      originalCurrency: ["валюта"],
     },
     dateFormat: "DD.MM.YYYY",
     amountFormat: "dot-decimal",
@@ -110,6 +120,9 @@ export const BANK_PRESETS: readonly BankPreset[] = [
       amount: ["сума в валюті картки"],
       description: ["опис операції"],
       category: ["категорія"],
+      currency: ["валюта картки"],
+      originalAmount: ["сума в валюті транзакції"],
+      originalCurrency: ["валюта транзакції"],
     },
     dateFormat: "DD.MM.YYYY",
     amountFormat: "auto",

@@ -65,6 +65,11 @@ const HEADER_GUESSES: Record<keyof Mapping, string[]> = {
   merchant: ["merchant", "payee", "получатель"],
   notes: ["notes", "заметка", "примечание"],
   category: ["category", "категория"],
+  currency: ["currency", "валюта", "account currency", "валюта счета", "валюта счёта"],
+  originalAmount: ["original amount", "сумма операции", "исходная сумма"],
+  originalCurrency: ["original currency", "валюта операции", "исходная валюта"],
+  exchangeRate: ["exchange rate", "курс", "курс к kzt"],
+  externalId: ["transaction id", "operation id", "external id", "идентификатор операции", "id операции"],
 };
 
 function guessMapping(headerRow: string[]): Mapping {
@@ -76,6 +81,11 @@ function guessMapping(headerRow: string[]): Mapping {
     merchant: guess(HEADER_GUESSES.merchant),
     notes: guess(HEADER_GUESSES.notes),
     category: guess(HEADER_GUESSES.category),
+    currency: guess(HEADER_GUESSES.currency),
+    originalAmount: guess(HEADER_GUESSES.originalAmount),
+    originalCurrency: guess(HEADER_GUESSES.originalCurrency),
+    exchangeRate: guess(HEADER_GUESSES.exchangeRate),
+    externalId: guess(HEADER_GUESSES.externalId),
   };
 }
 
@@ -113,7 +123,10 @@ export function CsvImportPage() {
   const [fileBuffer, setFileBuffer] = useState<ArrayBuffer | null>(null);
   const [encoding, setEncoding] = useState<Encoding>("utf-8");
   const [presetChoice, setPresetChoice] = useState<string>(PRESET_AUTO);
-  const [mapping, setMapping] = useState<Mapping>({ date: "", amount: "", description: "", merchant: "", notes: "", category: "" });
+  const [mapping, setMapping] = useState<Mapping>({
+    date: "", amount: "", description: "", merchant: "", notes: "", category: "",
+    currency: "", originalAmount: "", originalCurrency: "", exchangeRate: "", externalId: "",
+  });
   const [dateFormat, setDateFormat] = useState<DateFormat>("YYYY-MM-DD");
   const [amountFormat, setAmountFormat] = useState<AmountFormat>("auto");
   const [includeDuplicates, setIncludeDuplicates] = useState(false);
@@ -224,6 +237,11 @@ export function CsvImportPage() {
     return keys;
   }, [existingTransactions.data]);
 
+  const existingExternalIds = useMemo(
+    () => new Set((existingTransactions.data ?? []).map((tx) => tx.external_id).filter((id): id is string => Boolean(id))),
+    [existingTransactions.data]
+  );
+
   const { valid, skipped, duplicateCount } = useMemo(() => {
     if (step !== "preview") return { valid: [] as TransactionInput[], skipped: [] as SkippedRow[], duplicateCount: 0 };
 
@@ -233,10 +251,18 @@ export function CsvImportPage() {
     const merchantIdx = mapping.merchant ? headers.indexOf(mapping.merchant) : -1;
     const notesIdx = mapping.notes ? headers.indexOf(mapping.notes) : -1;
     const categoryIdx = mapping.category ? headers.indexOf(mapping.category) : -1;
+    const currencyIdx = mapping.currency ? headers.indexOf(mapping.currency) : -1;
+    const originalAmountIdx = mapping.originalAmount ? headers.indexOf(mapping.originalAmount) : -1;
+    const originalCurrencyIdx = mapping.originalCurrency ? headers.indexOf(mapping.originalCurrency) : -1;
+    const exchangeRateIdx = mapping.exchangeRate ? headers.indexOf(mapping.exchangeRate) : -1;
+    const externalIdIdx = mapping.externalId ? headers.indexOf(mapping.externalId) : -1;
+    const selectedAccount = accounts?.find((account) => account.id === Number(accountId));
 
     const freshRows: TransactionInput[] = [];
     const duplicateRows: TransactionInput[] = [];
     const skippedRows: SkippedRow[] = [];
+    const seenExternalIds = new Set(existingExternalIds);
+    const seenCompositeKeys = new Set(existingKeys);
 
     dataRows.forEach((cells, index) => {
       const rowNumber = index + 2; // header is row 1
@@ -246,6 +272,11 @@ export function CsvImportPage() {
       const rawMerchant = merchantIdx >= 0 ? (cells[merchantIdx] ?? "").trim() : "";
       const rawNotes = notesIdx >= 0 ? (cells[notesIdx] ?? "").trim() : "";
       const rawCategory = categoryIdx >= 0 ? (cells[categoryIdx] ?? "").trim() : "";
+      const rawCurrency = currencyIdx >= 0 ? (cells[currencyIdx] ?? "").trim().toUpperCase() : "";
+      const rawOriginalAmount = originalAmountIdx >= 0 ? (cells[originalAmountIdx] ?? "").trim() : "";
+      const rawOriginalCurrency = originalCurrencyIdx >= 0 ? (cells[originalCurrencyIdx] ?? "").trim().toUpperCase() : "";
+      const rawExchangeRate = exchangeRateIdx >= 0 ? (cells[exchangeRateIdx] ?? "").trim() : "";
+      const rawExternalId = externalIdIdx >= 0 ? (cells[externalIdIdx] ?? "").trim() : "";
 
       // Bank-profile row filter first (e.g. T-Bank's "Статус" = FAILED):
       // a declined payment parses perfectly well as a date + amount, and
@@ -264,6 +295,16 @@ export function CsvImportPage() {
       const amount = parseAmount(rawAmount, amountFormat);
       if (amount === null || amount === 0) {
         skippedRows.push({ row: rowNumber, reason: t("transactions.import.errorBadAmount", { value: rawAmount || "—" }) });
+        return;
+      }
+      if (rawCurrency && selectedAccount && rawCurrency !== selectedAccount.currency.toUpperCase()) {
+        skippedRows.push({ row: rowNumber, reason: t("transactions.import.errorCurrencyMismatch", { value: rawCurrency }) });
+        return;
+      }
+      const originalAmount = rawOriginalAmount ? parseAmount(rawOriginalAmount, amountFormat) : null;
+      const exchangeRate = rawExchangeRate ? parseAmount(rawExchangeRate, amountFormat) : null;
+      if ((rawOriginalAmount || rawOriginalCurrency) && (!originalAmount || !rawOriginalCurrency)) {
+        skippedRows.push({ row: rowNumber, reason: t("transactions.import.errorOriginalCurrencyIncomplete") });
         return;
       }
       const description = rawDescription || rawMerchant;
@@ -285,13 +326,21 @@ export function CsvImportPage() {
         merchant: rawMerchant || null,
         notes: rawNotes || null,
         date: isoDate,
+        exchange_rate_to_kzt: exchangeRate ? Math.abs(exchangeRate).toString() : null,
+        exchange_rate_source: exchangeRate ? "csv" : null,
+        original_amount: originalAmount ? Math.abs(originalAmount).toFixed(2) : null,
+        original_currency: originalAmount ? rawOriginalCurrency : null,
+        original_to_account_rate: originalAmount ? (Math.abs(amount) / Math.abs(originalAmount)).toString() : null,
+        external_id: rawExternalId || null,
       };
 
       const key = transactionDedupeKey(candidate.date, candidate.type, candidate.amount, candidate.description);
-      if (existingKeys.has(key)) {
+      if ((candidate.external_id && seenExternalIds.has(candidate.external_id)) || seenCompositeKeys.has(key)) {
         duplicateRows.push(candidate);
       } else {
         freshRows.push(candidate);
+        if (candidate.external_id) seenExternalIds.add(candidate.external_id);
+        seenCompositeKeys.add(key);
       }
     });
 
@@ -301,7 +350,7 @@ export function CsvImportPage() {
       duplicateCount: duplicateRows.length,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, headers, dataRows, mapping, dateFormat, amountFormat, categoryLookup, accountId, existingKeys, includeDuplicates, activePreset, t]);
+  }, [step, headers, dataRows, mapping, dateFormat, amountFormat, categoryLookup, accountId, accounts, existingKeys, existingExternalIds, includeDuplicates, activePreset, t]);
 
   async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -361,6 +410,17 @@ export function CsvImportPage() {
   }
 
   const mappingComplete = Boolean(mapping.date && mapping.amount && mapping.description);
+
+  const optionalMappingSelect = (id: string, label: string, field: keyof Mapping) => (
+    <div>
+      <Label htmlFor={id}>{label}</Label>
+      <Select id={id} value={mapping[field]} onChange={(event) => setMapping((prev) => ({ ...prev, [field]: event.target.value }))}>
+        <option value={NONE}>{t("transactions.import.notMapped")}</option>
+        {headers.map((header) => <option key={header} value={header}>{header}</option>)}
+      </Select>
+      {mapping[field] && <p className="mt-1 text-xs text-text-muted">{t("transactions.import.sampleValueLabel", { value: sampleValue(mapping[field]) || "—" })}</p>}
+    </div>
+  );
 
   // Same control on the upload and map steps: picking the bank up front is
   // the "I know what this file is" path, changing it on the map step is the
@@ -476,6 +536,11 @@ export function CsvImportPage() {
                   </p>
                 )}
               </div>
+              {optionalMappingSelect("map-currency", t("transactions.import.currencyColumnLabel"), "currency")}
+              {optionalMappingSelect("map-original-amount", t("transactions.import.originalAmountColumnLabel"), "originalAmount")}
+              {optionalMappingSelect("map-original-currency", t("transactions.import.originalCurrencyColumnLabel"), "originalCurrency")}
+              {optionalMappingSelect("map-exchange-rate", t("transactions.import.exchangeRateColumnLabel"), "exchangeRate")}
+              {optionalMappingSelect("map-external-id", t("transactions.import.externalIdColumnLabel"), "externalId")}
               <div>
                 <Label htmlFor="map-date-format">{t("transactions.import.dateFormatLabel")}</Label>
                 <Select id="map-date-format" value={dateFormat} onChange={(event) => setDateFormat(event.target.value as DateFormat)}>

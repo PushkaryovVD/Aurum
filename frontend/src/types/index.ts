@@ -6,6 +6,14 @@ export type TransactionPurpose = "ordinary" | "investment_trade" | "dividend" | 
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 export type SecurityTradeType = "buy" | "sell";
 
+export interface ExchangeRate {
+  requested_date: string;
+  effective_date: string;
+  currency: string;
+  rate_to_kzt: string;
+  source: string;
+}
+
 export interface InvestmentPortfolio { id: number; name: string; account_id: number; is_archived: boolean }
 export interface SecurityTrade { id: number; type: SecurityTradeType; quantity: string; price_per_unit: string; fee: string; date: string; exchange_rate_to_kzt: string; external_id: string | null }
 export interface SecurityDividend { id: number; gross_amount: string; tax_amount: string; net_amount: string; date: string; exchange_rate_to_kzt: string; external_id: string | null }

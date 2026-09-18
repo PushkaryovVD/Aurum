@@ -115,6 +115,10 @@ not explain it, which makes the amount and rate fields look incomplete.
   hard-coded universal rule. Label it an estimate, retain supporting source
   rows and require legal verification against the rules effective for the tax
   year before release.
+- Keep management P&L (the existing weighted-average method) separate from tax
+  P&L. Build a tax-lot ledger that can apply the legally required disposal
+  order for the selected tax year, include eligible acquisition commissions
+  in initial cost and reproduce every lot used by the estimate.
 - Export a reconciliation report: opening cash + imported movements = closing
   cash, and opening position + trades/actions = closing position.
 - This milestone requires a representative redacted XLSX fixture.

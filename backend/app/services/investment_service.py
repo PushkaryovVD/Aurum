@@ -128,6 +128,26 @@ def _cash_transaction(
     )
 
 
+def _update_cash_transaction(
+    row: Transaction,
+    tx_type: TransactionType,
+    amount: Decimal,
+    event_date,
+    description: str,
+    purpose: TransactionPurpose,
+    rate: Decimal,
+) -> None:
+    rounded = amount.quantize(Decimal("0.01"))
+    row.type = tx_type
+    row.amount = rounded
+    row.exchange_rate_to_kzt = rate
+    row.base_amount_kzt = (rounded * rate).quantize(Decimal("0.01"))
+    row.exchange_rate_source = ExchangeRateSource.MANUAL
+    row.purpose = purpose
+    row.description = description
+    row.date = event_date
+
+
 async def list_portfolios(session: AsyncSession) -> list[InvestmentPortfolioRead]:
     rows = (await session.execute(select(InvestmentPortfolio).order_by(InvestmentPortfolio.id))).scalars().all()
     return [InvestmentPortfolioRead.model_validate(row) for row in rows]
@@ -353,6 +373,61 @@ async def delete_trade(session: AsyncSession, trade_id: int) -> SecurityPosition
     return _to_position(await _security(session, asset_id))
 
 
+async def update_trade(session: AsyncSession, trade_id: int, payload: SecurityTradeCreate) -> SecurityPositionRead:
+    trade = await session.get(SecurityTrade, trade_id)
+    if trade is None:
+        raise HTTPException(404, "Trade not found")
+    asset_id = trade.asset_id
+    security = await _security(session, asset_id)
+    if payload.external_id:
+        duplicate = await session.scalar(
+            select(SecurityTrade.id).where(
+                SecurityTrade.asset_id == asset_id,
+                SecurityTrade.external_id == payload.external_id,
+                SecurityTrade.id != trade.id,
+            )
+        )
+        if duplicate:
+            raise HTTPException(409, "Trade external_id already imported")
+    rate = await _rate(session, payload.date, security.currency, payload.exchange_rate_to_kzt)
+    trade.type = payload.type
+    trade.quantity = payload.quantity
+    trade.price_per_unit = payload.price_per_unit
+    trade.fee = payload.fee
+    trade.date = payload.date
+    trade.exchange_rate_to_kzt = rate
+    trade.external_id = payload.external_id
+    cash = await session.get(Transaction, trade.cash_transaction_id)
+    _update_cash_transaction(
+        cash,
+        TransactionType.EXPENSE if payload.type == SecurityTradeType.BUY else TransactionType.INCOME,
+        payload.quantity * payload.price_per_unit,
+        payload.date,
+        f"{payload.type.value.upper()} {security.ticker}",
+        TransactionPurpose.INVESTMENT_TRADE,
+        rate,
+    )
+    fee_tx = await session.get(Transaction, trade.fee_transaction_id) if trade.fee_transaction_id else None
+    if payload.fee:
+        if fee_tx is None:
+            fee_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate)
+            session.add(fee_tx)
+            await session.flush()
+            trade.fee_transaction_id = fee_tx.id
+        else:
+            _update_cash_transaction(fee_tx, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate)
+    elif fee_tx is not None:
+        trade.fee_transaction_id = None
+        await session.flush()
+        await session.delete(fee_tx)
+    await session.flush()
+    session.expire_all()
+    _position_values(await _security(session, asset_id))
+    await session.commit()
+    session.expire_all()
+    return _to_position(await _security(session, asset_id))
+
+
 async def delete_dividend(session: AsyncSession, dividend_id: int) -> SecurityPositionRead:
     dividend = await session.get(SecurityDividend, dividend_id)
     if dividend is None:
@@ -366,6 +441,38 @@ async def delete_dividend(session: AsyncSession, dividend_id: int) -> SecurityPo
             row = await session.get(Transaction, transaction_id)
             if row is not None:
                 await session.delete(row)
+    await session.commit()
+    session.expire_all()
+    return _to_position(await _security(session, asset_id))
+
+
+async def update_dividend(session: AsyncSession, dividend_id: int, payload: SecurityDividendCreate) -> SecurityPositionRead:
+    dividend = await session.get(SecurityDividend, dividend_id)
+    if dividend is None:
+        raise HTTPException(404, "Dividend not found")
+    asset_id = dividend.asset_id
+    security = await _security(session, asset_id)
+    rate = await _rate(session, payload.date, security.currency, payload.exchange_rate_to_kzt)
+    dividend.gross_amount = payload.gross_amount
+    dividend.tax_amount = payload.tax_amount
+    dividend.date = payload.date
+    dividend.exchange_rate_to_kzt = rate
+    dividend.external_id = payload.external_id
+    income = await session.get(Transaction, dividend.income_transaction_id)
+    _update_cash_transaction(income, TransactionType.INCOME, payload.gross_amount, payload.date, f"Dividend: {security.ticker}", TransactionPurpose.DIVIDEND, rate)
+    tax_tx = await session.get(Transaction, dividend.tax_transaction_id) if dividend.tax_transaction_id else None
+    if payload.tax_amount:
+        if tax_tx is None:
+            tax_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate)
+            session.add(tax_tx)
+            await session.flush()
+            dividend.tax_transaction_id = tax_tx.id
+        else:
+            _update_cash_transaction(tax_tx, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate)
+    elif tax_tx is not None:
+        dividend.tax_transaction_id = None
+        await session.flush()
+        await session.delete(tax_tx)
     await session.commit()
     session.expire_all()
     return _to_position(await _security(session, asset_id))

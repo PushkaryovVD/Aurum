@@ -8,7 +8,7 @@ from app.models.enums import AccountType
 class AccountBase(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     type: AccountType = AccountType.CHECKING
-    currency: str = Field(default="USD", min_length=3, max_length=3)
+    currency: str = Field(default="KZT", min_length=3, max_length=3)
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 

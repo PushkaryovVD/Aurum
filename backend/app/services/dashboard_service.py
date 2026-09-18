@@ -7,9 +7,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import TransactionType
+from app.models.account import Account
 from app.models.transaction import Transaction
 from app.schemas.dashboard import CategoryBreakdownChildItem, CategoryBreakdownItem, DashboardSummary
 from app.services.category_rollup import rollup_spending_by_top_level_category
+from app.services.currency import transaction_amount_kzt
 
 # Categorical slots are capped at 8 (dataviz skill: a 9th series folds into "Other",
 # never a generated hue) — this is also the exact size of the default category set.
@@ -26,7 +28,8 @@ async def get_dashboard_summary(session: AsyncSession, year: int, month: int) ->
     start, end = _month_bounds(year, month)
 
     totals_stmt = (
-        select(Transaction.type, func.coalesce(func.sum(Transaction.amount), 0))
+        select(Transaction.type, func.coalesce(func.sum(transaction_amount_kzt()), 0))
+        .join(Account, Account.id == Transaction.account_id)
         .where(Transaction.date >= start, Transaction.date <= end)
         .group_by(Transaction.type)
     )

@@ -22,6 +22,8 @@ async def test_debit_card_is_a_liquid_account_type(client: AsyncClient, categori
             debit_card["id"],
             type="income",
             amount="1000.00",
+            exchange_rate_to_kzt="1",
+            exchange_rate_source="manual",
             category_id=categories["Salary"]["id"],
             date=date.today().isoformat(),
         ),

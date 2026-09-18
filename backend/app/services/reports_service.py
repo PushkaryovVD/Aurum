@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
+from app.models.account import Account
 from app.models.enums import CategoryKind, TransactionType
 from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.reports import (
@@ -23,6 +24,7 @@ from app.schemas.reports import (
     CategorySpendingReport,
 )
 from app.services.category_rollup import rollup_spending_by_top_level_category
+from app.services.currency import split_amount_kzt, transaction_amount_kzt
 
 
 def _next_month(year: int, month: int) -> tuple[int, int]:
@@ -49,12 +51,15 @@ async def get_category_spending_report(
     # Plain transactions filed directly under one of these categories, plus
     # split lines that assign part of a transaction to one of them — same
     # two sources category_rollup.py unions for the Dashboard/ranking report.
-    plain_stmt = select(Transaction.id, Transaction.date, Transaction.amount).where(
-        Transaction.category_id.in_(category_ids)
+    plain_stmt = (
+        select(Transaction.id, Transaction.date, transaction_amount_kzt())
+        .join(Account, Account.id == Transaction.account_id)
+        .where(Transaction.category_id.in_(category_ids))
     )
     split_stmt = (
-        select(TransactionSplit.transaction_id, Transaction.date, TransactionSplit.amount)
+        select(TransactionSplit.transaction_id, Transaction.date, split_amount_kzt())
         .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
+        .join(Account, Account.id == Transaction.account_id)
         .where(TransactionSplit.category_id.in_(category_ids))
     )
     if start_date:
@@ -66,7 +71,9 @@ async def get_category_spending_report(
 
     plain_rows = (await session.execute(plain_stmt)).all()
     split_rows = (await session.execute(split_stmt)).all()
-    contributions = [(r[0], r[1], r[2]) for r in plain_rows] + [(r[0], r[1], r[2]) for r in split_rows]
+    contributions = [(r[0], r[1], r[2]) for r in plain_rows if r[2] is not None] + [
+        (r[0], r[1], r[2]) for r in split_rows if r[2] is not None
+    ]
 
     empty = CategorySpendingReport(
         category_id=category.id,

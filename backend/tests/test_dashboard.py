@@ -48,7 +48,14 @@ async def test_transfers_are_excluded_from_income_and_spent(client: AsyncClient,
     other_id = other.json()["id"]
     await client.post(
         "/transactions",
-        json=_txn(account_id, type="transfer", amount="500.00", transfer_account_id=other_id, date="2026-08-05"),
+        json=_txn(
+            account_id,
+            type="transfer",
+            amount="500.00",
+            transfer_amount="1.00",
+            transfer_account_id=other_id,
+            date="2026-08-05",
+        ),
     )
     await client.post(
         "/transactions",

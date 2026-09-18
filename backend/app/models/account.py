@@ -17,7 +17,7 @@ class Account(Base, TimestampMixin):
         nullable=False,
         default=AccountType.CHECKING,
     )
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="KZT")
     # Hex color used for account-scoped UI accents (e.g. transaction list avatars).
     color: Mapped[str | None] = mapped_column(String(7), nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

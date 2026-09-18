@@ -11,8 +11,10 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import TransactionType
+from app.models.account import Account
 from app.models.transaction import Transaction
 from app.schemas.cash_flow import CashFlowPoint, CashFlowResponse
+from app.services.currency import transaction_amount_kzt
 
 
 def _next_month(year: int, month: int) -> tuple[int, int]:
@@ -50,8 +52,9 @@ async def get_cash_flow(
             extract("year", Transaction.date).label("year"),
             extract("month", Transaction.date).label("month"),
             Transaction.type,
-            func.sum(Transaction.amount).label("amount"),
+            func.sum(transaction_amount_kzt()).label("amount"),
         )
+        .join(Account, Account.id == Transaction.account_id)
         .where(
             Transaction.type != TransactionType.TRANSFER,
             Transaction.date >= effective_start,

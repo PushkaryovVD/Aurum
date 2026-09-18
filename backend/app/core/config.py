@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
 
     # Default currency shown across the UI when an account doesn't override it
-    default_currency: str = "USD"
+    default_currency: str = "KZT"
 
     # Comma-separated list of browser origins allowed to call the API. Empty
     # by default, which allows none: the shipped compose serves the UI and the

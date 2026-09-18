@@ -21,8 +21,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
+from app.models.account import Account
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction, TransactionSplit
+from app.services.currency import split_amount_kzt, transaction_amount_kzt
 
 
 @dataclass
@@ -73,12 +75,15 @@ async def _raw_category_contributions(
     per split line — never both for the same transaction, since a
     transaction is either plain (category_id set, no splits) or split
     (category_id NULL, 2+ splits), enforced at write time."""
-    plain_stmt = select(Transaction.id, Transaction.category_id, Transaction.amount).where(
-        Transaction.type == transaction_type, Transaction.category_id.is_not(None)
+    plain_stmt = (
+        select(Transaction.id, Transaction.category_id, transaction_amount_kzt())
+        .join(Account, Account.id == Transaction.account_id)
+        .where(Transaction.type == transaction_type, Transaction.category_id.is_not(None))
     )
     split_stmt = (
-        select(TransactionSplit.transaction_id, TransactionSplit.category_id, TransactionSplit.amount)
+        select(TransactionSplit.transaction_id, TransactionSplit.category_id, split_amount_kzt())
         .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
+        .join(Account, Account.id == Transaction.account_id)
         .where(Transaction.type == transaction_type, TransactionSplit.category_id.is_not(None))
     )
     if start_date is not None:
@@ -90,7 +95,9 @@ async def _raw_category_contributions(
 
     plain_rows = (await session.execute(plain_stmt)).all()
     split_rows = (await session.execute(split_stmt)).all()
-    return [(r[0], r[1], r[2]) for r in plain_rows] + [(r[0], r[1], r[2]) for r in split_rows]
+    return [(r[0], r[1], r[2]) for r in plain_rows if r[2] is not None] + [
+        (r[0], r[1], r[2]) for r in split_rows if r[2] is not None
+    ]
 
 
 async def rollup_spending_by_top_level_category(

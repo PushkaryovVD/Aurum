@@ -34,7 +34,14 @@ async def test_transfers_are_excluded_from_totals(client: AsyncClient, account_i
     other_id = other.json()["id"]
     await client.post(
         "/transactions",
-        json=txn_payload(account_id, type="transfer", amount="500.00", transfer_account_id=other_id, date="2022-03-01"),
+        json=txn_payload(
+            account_id,
+            type="transfer",
+            amount="500.00",
+            transfer_amount="1.00",
+            transfer_account_id=other_id,
+            date="2022-03-01",
+        ),
     )
 
     resp = await client.get("/cash-flow", params={"start_date": "2022-01-01", "end_date": "2022-12-31"})

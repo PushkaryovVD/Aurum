@@ -13,10 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.budget import Budget
+from app.models.account import Account
 from app.models.category import Category
 from app.models.enums import CategoryKind, TransactionType
 from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.budget import BudgetCreate, BudgetStatus, BudgetStatusResponse, BudgetUpdate
+from app.services.currency import split_amount_kzt, transaction_amount_kzt
 
 _EAGER = (selectinload(Budget.category),)
 
@@ -97,7 +99,8 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
     # sum on Transaction.category_id alone would silently under-count a
     # budget funded partly by split purchases.
     plain_stmt = (
-        select(Transaction.category_id, func.coalesce(func.sum(Transaction.amount), 0))
+        select(Transaction.category_id, func.coalesce(func.sum(transaction_amount_kzt()), 0))
+        .join(Account, Account.id == Transaction.account_id)
         .where(
             Transaction.category_id.in_(counted_ids),
             Transaction.type == TransactionType.EXPENSE,
@@ -107,8 +110,9 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
         .group_by(Transaction.category_id)
     )
     split_stmt = (
-        select(TransactionSplit.category_id, func.coalesce(func.sum(TransactionSplit.amount), 0))
+        select(TransactionSplit.category_id, func.coalesce(func.sum(split_amount_kzt()), 0))
         .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
+        .join(Account, Account.id == Transaction.account_id)
         .where(
             TransactionSplit.category_id.in_(counted_ids),
             Transaction.type == TransactionType.EXPENSE,

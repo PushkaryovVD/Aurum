@@ -28,6 +28,11 @@ const EMPTY_FORM = {
   category_id: "",
   transfer_account_id: "",
   amount: "",
+  exchange_rate_to_kzt: "",
+  original_amount: "",
+  original_currency: "",
+  original_to_account_rate: "",
+  transfer_amount: "",
   description: "",
   merchant: "",
   notes: "",
@@ -99,6 +104,11 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             : "",
         transfer_account_id: transaction.transfer_account_id ? String(transaction.transfer_account_id) : "",
         amount: transaction.amount,
+        exchange_rate_to_kzt: transaction.exchange_rate_to_kzt ?? "",
+        original_amount: transaction.original_amount ?? "",
+        original_currency: transaction.original_currency ?? "",
+        original_to_account_rate: transaction.original_to_account_rate ?? "",
+        transfer_amount: transaction.transfer_amount ?? "",
         description: transaction.description,
         merchant: transaction.merchant ?? "",
         notes: transaction.notes ?? "",
@@ -240,6 +250,12 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             : null,
       transfer_account_id: form.type === "transfer" ? Number(form.transfer_account_id) : null,
       amount: form.amount,
+      exchange_rate_to_kzt: form.exchange_rate_to_kzt || null,
+      exchange_rate_source: form.exchange_rate_to_kzt ? "manual" : null,
+      original_amount: form.original_amount || null,
+      original_currency: form.original_currency || null,
+      original_to_account_rate: form.original_to_account_rate || null,
+      transfer_amount: form.type === "transfer" ? form.transfer_amount || null : null,
       description: form.description,
       merchant: form.merchant || null,
       notes: form.notes || null,
@@ -308,6 +324,67 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             />
           </div>
         </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="exchange_rate_to_kzt">{t("transactions.form.exchangeRateLabel")}</Label>
+            <Input
+              id="exchange_rate_to_kzt"
+              type="number"
+              step="0.0000000001"
+              min="0"
+              placeholder={t("transactions.form.exchangeRatePlaceholder")}
+              value={form.exchange_rate_to_kzt}
+              onChange={(event) => setForm((prev) => ({ ...prev, exchange_rate_to_kzt: event.target.value }))}
+            />
+          </div>
+          {form.type === "transfer" && (
+            <div>
+              <Label htmlFor="transfer_amount">{t("transactions.form.transferAmountLabel")}</Label>
+              <Input
+                id="transfer_amount"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder={t("transactions.form.transferAmountPlaceholder")}
+                value={form.transfer_amount}
+                onChange={(event) => setForm((prev) => ({ ...prev, transfer_amount: event.target.value }))}
+              />
+            </div>
+          )}
+        </div>
+
+        {form.type !== "transfer" && (
+          <details className="rounded-lg border border-border p-3">
+            <summary className="cursor-pointer text-sm text-text-secondary">
+              {t("transactions.form.originalCurrencyDetails")}
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder={t("transactions.form.originalAmountLabel")}
+                value={form.original_amount}
+                onChange={(event) => setForm((prev) => ({ ...prev, original_amount: event.target.value }))}
+              />
+              <Input
+                maxLength={3}
+                placeholder={t("transactions.form.originalCurrencyLabel")}
+                value={form.original_currency}
+                onChange={(event) => setForm((prev) => ({ ...prev, original_currency: event.target.value.toUpperCase() }))}
+              />
+              <Input
+                type="number"
+                step="0.0000000001"
+                min="0"
+                placeholder={t("transactions.form.originalRateLabel")}
+                value={form.original_to_account_rate}
+                onChange={(event) => setForm((prev) => ({ ...prev, original_to_account_rate: event.target.value }))}
+              />
+            </div>
+          </details>
+        )}
 
         <div>
           <Label htmlFor="description">{t("transactions.form.descriptionLabel")}</Label>

@@ -60,6 +60,8 @@ class AssetValuation(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), nullable=False)
     value: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
+    exchange_rate_to_kzt: Mapped[Numeric | None] = mapped_column(Numeric(20, 10), nullable=True)
+    base_value_kzt: Mapped[Numeric | None] = mapped_column(Numeric(18, 2), nullable=True)
     as_of_date: Mapped[date_] = mapped_column(Date, nullable=False)
 
     asset: Mapped["Asset"] = relationship(back_populates="valuations")

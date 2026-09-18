@@ -98,24 +98,36 @@ def _daily_series(events: list[tuple[date_, Decimal]], start: date_, end: date_)
 
 
 async def _cash_cumulative_events(session: AsyncSession) -> list[tuple[date_, Decimal]]:
-    accounts_result = await session.execute(select(Account.id, Account.type))
-    cash_account_ids = {acc_id for acc_id, acc_type in accounts_result.all() if acc_type in CASH_ACCOUNT_TYPES}
+    accounts_result = await session.execute(select(Account.id, Account.type, Account.currency))
+    account_rows = accounts_result.all()
+    cash_account_ids = {acc_id for acc_id, acc_type, _ in account_rows if acc_type in CASH_ACCOUNT_TYPES}
+    currencies = {acc_id: currency.upper() for acc_id, _, currency in account_rows}
 
     txns_result = await session.execute(
-        select(Transaction.date, Transaction.type, Transaction.amount, Transaction.account_id, Transaction.transfer_account_id)
+        select(
+            Transaction.date,
+            Transaction.type,
+            Transaction.amount,
+            Transaction.base_amount_kzt,
+            Transaction.account_id,
+            Transaction.transfer_account_id,
+        )
     )
 
     delta_by_date: dict[date_, Decimal] = defaultdict(Decimal)
-    for tx_date, tx_type, amount, account_id, transfer_account_id in txns_result.all():
+    for tx_date, tx_type, amount, base_amount, account_id, transfer_account_id in txns_result.all():
+        converted = base_amount if base_amount is not None else (amount if currencies.get(account_id) == "KZT" else None)
+        if converted is None:
+            continue
         if tx_type == TransactionType.INCOME and account_id in cash_account_ids:
-            delta_by_date[tx_date] += amount
+            delta_by_date[tx_date] += converted
         elif tx_type == TransactionType.EXPENSE and account_id in cash_account_ids:
-            delta_by_date[tx_date] -= amount
+            delta_by_date[tx_date] -= converted
         elif tx_type == TransactionType.TRANSFER:
             if account_id in cash_account_ids:
-                delta_by_date[tx_date] -= amount
+                delta_by_date[tx_date] -= converted
             if transfer_account_id in cash_account_ids:
-                delta_by_date[tx_date] += amount
+                delta_by_date[tx_date] += converted
 
     events: list[tuple[date_, Decimal]] = []
     running = Decimal("0")
@@ -128,11 +140,18 @@ async def _cash_cumulative_events(session: AsyncSession) -> list[tuple[date_, De
 async def _asset_events_and_class_totals(
     session: AsyncSession,
 ) -> tuple[list[tuple[date_, Decimal]], dict[AssetClass, Decimal], dict[int, Decimal]]:
-    asset_class_result = await session.execute(select(Asset.id, Asset.asset_class))
-    asset_class_map = dict(asset_class_result.all())
+    asset_class_result = await session.execute(select(Asset.id, Asset.asset_class, Asset.currency))
+    asset_rows = asset_class_result.all()
+    asset_class_map = {asset_id: asset_class for asset_id, asset_class, _ in asset_rows}
+    asset_currency_map = {asset_id: currency.upper() for asset_id, _, currency in asset_rows}
 
     valuations_result = await session.execute(
-        select(AssetValuation.asset_id, AssetValuation.as_of_date, AssetValuation.value).order_by(
+        select(
+            AssetValuation.asset_id,
+            AssetValuation.as_of_date,
+            AssetValuation.value,
+            AssetValuation.base_value_kzt,
+        ).order_by(
             AssetValuation.as_of_date
         )
     )
@@ -141,8 +160,10 @@ async def _asset_events_and_class_totals(
     current_by_asset: dict[int, Decimal] = {}
     events: list[tuple[date_, Decimal]] = []
     for day, group in groupby(rows, key=lambda row: row[1]):
-        for asset_id, _, value in group:
-            current_by_asset[asset_id] = value
+        for asset_id, _, value, base_value in group:
+            converted = base_value if base_value is not None else (value if asset_currency_map.get(asset_id) == "KZT" else None)
+            if converted is not None:
+                current_by_asset[asset_id] = converted
         events.append((day, sum(current_by_asset.values(), Decimal("0"))))
 
     class_totals: dict[AssetClass, Decimal] = defaultdict(Decimal)

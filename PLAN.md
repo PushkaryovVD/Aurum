@@ -7,7 +7,7 @@ branches. A branch updates this checklist before it is merged.
 ## Delivery order
 
 - [ ] `fix/basic-auth` — native browser Basic Auth for the whole site
-- [ ] `feature/multicurrency` — KZT reporting currency and NBK/manual rates
+- [x] `feature/multicurrency` — KZT reporting currency and NBK/manual rates
 - [ ] `feature/bank-import` — currency-aware generic bank CSV import
 - [ ] `feature/investments` — manual securities, trades and dividends
 - [ ] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
@@ -62,6 +62,7 @@ branches. A branch updates this checklist before it is merged.
   mapping, preview and atomic import stages.
 - Report unknown sheet rows explicitly and make repeat imports idempotent.
 - This milestone requires a representative redacted XLSX fixture.
+- documentation about this https://tradernet.global/tradernet-api/auth-login
 
 ## Compatibility and quality gates
 

@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_session
 from app.models.asset import Asset, AssetValuation
 from app.schemas.asset import AssetCreate, AssetRead, AssetUpdate, AssetValuationCreate, AssetValuationRead
+from app.services.exchange_rate_service import get_exchange_rate
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -25,6 +26,7 @@ def _to_read(asset: Asset) -> AssetRead:
         monthly_cash_flow=asset.monthly_cash_flow,
         risk_level=asset.risk_level,
         current_value=latest.value if latest else 0,
+        current_base_value_kzt=latest.base_value_kzt if latest else 0,
         as_of_date=latest.as_of_date if latest else asset.created_at.date(),
     )
 
@@ -48,7 +50,18 @@ async def create_asset(payload: AssetCreate, session: AsyncSession = Depends(get
     )
     session.add(asset)
     await session.flush()
-    session.add(AssetValuation(asset_id=asset.id, value=payload.value, as_of_date=payload.as_of_date))
+    rate = payload.exchange_rate_to_kzt
+    if rate is None:
+        rate = (await get_exchange_rate(session, payload.as_of_date, payload.currency)).rate_to_kzt
+    session.add(
+        AssetValuation(
+            asset_id=asset.id,
+            value=payload.value,
+            as_of_date=payload.as_of_date,
+            exchange_rate_to_kzt=rate,
+            base_value_kzt=payload.value * rate,
+        )
+    )
     await session.commit()
 
     refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
@@ -79,12 +92,25 @@ async def add_asset_valuation(
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
+    rate = payload.exchange_rate_to_kzt
+    if rate is None:
+        rate = (await get_exchange_rate(session, payload.as_of_date, asset.currency)).rate_to_kzt
     upsert_stmt = (
         pg_insert(AssetValuation)
-        .values(asset_id=asset_id, value=payload.value, as_of_date=payload.as_of_date)
+        .values(
+            asset_id=asset_id,
+            value=payload.value,
+            as_of_date=payload.as_of_date,
+            exchange_rate_to_kzt=rate,
+            base_value_kzt=payload.value * rate,
+        )
         .on_conflict_do_update(
             index_elements=[AssetValuation.asset_id, AssetValuation.as_of_date],
-            set_={"value": payload.value},
+            set_={
+                "value": payload.value,
+                "exchange_rate_to_kzt": rate,
+                "base_value_kzt": payload.value * rate,
+            },
         )
     )
     await session.execute(upsert_stmt)

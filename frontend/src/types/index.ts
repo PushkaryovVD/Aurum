@@ -4,6 +4,18 @@ export type TransactionType = "income" | "expense" | "transfer";
 export type ExchangeRateSource = "nbk" | "manual" | "csv";
 export type TransactionPurpose = "ordinary" | "investment_trade" | "dividend" | "fee" | "tax";
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
+export type SecurityTradeType = "buy" | "sell";
+
+export interface InvestmentPortfolio { id: number; name: string; account_id: number; is_archived: boolean }
+export interface SecurityTrade { id: number; type: SecurityTradeType; quantity: string; price_per_unit: string; fee: string; date: string; exchange_rate_to_kzt: string; external_id: string | null }
+export interface SecurityDividend { id: number; gross_amount: string; tax_amount: string; net_amount: string; date: string; exchange_rate_to_kzt: string; external_id: string | null }
+export interface SecurityPosition {
+  asset_id: number; portfolio_id: number; name: string; ticker: string; isin: string | null;
+  exchange: string | null; currency: string; quantity: string; average_cost: string | null;
+  cost_basis: string; current_price: string | null; current_value: string | null;
+  realized_profit: string; unrealized_profit: string | null; net_dividends: string; total_return: string;
+  trades: SecurityTrade[]; dividends: SecurityDividend[];
+}
 
 export interface Account {
   id: number;

@@ -13,6 +13,7 @@ import {
   Tags,
   Target,
   TrendingUp,
+  Landmark,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ export const NAV_ITEMS: NavItem[] = [
   { labelKey: "nav.dashboard", to: "/", icon: LayoutDashboard },
   { labelKey: "nav.netWorth", to: "/net-worth", icon: TrendingUp },
   { labelKey: "nav.crypto", to: "/crypto", icon: Coins },
+  { labelKey: "nav.investments", to: "/investments", icon: Landmark },
   { labelKey: "nav.roi", to: "/roi", icon: Calculator },
   { labelKey: "nav.transactions", to: "/transactions", icon: ArrowLeftRight },
   { labelKey: "nav.accounts", to: "/accounts", icon: Layers },

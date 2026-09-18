@@ -6,10 +6,10 @@ branches. A branch updates this checklist before it is merged.
 
 ## Delivery order
 
-- [ ] `fix/basic-auth` — native browser Basic Auth for the whole site
+- [x] `fix/basic-auth` — native browser Basic Auth for the whole site
 - [x] `feature/multicurrency` — KZT reporting currency and NBK/manual rates
 - [x] `feature/bank-import` — currency-aware generic bank CSV import
-- [ ] `feature/investments` — manual securities, trades and dividends
+- [x] `feature/investments` — manual securities, trades and dividends
 - [ ] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
 
 ## Basic Auth
@@ -46,15 +46,18 @@ branches. A branch updates this checklist before it is merged.
 
 ## Investments
 
-- Add portfolios linked to investment cash accounts, securities, buy/sell
+- [x] Add portfolios linked to investment cash accounts, securities, buy/sell
   trades, dividends and dated manual prices.
-- Use weighted-average cost. Buy fees enter cost basis; sell fees reduce
+- [x] Use weighted-average cost. Buy fees enter cost basis; sell fees reduce
   proceeds. Show realized, unrealized and dividend returns separately and in
   total, with KZT snapshots for every event.
-- Generate linked cash transactions atomically. Trade principal changes cash
+- [x] Generate linked cash transactions atomically. Trade principal changes cash
   but is excluded from ordinary income/expense reports; dividends, fees and tax
   remain visible cash flow.
-- Online market prices are out of scope for v1.
+- [x] Include investment entities and linked cash transactions in JSON backup v2.
+- [x] Provide a responsive RU/EN UI for portfolios, positions, trades,
+  dividends, manual prices and history deletion.
+- [x] Online market prices are out of scope for v1.
 
 ## Tradernet Global import
 

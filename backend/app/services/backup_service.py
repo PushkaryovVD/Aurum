@@ -25,6 +25,7 @@ from app.models.category import Category
 from app.models.crypto import CryptoHolding, CryptoPortfolio, CryptoTransaction
 from app.models.exchange_rate import ExchangeRate
 from app.models.goal import Goal, GoalContribution
+from app.models.investment import InvestmentPortfolio, Security, SecurityDividend, SecurityPrice, SecurityTrade
 from app.models.recurring import RecurringTransaction
 from app.models.settings import AppSettings
 from app.models.tag import Tag
@@ -43,7 +44,12 @@ from app.schemas.backup import (
     ExchangeRateBackup,
     GoalBackup,
     GoalContributionBackup,
+    InvestmentPortfolioBackup,
     RecurringTransactionBackup,
+    SecurityBackup,
+    SecurityDividendBackup,
+    SecurityPriceBackup,
+    SecurityTradeBackup,
     TagBackup,
     TransactionBackup,
     TransactionSplitBackup,
@@ -71,6 +77,11 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
     goal_contributions = (await session.execute(select(GoalContribution))).scalars().all()
     recurring_transactions = (await session.execute(select(RecurringTransaction))).scalars().all()
     app_settings = await session.get(AppSettings, 1)
+    investment_portfolios = (await session.execute(select(InvestmentPortfolio))).scalars().all()
+    securities = (await session.execute(select(Security))).scalars().all()
+    security_trades = (await session.execute(select(SecurityTrade))).scalars().all()
+    security_dividends = (await session.execute(select(SecurityDividend))).scalars().all()
+    security_prices = (await session.execute(select(SecurityPrice))).scalars().all()
 
     return BackupPayload(
         aurum_backup_version=BACKUP_FORMAT_VERSION,
@@ -86,6 +97,11 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
             for row in transactions
         ],
         exchange_rates=[ExchangeRateBackup.model_validate(row) for row in exchange_rates],
+        investment_portfolios=[InvestmentPortfolioBackup.model_validate(row) for row in investment_portfolios],
+        securities=[SecurityBackup.model_validate(row) for row in securities],
+        security_trades=[SecurityTradeBackup.model_validate(row) for row in security_trades],
+        security_dividends=[SecurityDividendBackup.model_validate(row) for row in security_dividends],
+        security_prices=[SecurityPriceBackup.model_validate(row) for row in security_prices],
         transaction_splits=[TransactionSplitBackup.model_validate(row) for row in transaction_splits],
         assets=[AssetBackup.model_validate(row) for row in assets],
         asset_valuations=[AssetValuationBackup.model_validate(row) for row in valuations],
@@ -124,6 +140,27 @@ def _validate_references(payload: BackupPayload) -> None:
                 raise HTTPException(400, f"Transaction {t.id} references unknown tag_id {tag_id}")
 
     transaction_ids = {row.id for row in payload.transactions}
+    portfolio_ids = {row.id for row in payload.investment_portfolios}
+    security_ids = {row.asset_id for row in payload.securities}
+    for p in payload.investment_portfolios:
+        if p.account_id not in account_ids:
+            raise HTTPException(400, f"Investment portfolio {p.id} references unknown account_id {p.account_id}")
+    for security in payload.securities:
+        if security.asset_id not in asset_ids or security.portfolio_id not in portfolio_ids:
+            raise HTTPException(400, f"Security {security.asset_id} has an unknown asset or portfolio")
+    for trade in payload.security_trades:
+        if trade.asset_id not in security_ids or trade.cash_transaction_id not in transaction_ids:
+            raise HTTPException(400, f"Security trade {trade.id} has an unknown security or transaction")
+        if trade.fee_transaction_id is not None and trade.fee_transaction_id not in transaction_ids:
+            raise HTTPException(400, f"Security trade {trade.id} references unknown fee transaction")
+    for dividend in payload.security_dividends:
+        if dividend.asset_id not in security_ids or dividend.income_transaction_id not in transaction_ids:
+            raise HTTPException(400, f"Security dividend {dividend.id} has an unknown security or transaction")
+        if dividend.tax_transaction_id is not None and dividend.tax_transaction_id not in transaction_ids:
+            raise HTTPException(400, f"Security dividend {dividend.id} references unknown tax transaction")
+    for price in payload.security_prices:
+        if price.asset_id not in security_ids:
+            raise HTTPException(400, f"Security price {price.id} references unknown security")
     for s in payload.transaction_splits:
         if s.transaction_id not in transaction_ids:
             raise HTTPException(400, f"Transaction split {s.id} references unknown transaction_id {s.transaction_id}")
@@ -197,6 +234,11 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
 
     try:
         # Children before parents.
+        await session.execute(delete(SecurityPrice))
+        await session.execute(delete(SecurityDividend))
+        await session.execute(delete(SecurityTrade))
+        await session.execute(delete(Security))
+        await session.execute(delete(InvestmentPortfolio))
         await session.execute(delete(AssetValuation))
         await session.execute(delete(CryptoTransaction))
         await session.execute(delete(CryptoHolding))
@@ -244,6 +286,11 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         session.add_all(TransactionSplit(**row.model_dump()) for row in payload.transaction_splits)
 
         session.add_all(AssetValuation(**row.model_dump()) for row in payload.asset_valuations)
+        session.add_all(InvestmentPortfolio(**row.model_dump()) for row in payload.investment_portfolios)
+        session.add_all(Security(**row.model_dump()) for row in payload.securities)
+        session.add_all(SecurityTrade(**row.model_dump()) for row in payload.security_trades)
+        session.add_all(SecurityDividend(**row.model_dump()) for row in payload.security_dividends)
+        session.add_all(SecurityPrice(**row.model_dump()) for row in payload.security_prices)
 
         session.add_all(CryptoPortfolio(**row.model_dump()) for row in payload.crypto_portfolios)
         # A pre-portfolios backup has no crypto_portfolios and every holding's
@@ -289,6 +336,10 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         await _reset_sequence(session, "exchange_rates", payload.exchange_rates)
         await _reset_sequence(session, "transaction_splits", payload.transaction_splits)
         await _reset_sequence(session, "asset_valuations", payload.asset_valuations)
+        await _reset_sequence(session, "investment_portfolios", payload.investment_portfolios)
+        await _reset_sequence(session, "security_trades", payload.security_trades)
+        await _reset_sequence(session, "security_dividends", payload.security_dividends)
+        await _reset_sequence(session, "security_prices", payload.security_prices)
         # Only needed for explicit-id portfolios from payload — a fallback
         # portfolio (no payload row) already got its id from the sequence
         # itself, so the sequence is already correctly positioned for it.

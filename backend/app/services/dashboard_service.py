@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import TransactionType
+from app.models.enums import TransactionPurpose, TransactionType
 from app.models.account import Account
 from app.models.transaction import Transaction
 from app.schemas.dashboard import CategoryBreakdownChildItem, CategoryBreakdownItem, DashboardSummary
@@ -30,7 +30,11 @@ async def get_dashboard_summary(session: AsyncSession, year: int, month: int) ->
     totals_stmt = (
         select(Transaction.type, func.coalesce(func.sum(transaction_amount_kzt()), 0))
         .join(Account, Account.id == Transaction.account_id)
-        .where(Transaction.date >= start, Transaction.date <= end)
+        .where(
+            Transaction.date >= start,
+            Transaction.date <= end,
+            Transaction.purpose != TransactionPurpose.INVESTMENT_TRADE,
+        )
         .group_by(Transaction.type)
     )
     totals_result = await session.execute(totals_stmt)

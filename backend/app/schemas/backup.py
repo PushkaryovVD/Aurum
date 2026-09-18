@@ -14,6 +14,7 @@ from app.models.enums import (
     ExchangeRateSource,
     RecurringFrequency,
     RiskLevel,
+    SecurityTradeType,
     TransactionType,
     TransactionPurpose,
 )
@@ -241,6 +242,62 @@ class ExchangeRateBackup(BaseModel):
     fetched_at: datetime
 
 
+class InvestmentPortfolioBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    account_id: int
+    is_archived: bool
+
+
+class SecurityBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    asset_id: int
+    portfolio_id: int
+    name: str
+    ticker: str
+    isin: str | None
+    exchange: str | None
+    currency: str
+
+
+class SecurityTradeBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_id: int
+    type: SecurityTradeType
+    quantity: Decimal
+    price_per_unit: Decimal
+    fee: Decimal
+    date: date_
+    exchange_rate_to_kzt: Decimal
+    cash_transaction_id: int
+    fee_transaction_id: int | None
+    external_id: str | None
+
+
+class SecurityDividendBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_id: int
+    gross_amount: Decimal
+    tax_amount: Decimal
+    date: date_
+    exchange_rate_to_kzt: Decimal
+    income_transaction_id: int
+    tax_transaction_id: int | None
+    external_id: str | None
+
+
+class SecurityPriceBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_id: int
+    price_per_unit: Decimal
+    as_of_date: date_
+    exchange_rate_to_kzt: Decimal
+
+
 class BackupPayload(BaseModel):
     """A full, portable snapshot of every table. `aurum_backup_version` is
     checked on import so an incompatible/future file is rejected cleanly
@@ -256,6 +313,11 @@ class BackupPayload(BaseModel):
     tags: list[TagBackup] = Field(default_factory=list)
     transactions: list[TransactionBackup]
     exchange_rates: list[ExchangeRateBackup] = Field(default_factory=list)
+    investment_portfolios: list[InvestmentPortfolioBackup] = Field(default_factory=list)
+    securities: list[SecurityBackup] = Field(default_factory=list)
+    security_trades: list[SecurityTradeBackup] = Field(default_factory=list)
+    security_dividends: list[SecurityDividendBackup] = Field(default_factory=list)
+    security_prices: list[SecurityPriceBackup] = Field(default_factory=list)
     # Defaulted so a backup exported before transaction splitting existed
     # still imports cleanly under the same format version.
     transaction_splits: list[TransactionSplitBackup] = Field(default_factory=list)

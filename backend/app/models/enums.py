@@ -71,6 +71,11 @@ class CryptoTransactionType(str, enum.Enum):
     SELL = "sell"
 
 
+class SecurityTradeType(str, enum.Enum):
+    BUY = "buy"
+    SELL = "sell"
+
+
 class RiskLevel(str, enum.Enum):
     """Risk of loss, not asset class — set by the user, not inferred: real
     estate can be a paid-off primary home (LOW) or a leveraged rental

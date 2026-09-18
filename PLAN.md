@@ -10,7 +10,7 @@ branches. A branch updates this checklist before it is merged.
 - [x] `feature/multicurrency` — KZT reporting currency and NBK/manual rates
 - [x] `feature/bank-import` — currency-aware generic bank CSV import
 - [x] `feature/investments` — manual securities, trades and dividends
-- [ ] `feature/transaction-currency-ux` — explicit currency context in the transaction form
+- [x] `feature/transaction-currency-ux` — explicit currency context in the transaction form
 - [ ] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
 - [ ] `feature/kz-bank-statements` — Kaspi/Halyk PDF statement adapters
 - [ ] `feature/auto-categorization` — explainable import rules and dry-run mapping
@@ -52,25 +52,25 @@ It must not be an unrelated free-form currency, because that would make the
 account balance ambiguous. The current form already follows this rule but does
 not explain it, which makes the amount and rate fields look incomplete.
 
-- Show the selected account currency directly beside `Amount` and in every
+- [x] Show the selected account currency directly beside `Amount` and in every
   account option (`Main Account · KZT`, `USD Card · USD`).
-- Rename the field to `Amount charged (KZT/USD/…)` after an account is selected;
+- [x] Rename the field to `Amount charged (KZT/USD/…)` after an account is selected;
   do not ask the user for a duplicate transaction-currency selector.
-- If the needed currency is unavailable, offer a shortcut to create another
+- [x] If the needed currency is unavailable, offer a shortcut to create another
   account instead of silently changing the currency of an existing account.
-- For a purchase priced in another currency, expose a clear `Purchase currency`
+- [x] For a purchase priced in another currency, expose a clear `Purchase currency`
   block with original amount, original currency and merchant-to-account rate.
-- For a non-KZT account, load the historical NBK rate for the transaction date,
+- [x] For a non-KZT account, load the historical NBK rate for the transaction date,
   show its effective date and a read-only `≈ … KZT` preview. A manual rate is an
   explicit override and its source remains visible when the transaction is read.
-- For cross-currency transfers, show two sides: `Sent` in the source account
+- [x] For cross-currency transfers, show two sides: `Sent` in the source account
   currency and `Received` in the destination account currency. Compute and show
   the effective source-to-destination rate before saving.
-- Keep the compact form for same-currency/KZT operations: advanced FX fields
+- [x] Keep the compact form for same-currency/KZT operations: advanced FX fields
   remain collapsed unless they are relevant.
-- Display account amount/currency, original amount/currency, KZT equivalent and
+- [x] Display account amount/currency, original amount/currency, KZT equivalent and
   rate source in transaction details and edit mode.
-- Acceptance: a KZT expense, USD-account expense, USD-priced purchase charged
+- [x] Acceptance: a KZT expense, USD-account expense, USD-priced purchase charged
   to a KZT card, and KZT→USD transfer can each be entered without guessing what
   any amount means; create/edit round trips preserve all currency fields.
 

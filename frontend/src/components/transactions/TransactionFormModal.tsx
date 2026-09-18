@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
@@ -7,9 +8,11 @@ import { TagInput } from "@/components/transactions/TagInput";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCategories } from "@/hooks/useCategories";
 import { useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransactions";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import { formatCurrency } from "@/lib/format";
+import { divideDecimal, multiplyDecimal } from "@/lib/decimal";
 import type { Tag, Transaction, TransactionInput, TransactionSplitInput, TransactionType } from "@/types";
 
 interface TransactionFormModalProps {
@@ -81,6 +84,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   const [splitMode, setSplitMode] = useState(false);
   const [splitRows, setSplitRows] = useState<SplitRowState[]>([emptySplitRow(), emptySplitRow()]);
   const [error, setError] = useState<string | null>(null);
+  const [rateEdited, setRateEdited] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -104,7 +108,10 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             : "",
         transfer_account_id: transaction.transfer_account_id ? String(transaction.transfer_account_id) : "",
         amount: transaction.amount,
-        exchange_rate_to_kzt: transaction.exchange_rate_to_kzt ?? "",
+        exchange_rate_to_kzt:
+          transaction.exchange_rate_source === "manual" || transaction.exchange_rate_source === "csv"
+            ? transaction.exchange_rate_to_kzt ?? ""
+            : "",
         original_amount: transaction.original_amount ?? "",
         original_currency: transaction.original_currency ?? "",
         original_to_account_rate: transaction.original_to_account_rate ?? "",
@@ -114,6 +121,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
         notes: transaction.notes ?? "",
         date: transaction.date,
       });
+      setRateEdited(false);
       setTags(transaction.tags);
       setSplitMode(hasSplits);
       setSplitRows(
@@ -128,6 +136,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       );
     } else {
       setForm({ ...EMPTY_FORM, account_id: accounts?.[0] ? String(accounts[0].id) : "" });
+      setRateEdited(false);
       setTags([]);
       setSplitMode(false);
       setSplitRows([emptySplitRow(), emptySplitRow()]);
@@ -144,6 +153,19 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   const relevantCategories = buildHierarchicalCategories(kindCategories, language);
 
   const isSaving = createTransaction.isPending || updateTransaction.isPending;
+  const selectedAccount = accounts?.find((account) => String(account.id) === form.account_id);
+  const destinationAccount = accounts?.find((account) => String(account.id) === form.transfer_account_id);
+  const accountCurrency = selectedAccount?.currency.toUpperCase();
+  const destinationCurrency = destinationAccount?.currency.toUpperCase();
+  const isCrossCurrencyTransfer = form.type === "transfer" && Boolean(
+    accountCurrency && destinationCurrency && accountCurrency !== destinationCurrency
+  );
+  const officialRate = useExchangeRate(form.date, accountCurrency);
+  const previewRate = form.exchange_rate_to_kzt || officialRate.data?.rate_to_kzt || (accountCurrency === "KZT" ? "1" : "");
+  const kztPreview = form.amount && previewRate ? multiplyDecimal(form.amount, previewRate, 2) : null;
+  const transferRate = isCrossCurrencyTransfer && form.amount && form.transfer_amount
+    ? divideDecimal(form.transfer_amount, form.amount, 6)
+    : null;
 
   function updateSplitRow(key: string, patch: Partial<SplitRowState>) {
     setSplitRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
@@ -251,11 +273,20 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       transfer_account_id: form.type === "transfer" ? Number(form.transfer_account_id) : null,
       amount: form.amount,
       exchange_rate_to_kzt: form.exchange_rate_to_kzt || null,
-      exchange_rate_source: form.exchange_rate_to_kzt ? "manual" : null,
+      exchange_rate_source: form.exchange_rate_to_kzt
+        ? rateEdited
+          ? "manual"
+          : transaction?.exchange_rate_source ?? "manual"
+        : null,
       original_amount: form.original_amount || null,
       original_currency: form.original_currency || null,
       original_to_account_rate: form.original_to_account_rate || null,
-      transfer_amount: form.type === "transfer" ? form.transfer_amount || null : null,
+      transfer_amount:
+        form.type === "transfer"
+          ? isCrossCurrencyTransfer
+            ? form.transfer_amount || null
+            : form.amount
+          : null,
       description: form.description,
       merchant: form.merchant || null,
       notes: form.notes || null,
@@ -300,18 +331,61 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
           </Select>
         </div>
 
+        <div>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="account">{t("transactions.form.accountLabel")}</Label>
+            <Link to="/accounts" onClick={onClose} className="mb-1 text-xs text-series-1 hover:underline">
+              {t("transactions.form.createCurrencyAccount")}
+            </Link>
+          </div>
+          <Select
+            id="account"
+            required
+            value={form.account_id}
+            onChange={(event) => {
+              setForm((prev) => ({
+                ...prev,
+                account_id: event.target.value,
+                transfer_account_id: prev.transfer_account_id === event.target.value ? "" : prev.transfer_account_id,
+                transfer_amount: "",
+                exchange_rate_to_kzt: "",
+              }));
+              setRateEdited(false);
+            }}
+          >
+            <option value="" disabled>{t("transactions.form.selectAccount")}</option>
+            {accounts?.map((account) => (
+              <option key={account.id} value={account.id}>{account.name} · {account.currency.toUpperCase()}</option>
+            ))}
+          </Select>
+        </div>
+
+        {form.type === "transfer" && (
+          <div>
+            <Label htmlFor="transfer_account">{t("transactions.form.transferAccountLabel")}</Label>
+            <Select
+              id="transfer_account"
+              required
+              value={form.transfer_account_id}
+              onChange={(event) => setForm((prev) => ({ ...prev, transfer_account_id: event.target.value, transfer_amount: "" }))}
+            >
+              <option value="" disabled>{t("transactions.form.selectAccount")}</option>
+              {accounts?.filter((account) => String(account.id) !== form.account_id).map((account) => (
+                <option key={account.id} value={account.id}>{account.name} · {account.currency.toUpperCase()}</option>
+              ))}
+            </Select>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="amount">{t("transactions.form.amountLabel")}</Label>
-            <Input
-              id="amount"
-              type="number"
-              step="0.01"
-              min="0.01"
-              required
-              value={form.amount}
-              onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))}
-            />
+            <Label htmlFor="amount">
+              {form.type === "transfer" ? t("transactions.form.sentAmountLabel", { currency: accountCurrency ?? "—" }) : t("transactions.form.amountCurrencyLabel", { currency: accountCurrency ?? "—" })}
+            </Label>
+            <div className="relative">
+              <Input id="amount" type="number" step="0.01" min="0.01" required className="pr-14" value={form.amount} onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))} />
+              {accountCurrency && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-text-muted">{accountCurrency}</span>}
+            </div>
           </div>
           <div>
             <Label htmlFor="date">{t("transactions.form.dateLabel")}</Label>
@@ -320,39 +394,67 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               type="date"
               required
               value={form.date}
-              onChange={(event) => setForm((prev) => ({ ...prev, date: event.target.value }))}
+              onChange={(event) => {
+                setForm((prev) => ({ ...prev, date: event.target.value, exchange_rate_to_kzt: rateEdited ? prev.exchange_rate_to_kzt : "" }));
+              }}
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="exchange_rate_to_kzt">{t("transactions.form.exchangeRateLabel")}</Label>
-            <Input
-              id="exchange_rate_to_kzt"
-              type="number"
-              step="0.0000000001"
-              min="0"
-              placeholder={t("transactions.form.exchangeRatePlaceholder")}
-              value={form.exchange_rate_to_kzt}
-              onChange={(event) => setForm((prev) => ({ ...prev, exchange_rate_to_kzt: event.target.value }))}
-            />
-          </div>
-          {form.type === "transfer" && (
-            <div>
-              <Label htmlFor="transfer_amount">{t("transactions.form.transferAmountLabel")}</Label>
+        {isCrossCurrencyTransfer && (
+          <div className="rounded-lg border border-border bg-surface-1 p-3">
+            <Label htmlFor="transfer_amount">
+              {t("transactions.form.receivedAmountLabel", { currency: destinationCurrency ?? "—" })}
+            </Label>
+            <div className="relative">
               <Input
                 id="transfer_amount"
                 type="number"
                 step="0.01"
-                min="0"
-                placeholder={t("transactions.form.transferAmountPlaceholder")}
+                min="0.01"
+                required
+                className="pr-14"
                 value={form.transfer_amount}
                 onChange={(event) => setForm((prev) => ({ ...prev, transfer_amount: event.target.value }))}
               />
+              {destinationCurrency && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-text-muted">{destinationCurrency}</span>}
             </div>
-          )}
-        </div>
+            {transferRate && <p className="mt-1.5 text-xs text-text-muted">{t("transactions.form.effectiveTransferRate", { rate: transferRate, source: accountCurrency ?? "", destination: destinationCurrency ?? "" })}</p>}
+          </div>
+        )}
+
+        {accountCurrency && accountCurrency !== "KZT" && (
+          <div className="rounded-lg border border-border p-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="exchange_rate_to_kzt">{t("transactions.form.exchangeRateCurrencyLabel", { currency: accountCurrency })}</Label>
+                <Input
+                  id="exchange_rate_to_kzt"
+                  type="number"
+                  step="0.0000000001"
+                  min="0"
+                  placeholder={officialRate.isLoading ? t("common.loading") : t("transactions.form.exchangeRatePlaceholder")}
+                  value={form.exchange_rate_to_kzt}
+                  onChange={(event) => {
+                    setRateEdited(true);
+                    setForm((prev) => ({ ...prev, exchange_rate_to_kzt: event.target.value }));
+                  }}
+                />
+              </div>
+              <div className="rounded-lg bg-surface-2 px-3 py-2 text-sm">
+                <span className="text-xs text-text-muted">{t("transactions.form.kztEquivalent")}</span>
+                <strong className="block text-text-primary">{kztPreview ? `${kztPreview} KZT` : "—"}</strong>
+              </div>
+            </div>
+            {!form.exchange_rate_to_kzt && officialRate.data && (
+              <p className="mt-2 text-xs text-text-muted">{t("transactions.form.nbkRateInfo", { rate: officialRate.data.rate_to_kzt, currency: accountCurrency, date: officialRate.data.effective_date })}</p>
+            )}
+            {!form.exchange_rate_to_kzt && officialRate.isError && (
+              <p className="mt-2 text-xs text-warning">{t("transactions.form.nbkRateUnavailable")}</p>
+            )}
+            {form.exchange_rate_to_kzt && <p className="mt-2 text-xs text-text-muted">{t("transactions.form.manualRateInfo")}</p>}
+          </div>
+        )}
 
         {form.type !== "transfer" && (
           <details className="rounded-lg border border-border p-3">
@@ -397,47 +499,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
           />
         </div>
 
-        <div>
-          <Label htmlFor="account">{t("transactions.form.accountLabel")}</Label>
-          <Select
-            id="account"
-            required
-            value={form.account_id}
-            onChange={(event) => setForm((prev) => ({ ...prev, account_id: event.target.value }))}
-          >
-            <option value="" disabled>
-              {t("transactions.form.selectAccount")}
-            </option>
-            {accounts?.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-
-        {form.type === "transfer" ? (
-          <div>
-            <Label htmlFor="transfer_account">{t("transactions.form.transferAccountLabel")}</Label>
-            <Select
-              id="transfer_account"
-              required
-              value={form.transfer_account_id}
-              onChange={(event) => setForm((prev) => ({ ...prev, transfer_account_id: event.target.value }))}
-            >
-              <option value="" disabled>
-                {t("transactions.form.selectAccount")}
-              </option>
-              {accounts
-                ?.filter((account) => String(account.id) !== form.account_id)
-                .map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-            </Select>
-          </div>
-        ) : (
+        {form.type !== "transfer" && (
           <div>
             <div className="flex items-center justify-between">
               <Label htmlFor="category">{t("transactions.form.categoryLabel")}</Label>
@@ -537,11 +599,11 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                   <p className={`text-xs ${splitRemainingCents === 0 ? "text-success" : "text-text-muted"}`}>
                     {splitRemainingCents > 0
                       ? t("transactions.form.splitRemainingLabel", {
-                          amount: formatCurrency(splitRemainingCents / 100),
+                          amount: formatCurrency(splitRemainingCents / 100, accountCurrency),
                         })
                       : splitRemainingCents < 0
                         ? t("transactions.form.splitOverAllocatedLabel", {
-                            amount: formatCurrency(Math.abs(splitRemainingCents) / 100),
+                            amount: formatCurrency(Math.abs(splitRemainingCents) / 100, accountCurrency),
                           })
                         : t("transactions.form.splitFullyAllocatedLabel")}
                   </p>

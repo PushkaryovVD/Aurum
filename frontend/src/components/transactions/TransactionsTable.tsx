@@ -6,6 +6,7 @@ import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { categoryPath, translateCategoryName } from "@/lib/categoryLabels";
 import { useCategories } from "@/hooks/useCategories";
+import { useAccounts } from "@/hooks/useAccounts";
 import type { Transaction } from "@/types";
 
 interface TransactionsTableProps {
@@ -21,6 +22,7 @@ interface TransactionsTableProps {
 export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: TransactionsTableProps) {
   const { t } = useTranslation();
   const { data: categories } = useCategories();
+  const { data: accounts } = useAccounts(true);
   const [noteTransaction, setNoteTransaction] = useState<Transaction | null>(null);
 
   if (items.length === 0) {
@@ -45,6 +47,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
             : tx.category
               ? categoryPath(tx.category, categories)
               : null;
+          const destinationAccount = accounts?.find((account) => account.id === tx.transfer_account_id);
 
           return (
             <li key={tx.id} className="group flex items-center gap-3 py-3">
@@ -65,13 +68,22 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                 </span>
               </span>
 
-              <span
-                className={`shrink-0 text-sm font-medium tabular-nums ${
+              <span className="flex shrink-0 flex-col items-end tabular-nums">
+                <span className={`text-sm font-medium ${
                   isTransfer ? "text-text-muted" : isExpense ? "text-text-primary" : "text-success"
-                }`}
-              >
-                {isTransfer ? "" : isExpense ? "-" : "+"}
-                {formatCurrency(tx.amount)}
+                }`}>
+                  {isTransfer ? "" : isExpense ? "-" : "+"}
+                  {formatCurrency(tx.amount, tx.account.currency)}
+                  {isTransfer && tx.transfer_amount && destinationAccount
+                    ? ` → ${formatCurrency(tx.transfer_amount, destinationAccount.currency)}`
+                    : ""}
+                </span>
+                {tx.original_amount && tx.original_currency && (
+                  <span className="text-[11px] text-text-muted">{t("transactions.originalAmount", { amount: tx.original_amount, currency: tx.original_currency })}</span>
+                )}
+                {tx.base_amount_kzt && tx.account.currency.toUpperCase() !== "KZT" && (
+                  <span className="text-[11px] text-text-muted">≈ {formatCurrency(tx.base_amount_kzt, "KZT")}</span>
+                )}
               </span>
 
               <span className="flex shrink-0 gap-1">

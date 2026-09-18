@@ -8,7 +8,7 @@ branches. A branch updates this checklist before it is merged.
 
 - [ ] `fix/basic-auth` — native browser Basic Auth for the whole site
 - [x] `feature/multicurrency` — KZT reporting currency and NBK/manual rates
-- [ ] `feature/bank-import` — currency-aware generic bank CSV import
+- [x] `feature/bank-import` — currency-aware generic bank CSV import
 - [ ] `feature/investments` — manual securities, trades and dividends
 - [ ] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
 

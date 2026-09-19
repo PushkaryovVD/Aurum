@@ -8,7 +8,7 @@ import { TagInput } from "@/components/transactions/TagInput";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCategories } from "@/hooks/useCategories";
 import { useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransactions";
-import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useCrossRate } from "@/hooks/useCrossRate";
 import { useTranslation } from "@/lib/i18n";
 import { CURRENCIES } from "@/lib/currency";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
@@ -194,18 +194,17 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
     return Array.from(codes).sort();
   }, [accountCurrency, transactionCurrency]);
 
-  const officialRate = useExchangeRate(form.date, accountCurrency);
-  const transactionRate = useExchangeRate(form.date, isForeignCurrency ? transactionCurrency : undefined);
-  // Rates are quoted against KZT, so a cross rate (e.g. EUR→USD) goes through
-  // KZT: divide the two official rates. KZT itself is the identity.
-  const transactionToKzt = transactionCurrency === "KZT" ? "1" : transactionRate.data?.rate_to_kzt ?? "";
-  const accountToKzt = accountCurrency === "KZT" ? "1" : officialRate.data?.rate_to_kzt ?? "";
-  const suggestedRate =
-    isForeignCurrency && transactionToKzt && accountToKzt
-      ? divideDecimal(transactionToKzt, accountToKzt, 6) ?? ""
-      : "";
+  // One request answers every rate question this form has: the cross rate
+  // between the transaction's currency and the account's, plus each side's own
+  // KZT leg. It used to be two NBK lookups with the division done here — which
+  // is arithmetic the reports already do server-side, and a place the two could
+  // disagree. A same-currency pair is still a legitimate question (the answer
+  // is 1), so the KZT preview keeps working when nothing is being converted.
+  const crossRate = useCrossRate(form.date, transactionCurrency, accountCurrency);
+  const accountToKzt = accountCurrency === "KZT" ? "1" : crossRate.data?.to_rate_to_kzt ?? "";
+  const suggestedRate = isForeignCurrency ? crossRate.data?.rate ?? "" : "";
 
-  const previewRate = form.exchange_rate_to_kzt || officialRate.data?.rate_to_kzt || (accountCurrency === "KZT" ? "1" : "");
+  const previewRate = form.exchange_rate_to_kzt || accountToKzt;
   const kztPreview = form.amount && previewRate ? multiplyDecimal(form.amount, previewRate, 2) : null;
   const transferRate = isCrossCurrencyTransfer && form.amount && form.transfer_amount
     ? divideDecimal(form.transfer_amount, form.amount, 6)
@@ -541,7 +540,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                   type="number"
                   step="0.0000000001"
                   min="0"
-                  placeholder={transactionRate.isLoading ? t("common.loading") : t("transactions.form.ratePlaceholder")}
+                  placeholder={crossRate.isLoading ? t("common.loading") : t("transactions.form.ratePlaceholder")}
                   value={form.rate}
                   onChange={(event) => handleRateChange(event.target.value)}
                 />
@@ -561,17 +560,17 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                 />
               </div>
             </div>
-            {!form.rate && transactionRate.data && (
+            {!form.rate && crossRate.data && (
               <p className="mt-2 text-xs text-text-muted">
                 {t("transactions.form.rateInfo", {
-                  rate: suggestedRate || transactionRate.data.rate_to_kzt,
+                  rate: suggestedRate || crossRate.data.from_rate_to_kzt,
                   currency: transactionCurrency,
                   accountCurrency: accountCurrency ?? "",
-                  date: transactionRate.data.effective_date,
+                  date: crossRate.data.from_effective_date,
                 })}
               </p>
             )}
-            {!form.rate && transactionRate.isError && (
+            {!form.rate && crossRate.isError && (
               <p className="mt-2 text-xs text-warning">{t("transactions.form.nbkRateUnavailable")}</p>
             )}
             {form.rate && rateEdited && <p className="mt-2 text-xs text-text-muted">{t("transactions.form.manualRateInfo")}</p>}
@@ -610,7 +609,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                   type="number"
                   step="0.0000000001"
                   min="0"
-                  placeholder={officialRate.isLoading ? t("common.loading") : t("transactions.form.exchangeRatePlaceholder")}
+                  placeholder={crossRate.isLoading ? t("common.loading") : t("transactions.form.exchangeRatePlaceholder")}
                   value={form.exchange_rate_to_kzt}
                   onChange={(event) => {
                     setRateEdited(true);
@@ -623,10 +622,10 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                 <strong className="block text-text-primary">{kztPreview ? `${kztPreview} KZT` : "—"}</strong>
               </div>
             </div>
-            {!form.exchange_rate_to_kzt && officialRate.data && (
-              <p className="mt-2 text-xs text-text-muted">{t("transactions.form.nbkRateInfo", { rate: officialRate.data.rate_to_kzt, currency: accountCurrency, date: officialRate.data.effective_date })}</p>
+            {!form.exchange_rate_to_kzt && crossRate.data && (
+              <p className="mt-2 text-xs text-text-muted">{t("transactions.form.nbkRateInfo", { rate: crossRate.data.to_rate_to_kzt, currency: accountCurrency, date: crossRate.data.to_effective_date })}</p>
             )}
-            {!form.exchange_rate_to_kzt && officialRate.isError && (
+            {!form.exchange_rate_to_kzt && crossRate.isError && (
               <p className="mt-2 text-xs text-warning">{t("transactions.form.nbkRateUnavailable")}</p>
             )}
             {form.exchange_rate_to_kzt && <p className="mt-2 text-xs text-text-muted">{t("transactions.form.manualRateInfo")}</p>}

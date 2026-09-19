@@ -71,6 +71,22 @@ export interface ExchangeRate {
   source: string;
 }
 
+// One currency's price in another, resolved by the server. Rates are quoted
+// against KZT, so the ratio of the two legs is the cross rate — arithmetic the
+// transaction form used to do itself from two separate lookups.
+export interface CrossRate {
+  requested_date: string;
+  from_currency: string;
+  to_currency: string;
+  rate: string;
+  from_rate_to_kzt: string;
+  to_rate_to_kzt: string;
+  // The legs can come from different days when a currency had no quote on the
+  // requested one, so each carries its own date rather than one shared field.
+  from_effective_date: string;
+  to_effective_date: string;
+}
+
 export interface InvestmentPortfolio { id: number; name: string; account_id: number; is_archived: boolean }
 export interface SecurityTrade { id: number; type: SecurityTradeType; quantity: string; price_per_unit: string; fee: string; date: string; exchange_rate_to_kzt: string; external_id: string | null }
 export interface SecurityDividend { id: number; gross_amount: string; tax_amount: string; net_amount: string; date: string; exchange_rate_to_kzt: string; external_id: string | null }

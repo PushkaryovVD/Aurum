@@ -321,10 +321,12 @@ Ordered rules that assign a category from what a transaction looks like. Rules a
 bottom and **the first enabled match wins** — a specific rule ("Yandex Go") only outranks a broad one
 ("Yandex") if it sits above it, which is why the order is an editable thing rather than an implied one.
 
-The rules run in three places: the statement-import preview, so the user reviews a filled-in category
-and sees which rule chose it; the import commit, for rules scoped to an account (which cannot be
-decided until the destination is known); and — explicitly, never automatically — over transactions
-that already exist.
+The rules run in four places. The statement-import preview fills a category in and says which rule
+chose it; the import commit re-runs them for rules scoped to an account, which cannot be decided until
+the destination is known; `POST /transactions` and `POST /transactions/bulk` fill in a category when
+the caller didn't send one, so the CSV import and the entry form behave exactly like a statement
+import; and `POST /categorization-rules/apply` runs them over transactions that already exist —
+explicitly, never automatically.
 
 **`RuleMatchType`:** `contains` (case-insensitive substring) · `regex`
 
@@ -335,6 +337,7 @@ that already exist.
 | `PATCH` | `/categorization-rules/{id}` | Update a rule (partial). Changing `pattern` or `match_type` revalidates the pattern. |
 | `DELETE` | `/categorization-rules/{id}` | Delete a rule. |
 | `POST` | `/categorization-rules/reorder` | Replace the whole order: `{"ordered_ids": [3, 1, 2]}`. Must list every existing rule exactly once — a partial order has no defined meaning and is a `422`. |
+| `POST` | `/categorization-rules/match` | Which rule would decide a transaction of a given shape, and the category it would assign. |
 | `POST` | `/categorization-rules/apply` | Run the saved rules over transactions that already exist. |
 
 **Create body:**
@@ -378,6 +381,14 @@ nothing — the only way to see what enabling or reordering a rule does before i
 `only_uncategorized=true`, transactions that already carry a category (including one the user chose
 by hand) are left alone, so a rule never quietly overrules a decision. The response reports, per rule,
 how many transactions it matched and a few example descriptions.
+
+**`POST /categorization-rules/match`** takes a candidate transaction (`description`, `merchant`,
+`amount`, `currency`, `account_id`, `transaction_type`) and answers with the rule that would decide it
+— `rule_id`, `rule_name`, `category_id`, `category_name`, `category_color` — or all-`null` when
+nothing matches. It is the same matcher the create path acts on, so the entry form can show a category
+with its reason attached instead of the value appearing only once the row is saved. A match whose
+category is of the wrong kind for the transaction's type is reported as no match, the same way the
+create path skips it.
 
 ## Tags
 

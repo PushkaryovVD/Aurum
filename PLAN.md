@@ -22,7 +22,7 @@ deleted, so each one is still reviewable on its own.
 
 ### Verified state
 
-- `pytest`: **193 passed** (10 of them covering the rules, 8 the cross-rate endpoint).
+- `pytest`: **199 passed** (16 of them covering the rules, 8 the cross-rate endpoint).
 - `vitest`: **58 passed**; `npm run build` clean.
 - Both run against the merged `develop` tree.
 - The Tradernet adapter was run against the real `bills/tradernet_table.xlsx`:
@@ -47,12 +47,9 @@ deleted, so each one is still reviewable on its own.
 
 ### Next, in order
 
-1. Run the rules while entering a transaction by hand. The backend already
-   decides this on commit and on import preview; the manual form does not call
-   it yet, so a typed-in transaction still starts with an empty category.
-2. Investments import from the broker trades report — needs a fixture (see above).
-3. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
-4. The rest of the roadmap, in the order listed below.
+1. Investments import from the broker trades report — needs a fixture (see above).
+2. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
+3. The rest of the roadmap, in the order listed below.
 
 ## Delivery order
 
@@ -270,11 +267,10 @@ parser's reading is a proposal, and only what the user confirms is written.
 - Keep an optional classifier as a later local-only suggestion layer; it must
   expose confidence and never save categories without confirmation.
 
-Delivered: the rule model and matcher, CRUD with explicit reordering, the
-dry-run and the previewed bulk apply, and the rules page; the statement-import
-preview fills in a category and shows which rule chose it, and the commit
-re-runs the rules that need the destination account to decide. Not built yet:
-running the rules as a transaction is typed by hand, the "make this rule more
+Delivered: the rule model and matcher, CRUD with explicit reordering, the dry-run and the previewed
+bulk apply, and the rules page; the statement-import preview fills in a category and shows which rule
+chose it; the create and bulk-create paths fill a category in when the caller sent none, and the entry
+form shows the same suggestion live as the user types. Not built yet: the "make this rule more
 specific" shortcut from a mismatch, and the optional local classifier.
 
 ## Envelope / zero-based budgeting (`feature/envelope-budgeting`)

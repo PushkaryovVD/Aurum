@@ -159,6 +159,31 @@ foreign-currency operation.
   credentials are never stored until an official, documented read-only flow is
   proven. XLSX remains the required v1 transport.
 
+### Adapter architecture (`feature/freedom-import`)
+
+Parsing is a registry of per-bank adapters (`app/importers`) rather than one
+parser with a branch per bank: each format owns a module, and adding a bank
+means adding a module and registering it. The pipeline is
+parse → preview/edit → validate → commit, and the preview is editable — the
+parser's reading is a proposal, and only what the user confirms is written.
+
+- [x] Tradernet Global / Freedom Broker XLSX adapter, including the export's
+  bare Excel serial dates and its "Reverted:" rows, whose direction comes from
+  the amount's sign rather than the operation name.
+- [x] Preview exposes every field the user may correct — date, description,
+  amount, currency, direction, category — and writes nothing to the ledger.
+- [x] Duplicate detection keyed on (destination account, bank operation id),
+  matching the database's own uniqueness constraint; a row the export doesn't
+  identify falls back to a content digest.
+- [x] Rows that are not cash movements (reservations, trade settlements,
+  internal transfers) stay visible in the preview with the reason, never
+  silently dropped.
+- [ ] Kaspi and Halyk statements are PDFs. Kaspi's is a scan with no text layer,
+  so it needs OCR before an adapter is worth writing (see the
+  kz-bank-statements milestone). The Freedom Bank card statement PDF does carry
+  a text layer, but its table columns are reflowed and the layout is not
+  reliable enough to parse without a visual model.
+
 ## Kazakhstan bank statement adapters (`feature/kz-bank-statements`)
 
 - Build provider adapters on top of the existing universal import pipeline;

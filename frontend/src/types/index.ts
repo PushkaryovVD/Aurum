@@ -60,6 +60,32 @@ export interface RuleApplyResult {
   written: number;
   items: RuleEffectItem[];
 }
+
+export interface CategorizationMatchInput {
+  description: string;
+  merchant?: string | null;
+  amount: string;
+  currency: string;
+  account_id: number;
+  transaction_type: TransactionType;
+}
+
+// The shape the entry form asks about before the account is picked, when there
+// is nothing to match against yet.
+export type CategorizationMatchQuery = Omit<CategorizationMatchInput, "account_id"> & {
+  account_id?: number;
+};
+
+// Which rule would decide a transaction of a given shape, and the category it
+// would assign. A null `rule_id` means no enabled rule matched — a real answer,
+// not an error.
+export interface CategorizationMatch {
+  rule_id: number | null;
+  rule_name: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  category_color: string | null;
+}
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 export type SecurityTradeType = "buy" | "sell";
 

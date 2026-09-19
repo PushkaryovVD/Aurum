@@ -1,5 +1,7 @@
 import { api } from "@/api/client";
 import type {
+  CategorizationMatch,
+  CategorizationMatchInput,
   CategorizationRule,
   CategorizationRuleInput,
   CategorizationRuleUpdateInput,
@@ -37,4 +39,12 @@ export function applyCategorizationRules(
     only_uncategorized: String(options.onlyUncategorized ?? true),
   });
   return api.post<RuleApplyResult>(`/categorization-rules/apply?${params.toString()}`, undefined);
+}
+
+/** Which rule would decide a transaction shaped like this one.
+ *
+ * The same answer the create path acts on, so a suggestion shown here is the
+ * category that would be stored anyway. */
+export function matchCategorizationRule(input: CategorizationMatchInput) {
+  return api.post<CategorizationMatch>("/categorization-rules/match", input);
 }

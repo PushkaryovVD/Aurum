@@ -8,6 +8,7 @@ import { TagInput } from "@/components/transactions/TagInput";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCategories } from "@/hooks/useCategories";
 import { useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransactions";
+import { useCategorizationMatch } from "@/hooks/useCategorizationRules";
 import { useCrossRate } from "@/hooks/useCrossRate";
 import { useTranslation } from "@/lib/i18n";
 import { CURRENCIES } from "@/lib/currency";
@@ -97,6 +98,10 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   const [error, setError] = useState<string | null>(null);
   const [rateEdited, setRateEdited] = useState(false);
   const [amountEdited, setAmountEdited] = useState(false);
+  // Whether the user picked a category themselves. A rule's suggestion must
+  // never overwrite that — the same way the backend never fills a category the
+  // caller already provided.
+  const [categoryEdited, setCategoryEdited] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -137,6 +142,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       });
       setRateEdited(false);
       setAmountEdited(false);
+      setCategoryEdited(false);
       setTags(transaction.tags);
       setSplitMode(hasSplits);
       setSplitRows(
@@ -153,6 +159,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       setForm({ ...EMPTY_FORM, account_id: accounts?.[0] ? String(accounts[0].id) : "" });
       setRateEdited(false);
       setAmountEdited(false);
+      setCategoryEdited(false);
       setTags([]);
       setSplitMode(false);
       setSplitRows([emptySplitRow(), emptySplitRow()]);
@@ -210,6 +217,18 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
     ? divideDecimal(form.transfer_amount, form.amount, 6)
     : null;
 
+  // What the saved rules would decide for what has been typed so far. This is
+  // the same answer the create path acts on, so the category shown here is the
+  // one that would be stored anyway — visible while filling the form rather
+  // than appearing after the fact.
+  const categoryMatch = useCategorizationMatch({
+    description: form.description,
+    amount: form.amount,
+    currency: transactionCurrency,
+    account_id: form.account_id ? Number(form.account_id) : undefined,
+    transaction_type: form.type,
+  });
+
   // Fills the rate field from the official NBK rate as soon as it loads, and
   // keeps the account-side debit in step with it — but never overwrites a rate
   // or a debit the user typed themselves.
@@ -221,6 +240,17 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       amount: amountEdited ? prev.amount : debitFor(prev.transaction_amount, suggestedRate),
     }));
   }, [suggestedRate, isForeignCurrency, rateEdited, amountEdited]);
+
+  // Pre-selects what the rules decided, so the value is on screen while the
+  // form is still open. It never touches a category the user chose, and never
+  // runs while editing an existing row — the backend doesn't re-decide those
+  // either.
+  useEffect(() => {
+    if (transaction || categoryEdited || splitMode) return;
+    const suggested = categoryMatch.data?.category_id;
+    if (!suggested) return;
+    setForm((prev) => (prev.category_id ? prev : { ...prev, category_id: String(suggested) }));
+  }, [categoryMatch.data, transaction, categoryEdited, splitMode]);
 
   function updateSplitRow(key: string, patch: Partial<SplitRowState>) {
     setSplitRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
@@ -317,6 +347,9 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   }
 
   function handleBaseCategoryChange(value: string) {
+    // A deliberate pick, including clearing the field — from here on the rules
+    // leave this alone.
+    setCategoryEdited(true);
     setForm((prev) => ({ ...prev, category_id: value }));
     if (splitMode) setSplitRows([emptySplitRow(), emptySplitRow()]);
   }
@@ -669,6 +702,13 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                 </option>
               ))}
             </Select>
+
+            {categoryMatch.data?.rule_name &&
+              String(categoryMatch.data.category_id) === form.category_id && (
+                <p className="mt-1.5 text-xs text-text-muted">
+                  {t("transactions.form.matchedRule", { name: categoryMatch.data.rule_name })}
+                </p>
+              )}
 
             {splitMode && (
               <div className="mt-2 space-y-2">

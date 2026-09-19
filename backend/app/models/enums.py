@@ -33,6 +33,7 @@ class TransactionPurpose(str, enum.Enum):
     ORDINARY = "ordinary"
     INVESTMENT_TRADE = "investment_trade"
     DIVIDEND = "dividend"
+    COUPON = "coupon"
     FEE = "fee"
     TAX = "tax"
 

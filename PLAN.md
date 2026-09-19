@@ -4,6 +4,55 @@ This file is the source of truth for the fork's roadmap. Feature work starts
 from `develop`; fixes use `fix/*` branches and product work uses `feature/*`
 branches. A branch updates this checklist before it is merged.
 
+## Current state — resume here
+
+_Last updated on the `feature/freedom-import` branch._
+
+### Where the work lives
+
+| Branch | Contains | In `develop`? |
+|---|---|---|
+| `feature/multi-currency-transactions` | Transaction-level currency, account currency, dashboard total balance | no |
+| `feature/freedom-import` | the above (merged in) **plus** the bank-statement import pipeline | no |
+
+`feature/freedom-import` is the tip of the work — `develop` plus 11 commits — and
+passes everything. Nothing has been pushed to a remote.
+
+### Verified state
+
+- `pytest`: **175 passed**, run on a freshly rebuilt backend image.
+- `vitest`: **58 passed**; `npm run build` clean.
+- `docker compose up -d --build` → all three containers healthy,
+  `alembic current` = `a3f1c8d24b76 (head)`, `/api/health` → 200,
+  Basic Auth enabled (`/auth-status.json` → `{"enabled":true}`).
+- The Tradernet adapter was run against the real `bills/tradernet_table.xlsx`:
+  155 rows, 104 importable, 0 warnings, dates 2021-03-24 … 2026-09-08.
+
+### Blocked, or waiting on a decision
+
+1. **Nothing is merged into `develop`.** The order that keeps history readable is
+   `feature/multi-currency-transactions` first, then `feature/freedom-import`
+   (which already contains the former).
+2. **Tradernet trades/securities cannot be imported from the cash-movement
+   export.** That file carries a commission row per trade (trade id, side,
+   ticker) but no quantity and no price — those live in the broker's *trades*
+   report, which is not in `bills/`. The Investments-side import needs that
+   fixture before it can start.
+3. **Kaspi/Halyk need OCR.** `bills/kaspi.pdf` is a scan with no text layer.
+   `bills/freedom.pdf` has a text layer, but its table columns are reflowed and
+   the layout is not reliable enough to parse.
+
+### Next, in order
+
+1. Merge both branches into `develop` (order above), then run CI there.
+2. `feature/auto-categorization` — ordered user rules applied during import
+   preview and manual entry. Stacked on `feature/freedom-import`, because the
+   preview is exactly where a rule pays off.
+3. Server-side cross-rate endpoint, so the transaction form stops resolving a
+   cross rate from two client-side NBK lookups.
+4. Investments import from the broker trades report — needs a fixture (see above).
+5. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
+
 ## Delivery order
 
 - [x] `fix/basic-auth` — native browser Basic Auth for the whole site

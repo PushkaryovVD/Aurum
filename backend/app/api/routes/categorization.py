@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session
 from app.schemas.categorization import (
+    CategorizationMatchRead,
+    CategorizationMatchRequest,
     CategorizationRuleCreate,
     CategorizationRuleRead,
     CategorizationRuleReorder,
@@ -14,6 +16,7 @@ from app.services.categorization_service import (
     create_rule,
     delete_rule,
     list_rules_read,
+    match_for_transaction,
     reorder_rules,
     update_rule,
 )
@@ -32,6 +35,36 @@ async def create_rule_route(
     payload: CategorizationRuleCreate, session: AsyncSession = Depends(get_session)
 ) -> CategorizationRuleRead:
     return await create_rule(session, payload)
+
+
+@router.post("/match", response_model=CategorizationMatchRead)
+async def match_rule_route(
+    payload: CategorizationMatchRequest, session: AsyncSession = Depends(get_session)
+) -> CategorizationMatchRead:
+    """Which rule would decide a transaction of this shape, and the category it
+    would assign.
+
+    The entry form asks this while the user types, so a category arrives with
+    the reason attached instead of appearing by itself once the row is saved.
+    """
+    matched = await match_for_transaction(
+        session,
+        description=payload.description,
+        merchant=payload.merchant,
+        amount=payload.amount,
+        currency=payload.currency,
+        account_id=payload.account_id,
+        transaction_type=payload.transaction_type,
+    )
+    if matched is None:
+        return CategorizationMatchRead()
+    return CategorizationMatchRead(
+        rule_id=matched.id,
+        rule_name=matched.name,
+        category_id=matched.category_id,
+        category_name=matched.category.name if matched.category else None,
+        category_color=matched.category.color if matched.category else None,
+    )
 
 
 @router.post("/reorder", response_model=list[CategorizationRuleRead])

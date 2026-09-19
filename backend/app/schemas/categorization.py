@@ -99,3 +99,37 @@ class RuleApplyResult(BaseModel):
     matched: int
     written: int
     items: list[RuleEffectItem]
+
+
+class CategorizationMatchRequest(BaseModel):
+    """A candidate transaction, described the way a rule sees it.
+
+    The entry form asks "what would this become?" before anything is saved, so
+    the answer comes from the same matcher the create path acts on.
+    """
+
+    description: str = Field(min_length=1, max_length=255)
+    merchant: str | None = None
+    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    currency: str = Field(min_length=3, max_length=3)
+    account_id: int
+    transaction_type: TransactionType
+
+    @field_validator("currency")
+    @classmethod
+    def _uppercase_currency(cls, value: str) -> str:
+        return value.upper()
+
+
+class CategorizationMatchRead(BaseModel):
+    """The rule that would decide this transaction, or nothing.
+
+    No match is a real answer rather than an error: it means no enabled rule
+    applies and the category is the user's to pick.
+    """
+
+    rule_id: int | None = None
+    rule_name: str | None = None
+    category_id: int | None = None
+    category_name: str | None = None
+    category_color: str | None = None

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.categorization_rule import CategorizationRule
-from app.models.enums import MatchType, TransactionType
+from app.models.enums import CategoryKind, MatchType, TransactionType
 from app.models.transaction import Transaction
 from app.schemas.categorization import (
     CategorizationRuleCreate,
@@ -301,3 +301,63 @@ async def apply_rules(
         written=written,
         items=items,
     )
+
+
+async def match_for_transaction(
+    session: AsyncSession,
+    *,
+    description: str,
+    merchant: str | None,
+    amount: Decimal,
+    currency: str,
+    account_id: int,
+    transaction_type: TransactionType,
+) -> CategorizationRule | None:
+    """The first rule that matches a transaction of this shape, or None.
+
+    Used by the create path and by the entry form's live suggestion, so the two
+    can never disagree about what a rule set does.
+    """
+    rules = await list_rules(session)
+    return match_rule(
+        compile_rules(rules),
+        description=description,
+        merchant=merchant,
+        amount=amount,
+        currency=currency,
+        account_id=account_id,
+        transaction_type=transaction_type,
+    )
+
+
+async def category_for_transaction(
+    session: AsyncSession,
+    *,
+    description: str,
+    merchant: str | None,
+    amount: Decimal,
+    currency: str,
+    account_id: int,
+    transaction_type: TransactionType,
+    expected_kind: CategoryKind | None = None,
+) -> int | None:
+    """The category the saved rules would assign to a transaction of this shape.
+
+    `expected_kind` guards the ordinary mistake of a rule written for expenses
+    matching an income transaction: that match is skipped rather than stored as
+    a category contradicting the transaction's own type.
+    """
+    matched = await match_for_transaction(
+        session,
+        description=description,
+        merchant=merchant,
+        amount=amount,
+        currency=currency,
+        account_id=account_id,
+        transaction_type=transaction_type,
+    )
+    if matched is None:
+        return None
+    if expected_kind is not None and matched.category is not None and matched.category.kind != expected_kind:
+        return None
+    return matched.category_id

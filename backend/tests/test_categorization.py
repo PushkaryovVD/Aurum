@@ -179,3 +179,115 @@ async def test_editing_a_rule_revalidates_its_pattern(client: AsyncClient, categ
     renamed = await client.patch(f"/categorization-rules/{rule['id']}", json={"name": "Renamed"})
     assert renamed.status_code == 200
     assert renamed.json()["name"] == "Renamed"
+
+
+async def test_a_rule_fills_in_the_category_on_a_new_transaction(client: AsyncClient, categories, account_id):
+    """The rule runs as a transaction is entered, not only in a batch."""
+    groceries = categories["Groceries"]["id"]
+    await _rule(client, name="Яндекс", pattern="яндекс", category_id=groceries)
+
+    created = (
+        await client.post("/transactions", json=_txn(account_id, description="Яндекс Такси"))
+    ).json()
+
+    assert created["category_id"] == groceries
+
+
+async def test_an_explicit_category_is_never_overruled(client: AsyncClient, categories, account_id):
+    dining = categories["Dining Out"]["id"]
+    await _rule(client, name="Яндекс", pattern="яндекс", category_id=categories["Groceries"]["id"])
+
+    created = (
+        await client.post(
+            "/transactions",
+            json=_txn(account_id, description="Яндекс Такси", category_id=dining),
+        )
+    ).json()
+
+    assert created["category_id"] == dining
+
+
+async def test_a_rule_pointing_at_the_wrong_kind_is_skipped(client: AsyncClient, categories, account_id):
+    """A rule written for expenses must not label an income transaction with an
+    expense category — that would misclassify it in every report. It is skipped
+    rather than raising, because a 400 would block an entry the user wants."""
+    await _rule(client, name="Яндекс", pattern="яндекс", category_id=categories["Groceries"]["id"])
+
+    created = (
+        await client.post(
+            "/transactions",
+            json=_txn(account_id, type="income", description="Яндекс Такси"),
+        )
+    ).json()
+
+    assert created["category_id"] is None
+
+
+async def test_bulk_create_applies_rules_too(client: AsyncClient, categories, account_id):
+    """The CSV import posts to /bulk, so it has to behave like the single create."""
+    groceries = categories["Groceries"]["id"]
+    await _rule(client, name="Яндекс", pattern="яндекс", category_id=groceries)
+
+    resp = await client.post(
+        "/transactions/bulk",
+        json={
+            "items": [
+                _txn(account_id, description="Яндекс Такси"),
+                _txn(account_id, description="Кофе"),
+            ]
+        },
+    )
+    assert resp.status_code == 201
+
+    listed = (await client.get("/transactions")).json()["items"]
+    by_description = {item["description"]: item for item in listed}
+    assert by_description["Яндекс Такси"]["category_id"] == groceries
+    assert by_description["Кофе"]["category_id"] is None
+
+
+async def test_the_match_endpoint_reports_which_rule_would_decide(
+    client: AsyncClient, categories, account_id
+):
+    """What the entry form shows the user while they type — the same answer the
+    create path then acts on."""
+    groceries = categories["Groceries"]["id"]
+    await _rule(client, name="Яндекс", pattern="яндекс", category_id=groceries)
+
+    body = (
+        await client.post(
+            "/categorization-rules/match",
+            json={
+                "description": "Яндекс Такси",
+                "amount": "10.00",
+                "currency": "KZT",
+                "account_id": account_id,
+                "transaction_type": "expense",
+            },
+        )
+    ).json()
+
+    assert body["rule_name"] == "Яндекс"
+    assert body["category_id"] == groceries
+    assert body["category_name"] == "Groceries"
+
+
+async def test_the_match_endpoint_says_nothing_when_no_rule_applies(
+    client: AsyncClient, categories, account_id
+):
+    await _rule(client, name="Яндекс", pattern="яндекс", category_id=categories["Groceries"]["id"])
+
+    body = (
+        await client.post(
+            "/categorization-rules/match",
+            json={
+                "description": "Кофе",
+                "amount": "10.00",
+                "currency": "KZT",
+                "account_id": account_id,
+                "transaction_type": "expense",
+            },
+        )
+    ).json()
+
+    assert body["rule_id"] is None
+    assert body["category_id"] is None

@@ -25,6 +25,7 @@ from app.schemas.transaction import (
     split_rule_violation,
     transfer_rule_violation,
 )
+from app.services.categorization_service import category_for_transaction
 from app.services.exchange_rate_service import get_exchange_rate
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
@@ -193,6 +194,33 @@ async def _build_splits(
     return [TransactionSplit(category_id=s.category_id, amount=s.amount, note=s.note) for s in splits]
 
 
+async def _apply_categorization_rule(session: AsyncSession, fields: dict) -> None:
+    """Fills `category_id` in from the saved rules when the caller left it out.
+
+    Only ever fills a gap — a category the caller chose is never overruled,
+    which is the same rule the bulk apply follows. A rule that matches but
+    points at a category of the wrong kind is skipped rather than raising: the
+    rule was written for something else, and a 400 would block an entry the user
+    is otherwise happy with.
+    """
+    if fields.get("category_id") is not None:
+        return
+    expected_kind = _TYPE_TO_CATEGORY_KIND.get(fields["type"])
+    if expected_kind is None:
+        # A transfer carries no category, so there is nothing for a rule to set.
+        return
+    fields["category_id"] = await category_for_transaction(
+        session,
+        description=fields.get("description") or "",
+        merchant=fields.get("merchant"),
+        amount=fields["amount"],
+        currency=fields.get("currency") or "",
+        account_id=fields["account_id"],
+        transaction_type=fields["type"],
+        expected_kind=expected_kind,
+    )
+
+
 @router.get("", response_model=TransactionPage)
 async def list_transactions(
     year: int | None = Query(default=None, ge=2000, le=2100),
@@ -291,6 +319,9 @@ async def create_transaction(payload: TransactionCreate, session: AsyncSession =
     await _ensure_category_matches_type(session, payload.category_id, payload.type)
     fields = payload.model_dump(exclude={"tag_ids", "splits"})
     fields = await _currency_fields(session, fields)
+    # Nobody picked a category — let the saved rules decide, exactly as the
+    # import preview does.
+    await _apply_categorization_rule(session, fields)
     transaction = Transaction(**fields)
     transaction.tags = await _resolve_tags(session, payload.tag_ids)
     if payload.splits:
@@ -316,6 +347,7 @@ async def bulk_create_transactions(
     transactions = []
     for item in payload.items:
         fields = await _currency_fields(session, item.model_dump(exclude={"tag_ids", "splits"}))
+        await _apply_categorization_rule(session, fields)
         transaction = Transaction(**fields)
         transaction.tags = await _resolve_tags(session, item.tag_ids)
         if item.splits:

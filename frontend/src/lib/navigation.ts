@@ -6,6 +6,7 @@ import {
   Flag,
   Layers,
   Lightbulb,
+  ListChecks,
   LayoutDashboard,
   PieChart,
   Repeat,
@@ -35,6 +36,9 @@ export const NAV_ITEMS: NavItem[] = [
   { labelKey: "nav.transactions", to: "/transactions", icon: ArrowLeftRight },
   { labelKey: "nav.accounts", to: "/accounts", icon: Layers },
   { labelKey: "nav.categories", to: "/categories", icon: Tags },
+  // Sits next to Categories on purpose: the rules are what decides which
+  // category a transaction lands in, so the two are edited together.
+  { labelKey: "nav.rules", to: "/rules", icon: ListChecks },
   { labelKey: "nav.cashFlow", to: "/cash-flow", icon: Activity },
   { labelKey: "nav.reports", to: "/reports", icon: PieChart },
   { labelKey: "nav.budget", to: "/budget", icon: Target },

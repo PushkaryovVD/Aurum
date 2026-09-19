@@ -87,3 +87,15 @@ class RiskLevel(str, enum.Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class MatchType(str, enum.Enum):
+    """How a categorization rule reads its pattern.
+
+    CONTAINS is a plain, case-insensitive substring test — the mode a
+    non-technical user can be trusted with. REGEX is for the rest, and is
+    validated and bounded at match time (see services/categorization_service.py)
+    rather than being trusted with whatever the user typed."""
+
+    CONTAINS = "contains"
+    REGEX = "regex"

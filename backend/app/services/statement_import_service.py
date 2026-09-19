@@ -18,7 +18,48 @@ from app.models.account import Account
 from app.models.enums import ExchangeRateSource
 from app.models.transaction import Transaction
 from app.schemas.statement_import import StatementCommit, StatementCommitResult, StatementRow
+from app.services.categorization_service import compile_rules, list_rules, match_rule
 from app.services.exchange_rate_service import get_exchange_rate
+
+
+async def suggest_row_categories(
+    session: AsyncSession,
+    rows: list[StatementRow],
+    *,
+    account_by_currency: dict[str, int] | None = None,
+) -> None:
+    """Fills in `category_id` — and the name of the rule that chose it — on rows
+    that don't have one yet.
+
+    `account_by_currency` is what the caller intends to import into. It is None
+    at preview time, before the user has picked any account, so rules scoped to
+    a specific account are left to the commit rather than guessed at: a preview
+    that showed a category the commit then contradicted would be worse than one
+    that admits it cannot decide yet.
+    """
+    rules = await list_rules(session)
+    if account_by_currency is None:
+        rules = [rule for rule in rules if rule.account_id is None]
+    compiled = compile_rules(rules)
+    for row in rows:
+        if row.category_id is not None or not row.importable:
+            continue
+        matched = match_rule(
+            compiled,
+            description=row.description,
+            # A bank puts the payee in its own comment column, which the
+            # adapter stores as `details` — so that is what stands in for the
+            # merchant here. The user sees both columns in the preview, and a
+            # rule should match the text they can actually see.
+            merchant=row.details,
+            amount=row.amount,
+            currency=row.currency,
+            account_id=(account_by_currency or {}).get(row.currency.upper()),
+            transaction_type=row.type,
+        )
+        if matched is not None:
+            row.category_id = matched.category_id
+            row.matched_rule = matched.name
 
 
 def _import_key(row: StatementRow) -> str:
@@ -97,6 +138,14 @@ async def commit_statement(session: AsyncSession, payload: StatementCommit) -> S
     """
     importable = [row for row in payload.rows if row.importable]
     accounts = await _destination_accounts(session, payload)
+    # Rules the preview could not decide — those scoped to a specific account —
+    # get their chance now that the destination is known. Rows that already
+    # carry a category (the user's own choice, or a preview match) are untouched.
+    await suggest_row_categories(
+        session,
+        importable,
+        account_by_currency={currency: account.id for currency, account in accounts.items()},
+    )
 
     rows_by_account: dict[int, list[StatementRow]] = defaultdict(list)
     for row in importable:

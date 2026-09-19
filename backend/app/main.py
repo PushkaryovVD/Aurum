@@ -11,6 +11,7 @@ from app.api.routes import (
     budgets,
     cash_flow,
     categories,
+    categorization,
     crypto,
     dashboard,
     exchange_rates,
@@ -76,6 +77,7 @@ if cors_origins:
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(accounts.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")
+app.include_router(categorization.router, prefix="/api")
 app.include_router(transactions.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
 app.include_router(net_worth.router, prefix="/api")

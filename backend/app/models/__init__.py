@@ -1,6 +1,7 @@
 from app.models.account import Account
 from app.models.asset import Asset, AssetValuation
 from app.models.budget import Budget
+from app.models.categorization_rule import CategorizationRule
 from app.models.category import Category
 from app.models.crypto import CryptoHolding, CryptoPortfolio, CryptoSyncState, CryptoTransaction
 from app.models.exchange_rate import ExchangeRate
@@ -17,6 +18,7 @@ __all__ = [
     "Asset",
     "AssetValuation",
     "Budget",
+    "CategorizationRule",
     "Category",
     "CryptoHolding",
     "CryptoPortfolio",

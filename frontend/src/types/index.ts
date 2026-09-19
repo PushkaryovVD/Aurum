@@ -8,11 +8,58 @@ export interface StatementRow {
   source_row: string; external_id: string; date: string; type: TransactionType; amount: string;
   currency: string; description: string; details: string | null; purpose: TransactionPurpose;
   security_symbol: string | null; category_id: number | null; importable: boolean; warning: string | null;
+  // Name of the categorization rule that chose `category_id`, when one did —
+  // shown next to the category so it's clear where the value came from.
+  matched_rule: string | null;
 }
 export interface StatementPreview {
   provider: string; provider_label: string; file_name: string; rows: StatementRow[]; warnings: string[];
 }
 export interface StatementCommitResult { created: number; duplicates: number; ignored: number }
+
+export type RuleMatchType = "contains" | "regex";
+
+export interface CategorizationRule {
+  id: number;
+  priority: number;
+  is_enabled: boolean;
+  name: string;
+  match_type: RuleMatchType;
+  pattern: string;
+  amount_min: string | null;
+  amount_max: string | null;
+  currency: string | null;
+  account_id: number | null;
+  transaction_type: TransactionType | null;
+  category_id: number;
+  category_name: string | null;
+  category_color: string | null;
+}
+
+export interface CategorizationRuleInput {
+  name: string;
+  match_type: RuleMatchType;
+  pattern: string;
+  amount_min?: string | null;
+  amount_max?: string | null;
+  currency?: string | null;
+  account_id?: number | null;
+  transaction_type?: TransactionType | null;
+  category_id: number;
+  is_enabled: boolean;
+}
+
+export type CategorizationRuleUpdateInput = Partial<CategorizationRuleInput>;
+
+export interface RuleEffectItem { rule_id: number; name: string; matched: number; samples: string[] }
+
+export interface RuleApplyResult {
+  dry_run: boolean;
+  considered: number;
+  matched: number;
+  written: number;
+  items: RuleEffectItem[];
+}
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 export type SecurityTradeType = "buy" | "sell";
 

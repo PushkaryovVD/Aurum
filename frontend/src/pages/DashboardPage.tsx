@@ -3,6 +3,7 @@ import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { SpendingByCategoryCard } from "@/components/dashboard/SpendingByCategoryCard";
+import { TotalBalanceCard } from "@/components/dashboard/TotalBalanceCard";
 import { RecentTransactionsCard } from "@/components/dashboard/RecentTransactionsCard";
 import { AlertBanner } from "@/components/insights/AlertBanner";
 import { useDashboardSummary } from "@/hooks/useDashboard";
@@ -47,6 +48,8 @@ export function DashboardPage() {
           {t("dashboard.errorLoading")}
         </p>
       )}
+
+      <TotalBalanceCard balance={data?.balance} isLoading={isLoading} />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard

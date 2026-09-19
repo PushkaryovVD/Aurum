@@ -35,10 +35,15 @@ class Transaction(Base, TimestampMixin):
     exchange_rate_source: Mapped[ExchangeRateSource | None] = mapped_column(
         Enum(ExchangeRateSource, name="exchange_rate_source", native_enum=False, length=10), nullable=True
     )
-    # Optional merchant/original-currency information for a card purchase.
-    original_amount: Mapped[Numeric | None] = mapped_column(Numeric(14, 2), nullable=True)
-    original_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
-    original_to_account_rate: Mapped[Numeric | None] = mapped_column(Numeric(20, 10), nullable=True)
+    # Ledger currency of this transaction — the currency the user actually
+    # paid in, which is not necessarily the account's. A card purchase abroad
+    # is denominated here in the foreign currency while `amount` still holds
+    # what the account was really debited; defaults to the account currency.
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="KZT")
+    # Amount in `currency`. Equals `amount` for a same-currency operation and
+    # differs from it only when the transaction and account currencies don't
+    # match (then the effective rate is amount / transaction_amount).
+    transaction_amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
     # Destination-side movement for a transfer. It equals amount for same-
     # currency accounts and may differ for FX transfers.
     transfer_amount: Mapped[Numeric | None] = mapped_column(Numeric(14, 2), nullable=True)

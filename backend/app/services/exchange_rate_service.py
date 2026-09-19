@@ -42,7 +42,7 @@ def _parse_rate(xml: bytes, currency: str) -> Decimal | None:
 
 
 async def get_exchange_rate(
-    session: AsyncSession, requested_date: date_, currency: str, *, force: bool = False
+    session: AsyncSession, requested_date: date_, currency: str, *, force: bool = False, timeout: float = 10.0
 ) -> ExchangeRate:
     currency = currency.upper()
     if currency == "KZT":
@@ -67,7 +67,7 @@ async def get_exchange_rate(
         return existing
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             for offset in range(MAX_PREVIOUS_DAYS + 1):
                 effective_date = requested_date - timedelta(days=offset)
                 response = await client.get(

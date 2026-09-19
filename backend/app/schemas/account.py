@@ -39,6 +39,11 @@ class AccountWithBalance(AccountRead):
     """The Accounts page's shape — adds the live balance (see
     services/account_service.py), summed from Transaction rows rather than
     stored, the same "derive it" approach net_worth_service.py uses for
-    Cash. Used only by /api/accounts' own endpoints, never nested."""
+    Cash. Used only by /api/accounts' own endpoints, never nested.
+
+    `transaction_count` rides along because it decides whether the account's
+    currency can still be edited: an account whose history is recorded in one
+    currency can't silently become another (see update_account)."""
 
     balance: Decimal
+    transaction_count: int

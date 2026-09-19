@@ -17,7 +17,12 @@ from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate, AccountWithBalance
 
 
-async def _account_balances(session: AsyncSession) -> dict[int, Decimal]:
+async def account_balances(session: AsyncSession) -> tuple[dict[int, Decimal], dict[int, int]]:
+    """Every account's live balance and how many transactions it holds, in one
+    pass. The balance feeds the Accounts page and the Dashboard's totals; the
+    count is what tells the UI whether an account's currency can still be
+    changed (see update_account).
+    """
     result = await session.execute(
         select(
             Transaction.type,
@@ -28,7 +33,11 @@ async def _account_balances(session: AsyncSession) -> dict[int, Decimal]:
         )
     )
     balances: dict[int, Decimal] = defaultdict(Decimal)
+    counts: dict[int, int] = defaultdict(int)
     for tx_type, amount, transfer_amount, account_id, transfer_account_id in result.all():
+        # A transfer row belongs to its source account — that's the side whose
+        # currency the row is denominated in.
+        counts[account_id] += 1
         if tx_type == TransactionType.INCOME:
             balances[account_id] += amount
         elif tx_type == TransactionType.EXPENSE:
@@ -37,10 +46,10 @@ async def _account_balances(session: AsyncSession) -> dict[int, Decimal]:
             balances[account_id] -= amount
             if transfer_account_id is not None:
                 balances[transfer_account_id] += transfer_amount if transfer_amount is not None else amount
-    return balances
+    return balances, counts
 
 
-def _to_read(account: Account, balance: Decimal) -> AccountWithBalance:
+def _to_read(account: Account, balance: Decimal, transaction_count: int) -> AccountWithBalance:
     return AccountWithBalance(
         id=account.id,
         name=account.name,
@@ -49,6 +58,7 @@ def _to_read(account: Account, balance: Decimal) -> AccountWithBalance:
         color=account.color,
         is_archived=account.is_archived,
         balance=balance,
+        transaction_count=transaction_count,
     )
 
 
@@ -57,8 +67,11 @@ async def list_accounts(session: AsyncSession, include_archived: bool) -> list[A
     if not include_archived:
         stmt = stmt.where(Account.is_archived.is_(False))
     accounts = (await session.execute(stmt)).scalars().all()
-    balances = await _account_balances(session)
-    return [_to_read(account, balances.get(account.id, Decimal("0"))) for account in accounts]
+    balances, counts = await account_balances(session)
+    return [
+        _to_read(account, balances.get(account.id, Decimal("0")), counts.get(account.id, 0))
+        for account in accounts
+    ]
 
 
 async def create_account(session: AsyncSession, payload: AccountCreate) -> AccountWithBalance:
@@ -67,19 +80,39 @@ async def create_account(session: AsyncSession, payload: AccountCreate) -> Accou
     await session.commit()
     await session.refresh(account)
     # A brand-new account has no transactions yet — no need to query.
-    return _to_read(account, Decimal("0"))
+    return _to_read(account, Decimal("0"), 0)
 
 
 async def update_account(session: AsyncSession, account_id: int, payload: AccountUpdate) -> AccountWithBalance:
     account = await session.get(Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+
+    new_currency = updates.get("currency")
+    if new_currency is not None and new_currency.upper() != account.currency.upper():
+        # Every existing transaction on this account is recorded in the old
+        # currency: its amount, its KZT snapshot and its own transaction
+        # currency were all derived from it. Re-labelling the account would
+        # silently reinterpret that history (a 100 KZT balance becoming 100
+        # USD), so the change is refused outright rather than converted — a
+        # clear error beats a wrong number.
+        _, counts = await account_balances(session)
+        if counts.get(account_id, 0) > 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Account currency cannot be changed while the account has transactions — "
+                    "its history is recorded in the current currency. Create a separate account instead."
+                ),
+            )
+
+    for field, value in updates.items():
         setattr(account, field, value)
     await session.commit()
     await session.refresh(account)
-    balances = await _account_balances(session)
-    return _to_read(account, balances.get(account.id, Decimal("0")))
+    balances, counts = await account_balances(session)
+    return _to_read(account, balances.get(account.id, Decimal("0")), counts.get(account.id, 0))
 
 
 async def delete_account(session: AsyncSession, account_id: int) -> None:

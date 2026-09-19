@@ -23,6 +23,7 @@ like Postman/Insomnia.
 - [Categories](#categories)
 - [Tags](#tags)
 - [Transactions](#transactions)
+- [Bank Statement Import](#bank-statement-import)
 - [Recurring Transactions](#recurring-transactions)
 - [Budgets](#budgets)
 - [Goals](#goals)
@@ -152,8 +153,11 @@ stored — there's no "set balance" endpoint.
 
 - `name`: required, 1–100 chars.
 - `type`: optional, defaults to `checking`.
-- `currency`: optional 3-letter code, defaults to `USD`. Purely a display label — not validated
-  against ISO 4217 and not used for conversion.
+- `currency`: optional 3-letter code, defaults to `USD`. It is the account's real ledger
+  currency: every transaction on the account is debited in it, and it is what the dashboard's
+  total balance converts *from*. Changing it on an account that already has transactions is
+  refused with `422` — that history is recorded in the current currency, and re-labelling it
+  would silently reinterpret it. Create a second account instead.
 - `color`: optional hex color.
 - `is_archived` (update only): archive/unarchive without deleting. An archived account is hidden
   from the default account list but its transactions and balance remain intact.
@@ -168,9 +172,102 @@ stored — there's no "set balance" endpoint.
   "currency": "USD",
   "color": "#4f46e5",
   "is_archived": false,
-  "balance": "1523.40"
+  "balance": "1523.40",
+  "transaction_count": 42
 }
 ```
+
+`transaction_count` is what tells a client whether the currency can still be edited.
+
+## Bank Statement Import
+
+Import a bank or broker document in four steps: upload it, review what the parser recognised,
+correct anything it got wrong, and only then write it. **The parse step never touches the
+database** — nothing reaches the ledger until `commit` runs.
+
+Each supported bank is a separate adapter (`backend/app/importers/`), picked by file extension.
+Adding a bank means adding a module and registering it, not adding another branch to a shared
+parser.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/statement-imports/preview` | Upload a statement (`multipart/form-data`, field `file`). Returns the recognised rows and any warnings. Writes nothing. |
+| `POST` | `/statement-imports/commit` | Write the reviewed rows. |
+
+**Supported formats**
+
+| Adapter | `provider` | File | Notes |
+|---|---|---|---|
+| Tradernet Global / Freedom Broker | `tradernet` | `.xlsx` | Cash-movement export with columns `Операция №`, `Дата`, `Операция`, `Комментарий`, `Сумма`, `Валюта`. Dates may arrive as Excel serial numbers. |
+
+The upload limit is 10 MB.
+
+**Preview response** (`StatementPreview`):
+
+```json
+{
+  "provider": "tradernet",
+  "provider_label": "Tradernet Global / Freedom Broker",
+  "file_name": "tradernet_table.xlsx",
+  "rows": [
+    {
+      "source_row": "sheet!2",
+      "external_id": "tradernet:122938169",
+      "date": "2026-09-08",
+      "type": "income",
+      "amount": "2331.47",
+      "currency": "KZT",
+      "description": "Дивиденды",
+      "details": "Дивиденды по бумаге (Народный банк Казахстана (HSBK.KZ)), дата среза 2026-08-25.",
+      "purpose": "dividend",
+      "security_symbol": "HSBK.KZ",
+      "category_id": null,
+      "importable": true,
+      "warning": null
+    }
+  ],
+  "warnings": []
+}
+```
+
+- `importable: false` marks a row the adapter recognised but won't post on its own — a card
+  reservation, a trade settlement, an internal transfer — with `warning` explaining why. Those
+  rows stay in the preview instead of disappearing, and `commit` never writes them.
+- `external_id` is the bank's own operation number, empty when the export doesn't identify its
+  rows; the commit then derives a stable digest of the row's content instead.
+- Every field is meant to be correctable: the commit payload uses the same row shape, and
+  whatever it contains is what gets stored.
+
+**Commit body** (`StatementCommit`):
+
+```json
+{
+  "provider": "tradernet",
+  "accounts_by_currency": { "KZT": 1, "USD": 4 },
+  "rows": []
+}
+```
+
+A row's `currency` picks its destination account from `accounts_by_currency`, which must be
+denominated in that currency. Imported rows follow the same currency rules as
+`POST /transactions`: `amount` is what the account is debited, `currency`/`transaction_amount`
+are the transaction's own figures (the same number here, since the account's currency is the
+row's), and the KZT snapshot comes from the official NBK rate for the row's date — left `null`
+when no rate could be obtained, exactly as manual entry does.
+
+**Duplicate protection** is keyed on `(destination account, external_id)`, matching the
+database's own unique constraint: re-uploading the same statement adds nothing, while importing
+the same document into a *different* account still works.
+
+**Commit response** (`StatementCommitResult`):
+
+```json
+{ "created": 104, "duplicates": 0, "ignored": 51 }
+```
+
+- `created` — rows written.
+- `duplicates` — rows whose key already existed on that account, skipped.
+- `ignored` — rows the adapter marked not importable.
 
 ## Categories
 
@@ -724,9 +821,30 @@ into an external dashboard without recomputing it yourself.
   "real_income": "5200.00", "spent": "3120.45", "net": "2079.55", "transferred_out": "500.00",
   "spending_by_category": [
     { "category_id": 4, "name": "Groceries", "color": "#22c55e", "icon": "shopping-cart", "amount": "612.30", "percent": 19.6 }
-  ]
+  ],
+  "balance": {
+    "reporting_currency": "KZT",
+    "total": "1523400.00",
+    "incomplete": false,
+    "items": [
+      { "currency": "KZT", "amount": "1200000.00", "amount_reporting": "1200000.00", "rate_to_kzt": "1", "rate_date": "2026-09-19" },
+      { "currency": "USD", "amount": "640.00", "amount_reporting": "323400.00", "rate_to_kzt": "505.3125", "rate_date": "2026-09-19" }
+    ]
+  }
 }
 ```
+
+The headline figures are scoped to `?year=&month=`; `balance` is **all-time** — the money
+currently sitting in the accounts. Each account holds its balance in its own currency, so the
+total is converted into the app's reporting currency through KZT (the currency the official rates
+are quoted in) using the latest cached NBK rate for each currency.
+
+- `amount_reporting` is `null` when no rate was available for that currency. Its balance stays
+  visible and `incomplete` becomes `true` — it is simply left out of `total` rather than
+  presented as though it were already in the reporting currency.
+- `rate_date` is the day the applied rate is effective for, so a stale rate is visible rather
+  than implied.
+- A zero balance needs no rate and always reports `0`.
 
 **`GET /cash-flow` response:**
 

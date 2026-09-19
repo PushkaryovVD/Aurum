@@ -11,6 +11,7 @@ branches. A branch updates this checklist before it is merged.
 - [x] `feature/bank-import` — currency-aware generic bank CSV import
 - [x] `feature/investments` — manual securities, trades and dividends
 - [x] `feature/transaction-currency-ux` — explicit currency context in the transaction form
+- [ ] `feature/multi-currency-transactions` — transaction-level currency with NBK cross rates
 - [ ] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
 - [ ] `feature/kz-bank-statements` — Kaspi/Halyk PDF statement adapters
 - [ ] `feature/auto-categorization` — explainable import rules and dry-run mapping
@@ -52,6 +53,10 @@ It must not be an unrelated free-form currency, because that would make the
 account balance ambiguous. The current form already follows this rule but does
 not explain it, which makes the amount and rate fields look incomplete.
 
+> Superseded by **Transaction-level currency** below — a transaction now carries
+> its own currency, and the account-currency figure is the derived one. This
+> checklist is kept as the record of what that milestone shipped.
+
 - [x] Show the selected account currency directly beside `Amount` and in every
   account option (`Main Account · KZT`, `USD Card · USD`).
 - [x] Rename the field to `Amount charged (KZT/USD/…)` after an account is selected;
@@ -73,6 +78,34 @@ not explain it, which makes the amount and rate fields look incomplete.
 - [x] Acceptance: a KZT expense, USD-account expense, USD-priced purchase charged
   to a KZT card, and KZT→USD transfer can each be entered without guessing what
   any amount means; create/edit round trips preserve all currency fields.
+
+### Transaction-level currency (`feature/multi-currency-transactions`)
+
+A transaction is now denominated in its own currency rather than its account's,
+superseding the rule above: paying 5 USD with a KZT card stores
+`currency="USD"`, `transaction_amount=5` and `amount=2650` — what the account
+was actually debited. `amount` therefore still drives every balance, report and
+net-worth figure unchanged, and the two figures can only differ for a
+foreign-currency operation.
+
+- [x] Replace the `original_amount`/`original_currency`/`original_to_account_rate`
+  triple with `currency` + `transaction_amount`, migrating existing rows: one
+  that carried merchant-currency detail becomes denominated in that currency,
+  every other row keeps the account's. `amount` is never rewritten, so no
+  balance moves.
+- [x] Resolve both fields server-side when a caller omits them (the account
+  currency and `amount` respectively), and reject a same-currency row whose two
+  figures disagree.
+- [x] Expose the transaction currency and the account-side debit as separate
+  fields in the form, with the NBK rate pre-filling the rate between them and
+  the effective rate derived as `amount / transaction_amount`.
+- [x] Keep reading the legacy `original_*` fields when importing a backup
+  exported before this change, so such a file restores with its
+  foreign-currency detail intact; never write them back out.
+- [x] Carry the new fields through CSV import, the transactions list, the
+  recurring "post now" action and the investment cash legs.
+- Known limitation: the cross rate is resolved client-side from two NBK lookups
+  divided through KZT. A server-side rate endpoint is out of scope here.
 
 ## Bank import
 

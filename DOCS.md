@@ -21,6 +21,7 @@ like Postman/Insomnia.
 - [Health Check](#health-check)
 - [Accounts](#accounts)
 - [Categories](#categories)
+- [Categorization Rules](#categorization-rules)
 - [Tags](#tags)
 - [Transactions](#transactions)
 - [Bank Statement Import](#bank-statement-import)
@@ -312,6 +313,70 @@ category, send `"parent_id": null` explicitly — omitting the field leaves the 
 A category that already has subcategories of its own can't be turned into a subcategory.
 
 **Response** (`CategoryRead`): same fields as create, plus `id` and `is_default`.
+
+## Categorization Rules
+
+Ordered rules that assign a category from what a transaction looks like. Rules are evaluated top to
+bottom and **the first enabled match wins** — a specific rule ("Yandex Go") only outranks a broad one
+("Yandex") if it sits above it, which is why the order is an editable thing rather than an implied one.
+
+The rules run in three places: the statement-import preview, so the user reviews a filled-in category
+and sees which rule chose it; the import commit, for rules scoped to an account (which cannot be
+decided until the destination is known); and — explicitly, never automatically — over transactions
+that already exist.
+
+**`RuleMatchType`:** `contains` (case-insensitive substring) · `regex`
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/categorization-rules` | List every rule, enabled or not, in evaluation order. |
+| `POST` | `/categorization-rules` | Create a rule. It is appended last — an existing, more specific rule keeps winning until the new one is moved up. |
+| `PATCH` | `/categorization-rules/{id}` | Update a rule (partial). Changing `pattern` or `match_type` revalidates the pattern. |
+| `DELETE` | `/categorization-rules/{id}` | Delete a rule. |
+| `POST` | `/categorization-rules/reorder` | Replace the whole order: `{"ordered_ids": [3, 1, 2]}`. Must list every existing rule exactly once — a partial order has no defined meaning and is a `422`. |
+| `POST` | `/categorization-rules/apply` | Run the saved rules over transactions that already exist. |
+
+**Create body:**
+
+```json
+{
+  "name": "Yandex Go",
+  "match_type": "contains",
+  "pattern": "yandex go",
+  "category_id": 7,
+  "amount_min": null,
+  "amount_max": null,
+  "currency": null,
+  "account_id": null,
+  "transaction_type": null,
+  "is_enabled": true
+}
+```
+
+- `name`: required, 1–100 chars.
+- `pattern`: required, 1–200 chars. Matched case-insensitively against the transaction's
+  `description` and `merchant` together — a bank export and a manual entry rarely agree on which of
+  the two carries the shop name, and the user writing "Yandex Go" shouldn't have to know.
+- `category_id`: required.
+- `amount_min` / `amount_max`: optional bounds on the transaction's amount. `null` means "don't
+  care" — a rule with no upper bound must not behave like one bounded at zero.
+- `currency`: optional, compared against the transaction's own currency, not the account's.
+- `account_id`: optional. A rule scoped to an account can only be decided once the destination
+  account is known, so it is skipped at preview time and applied at commit instead.
+- `transaction_type`: optional, `income` / `expense` / `transfer`.
+- `is_enabled`: optional bool, defaults to `true`.
+
+A `regex` pattern is validated on save: an uncompilable pattern, one longer than 200 characters, or
+one with nested quantifiers (`(a+)+`) is rejected with `422` rather than stored as a rule that hangs a
+request or silently never matches.
+
+**`POST /categorization-rules/apply`** takes `dry_run` (default **`true`**) and `only_uncategorized`
+(default **`true`**) as query parameters. A dry run reports exactly what would change and writes
+nothing — the only way to see what enabling or reordering a rule does before it does it. With
+`dry_run=false` the matching transactions get the rule's category; with the default
+`only_uncategorized=true`, transactions that already carry a category (including one the user chose
+by hand) are left alone, so a rule never quietly overrules a decision. The response reports, per rule,
+how many transactions it matched and a few example descriptions.
 
 ## Tags
 

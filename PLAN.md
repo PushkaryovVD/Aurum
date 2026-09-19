@@ -6,7 +6,7 @@ branches. A branch updates this checklist before it is merged.
 
 ## Current state — resume here
 
-_Last updated on the `feature/freedom-import` branch._
+_Last updated on the `feature/auto-categorization` branch._
 
 ### Where the work lives
 
@@ -14,25 +14,27 @@ _Last updated on the `feature/freedom-import` branch._
 |---|---|---|
 | `feature/multi-currency-transactions` | Transaction-level currency, account currency, dashboard total balance | no |
 | `feature/freedom-import` | the above (merged in) **plus** the bank-statement import pipeline | no |
+| `feature/auto-categorization` | the above (merged in) **plus** ordered categorization rules | no |
 
-`feature/freedom-import` is the tip of the work — `develop` plus 11 commits — and
-passes everything. Nothing has been pushed to a remote.
+These are stacked, not siblings: each branch contains its predecessor, so
+`feature/auto-categorization` is the tip — `develop` plus 12 commits. Nothing has
+been pushed to a remote.
 
 ### Verified state
 
-- `pytest`: **175 passed**, run on a freshly rebuilt backend image.
+- `pytest`: **185 passed** (10 of them new, covering the rules).
 - `vitest`: **58 passed**; `npm run build` clean.
-- `docker compose up -d --build` → all three containers healthy,
-  `alembic current` = `a3f1c8d24b76 (head)`, `/api/health` → 200,
-  Basic Auth enabled (`/auth-status.json` → `{"enabled":true}`).
 - The Tradernet adapter was run against the real `bills/tradernet_table.xlsx`:
   155 rows, 104 importable, 0 warnings, dates 2021-03-24 … 2026-09-08.
+- Migrations: head is `b7e2c4f19a35` (categorization rules). Every test run
+  creates a fresh database and migrates it, so the chain is exercised on each
+  run; the real database is migrated by the container entrypoint.
 
 ### Blocked, or waiting on a decision
 
-1. **Nothing is merged into `develop`.** The order that keeps history readable is
-   `feature/multi-currency-transactions` first, then `feature/freedom-import`
-   (which already contains the former).
+1. **Nothing is merged into `develop`.** Merge in stack order —
+   `feature/multi-currency-transactions`, then `feature/freedom-import`, then
+   `feature/auto-categorization` — and run CI after each one.
 2. **Tradernet trades/securities cannot be imported from the cash-movement
    export.** That file carries a commission row per trade (trade id, side,
    ticker) but no quantity and no price — those live in the broker's *trades*
@@ -44,12 +46,12 @@ passes everything. Nothing has been pushed to a remote.
 
 ### Next, in order
 
-1. Merge both branches into `develop` (order above), then run CI there.
-2. `feature/auto-categorization` — ordered user rules applied during import
-   preview and manual entry. Stacked on `feature/freedom-import`, because the
-   preview is exactly where a rule pays off.
-3. Server-side cross-rate endpoint, so the transaction form stops resolving a
+1. Merge the three branches into `develop` (stack order above), then run CI there.
+2. Server-side cross-rate endpoint, so the transaction form stops resolving a
    cross rate from two client-side NBK lookups.
+3. Run the rules while entering a transaction by hand. The backend already
+   decides this on commit and on import preview; the manual form does not call
+   it yet, so a typed-in transaction still starts with an empty category.
 4. Investments import from the broker trades report — needs a fixture (see above).
 5. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
 
@@ -63,7 +65,7 @@ passes everything. Nothing has been pushed to a remote.
 - [ ] `feature/multi-currency-transactions` — transaction-level currency with NBK cross rates
 - [ ] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
 - [ ] `feature/kz-bank-statements` — Kaspi/Halyk PDF statement adapters
-- [ ] `feature/auto-categorization` — explainable import rules and dry-run mapping
+- [x] `feature/auto-categorization` — ordered rules applied to import preview and bulk apply
 - [ ] `feature/envelope-budgeting` — monthly zero-based envelopes and rollover
 - [ ] `feature/asset-depreciation` — depreciation and quarterly revaluation
 - [ ] `feature/financial-precision` — end-to-end Decimal and rounding audit
@@ -268,6 +270,13 @@ parser's reading is a proposal, and only what the user confirms is written.
   historical transactions without a separate previewed bulk action.
 - Keep an optional classifier as a later local-only suggestion layer; it must
   expose confidence and never save categories without confirmation.
+
+Delivered: the rule model and matcher, CRUD with explicit reordering, the
+dry-run and the previewed bulk apply, and the rules page; the statement-import
+preview fills in a category and shows which rule chose it, and the commit
+re-runs the rules that need the destination account to decide. Not built yet:
+running the rules as a transaction is typed by hand, the "make this rule more
+specific" shortcut from a mismatch, and the optional local classifier.
 
 ## Envelope / zero-based budgeting (`feature/envelope-budgeting`)
 

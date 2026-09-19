@@ -41,6 +41,9 @@ export interface Account {
 // a silent `undefined` at runtime.
 export interface AccountWithBalance extends Account {
   balance: string;
+  // Decides whether the account's currency can still be edited: an account
+  // whose history is recorded in one currency cannot silently become another.
+  transaction_count: number;
 }
 
 export interface AccountInput {
@@ -229,6 +232,26 @@ export interface CategoryBreakdownItem {
   children: CategoryBreakdownChildItem[];
 }
 
+export interface CurrencyBalance {
+  currency: string;
+  amount: string;
+  // null when no exchange rate was available — the UI has to say so rather
+  // than present a foreign balance as if it were already in the reporting
+  // currency.
+  amount_reporting: string | null;
+  rate_to_kzt: string | null;
+  rate_date: string | null;
+}
+
+export interface BalanceSummary {
+  reporting_currency: string;
+  total: string;
+  // True when at least one currency had no usable rate — `total` then covers
+  // only the currencies that did convert.
+  incomplete: boolean;
+  items: CurrencyBalance[];
+}
+
 export interface DashboardSummary {
   year: number;
   month: number;
@@ -237,6 +260,8 @@ export interface DashboardSummary {
   net: string;
   transferred_out: string;
   spending_by_category: CategoryBreakdownItem[];
+  // All-time rather than month-scoped: the money currently in the accounts.
+  balance: BalanceSummary;
 }
 
 export type AssetClass = "investments" | "crypto" | "real_estate" | "vehicles" | "precious_metals" | "other";

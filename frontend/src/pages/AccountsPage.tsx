@@ -6,7 +6,7 @@ import { AccountList } from "@/components/accounts/AccountList";
 import { AccountFormModal } from "@/components/accounts/AccountFormModal";
 import { useAccounts, useDeleteAccount, useUpdateAccount } from "@/hooks/useAccounts";
 import { useTranslation } from "@/lib/i18n";
-import type { Account, AccountWithBalance } from "@/types";
+import type { AccountWithBalance } from "@/types";
 
 export function AccountsPage() {
   const { t } = useTranslation();
@@ -16,14 +16,16 @@ export function AccountsPage() {
   const deleteAccount = useDeleteAccount();
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  // The balance-bearing shape rather than a bare Account: its transaction_count
+  // is what tells the form whether the currency can still be edited.
+  const [editingAccount, setEditingAccount] = useState<AccountWithBalance | null>(null);
 
   function openCreateModal() {
     setEditingAccount(null);
     setModalOpen(true);
   }
 
-  function openEditModal(account: Account) {
+  function openEditModal(account: AccountWithBalance) {
     setEditingAccount(account);
     setModalOpen(true);
   }

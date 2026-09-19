@@ -3,30 +3,48 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { useCreateAccount, useUpdateAccount } from "@/hooks/useAccounts";
-import { useTranslation, type TranslationKey } from "@/lib/i18n";
-import type { Account, AccountType } from "@/types";
+import { CURRENCIES, getCurrencyLabel } from "@/lib/currency";
+import { getCurrency, useTranslation, type TranslationKey } from "@/lib/i18n";
+import type { AccountType, AccountWithBalance } from "@/types";
 
 interface AccountFormModalProps {
   open: boolean;
   onClose: () => void;
-  account?: Account | null;
+  /** The Accounts page's shape rather than a bare Account — its
+   * transaction_count is what decides whether the currency is still editable. */
+  account?: AccountWithBalance | null;
 }
 
 const ACCOUNT_TYPES: AccountType[] = ["checking", "debit_card", "savings", "credit_card", "cash", "investment", "other"];
 
-const EMPTY_FORM = { name: "", type: "checking" as AccountType };
+/** A new account starts in the app's primary currency (Settings) — the one the
+ * user already thinks in — instead of a hard-coded KZT. */
+function emptyForm() {
+  return { name: "", type: "checking" as AccountType, currency: getCurrency().toUpperCase() };
+}
 
 export function AccountFormModal({ open, onClose, account }: AccountFormModalProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
 
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
+
+  // An account whose history is already recorded in one currency can't be
+  // re-labelled — every transaction on it stores amounts, a KZT snapshot and
+  // its own currency derived from the account's. The backend refuses the change
+  // too (see account_service.update_account); this just makes the rule visible
+  // instead of letting the user discover it as a failed save.
+  const currencyLocked = Boolean(account && account.transaction_count > 0);
 
   useEffect(() => {
     if (!open) return;
-    setForm(account ? { name: account.name, type: account.type } : EMPTY_FORM);
+    setForm(
+      account
+        ? { name: account.name, type: account.type, currency: account.currency.toUpperCase() }
+        : emptyForm()
+    );
     setError(null);
   }, [open, account]);
 
@@ -75,6 +93,29 @@ export function AccountFormModal({ open, onClose, account }: AccountFormModalPro
               </option>
             ))}
           </Select>
+        </div>
+
+        <div>
+          <Label htmlFor="account-currency">{t("account.form.currencyLabel")}</Label>
+          <Select
+            id="account-currency"
+            value={form.currency}
+            disabled={currencyLocked}
+            onChange={(event) => setForm((prev) => ({ ...prev, currency: event.target.value }))}
+          >
+            {CURRENCIES.map((option) => (
+              <option key={option.code} value={option.code}>
+                {getCurrencyLabel(option.code, language)}
+              </option>
+            ))}
+            {/* A currency that isn't in the curated list (e.g. one restored from
+                a backup) must still be selectable, or editing the account would
+                silently move it onto a different currency. */}
+            {!CURRENCIES.some((option) => option.code === form.currency) && (
+              <option value={form.currency}>{form.currency}</option>
+            )}
+          </Select>
+          {currencyLocked && <p className="mt-1 text-xs text-text-muted">{t("account.form.currencyLocked")}</p>}
         </div>
 
         {error && <p className="text-sm text-danger">{error}</p>}

@@ -278,9 +278,23 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         # transient object — reassigning it after flush (below) would
         # otherwise trigger an implicit lazy-load, which async SQLAlchemy
         # can't do outside an explicit await (MissingGreenlet).
-        transactions_by_id = {
-            row.id: Transaction(**row.model_dump(exclude={"tag_ids"}), tags=[]) for row in payload.transactions
-        }
+        account_currency_by_id = {account.id: account.currency.upper() for account in payload.accounts}
+        transactions_by_id: dict[int, Transaction] = {}
+        for row in payload.transactions:
+            data = row.model_dump(exclude={"tag_ids"})
+            # A backup exported before transaction-level currency existed has
+            # neither currency nor transaction_amount — recover them from the
+            # legacy original_* pair (read off the model: those fields are
+            # exclude=True, so model_dump() never carries them) and, failing
+            # that, from the account and `amount`, so a restored row never
+            # violates the NOT NULL columns.
+            legacy_currency = row.original_currency
+            legacy_amount = row.original_amount
+            data["currency"] = (
+                data["currency"] or legacy_currency or account_currency_by_id.get(row.account_id, "KZT")
+            ).upper()
+            data["transaction_amount"] = data["transaction_amount"] or legacy_amount or data["amount"]
+            transactions_by_id[row.id] = Transaction(**data, tags=[])
         session.add_all(transactions_by_id.values())
         session.add_all(ExchangeRate(**row.model_dump()) for row in payload.exchange_rates)
         session.add_all(TransactionSplit(**row.model_dump()) for row in payload.transaction_splits)

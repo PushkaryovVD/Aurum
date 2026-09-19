@@ -1,10 +1,13 @@
 """Dashboard summary: the arithmetic and month-scoping behind the Overview
 page's four stat cards and the spending-by-category donut.
 """
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
+from fastapi import HTTPException
 from httpx import AsyncClient
 
+from app.models.exchange_rate import ExchangeRate
 from tests.helpers import money, txn_payload as _txn
 
 
@@ -189,3 +192,143 @@ async def test_a_single_category_slice_has_no_children_breakdown(client: AsyncCl
     breakdown = {row["name"]: row for row in resp.json()["spending_by_category"]}
 
     assert breakdown["Groceries"]["children"] == []
+
+
+# --- Total balance across accounts (all-time, not month-scoped) -------------
+
+async def _seed_rate(test_sessionmaker, currency: str, rate: str, as_of: date) -> None:
+    """Cache an official rate the way a real NBK sync would, so balance
+    conversion is deterministic and never reaches the network."""
+    async with test_sessionmaker() as session:
+        session.add(
+            ExchangeRate(
+                requested_date=as_of,
+                effective_date=as_of,
+                currency=currency,
+                rate_to_kzt=Decimal(rate),
+                source="manual",
+                fetched_at=datetime.now(timezone.utc),
+            )
+        )
+        await session.commit()
+
+
+async def test_balance_is_all_time_and_not_month_scoped(client: AsyncClient, account_id, categories):
+    await client.post(
+        "/transactions",
+        json=_txn(account_id, type="income", amount="1000.00", category_id=categories["Salary"]["id"], date="2020-01-01"),
+    )
+
+    body = (await client.get("/dashboard/summary", params={"year": 2030, "month": 1})).json()
+
+    assert money(body["real_income"]) == 0
+    assert body["balance"]["reporting_currency"] == "KZT"
+    assert body["balance"]["incomplete"] is False
+    assert money(body["balance"]["total"]) == Decimal("1000.00")
+    assert [(item["currency"], money(item["amount"])) for item in body["balance"]["items"]] == [
+        ("KZT", Decimal("1000.00"))
+    ]
+
+
+async def test_balance_converts_a_foreign_account_at_the_cached_rate(
+    client: AsyncClient, test_sessionmaker, categories
+):
+    today = date.today()
+    await _seed_rate(test_sessionmaker, "USD", "500", today)
+
+    kzt_id = (await client.get("/accounts")).json()[0]["id"]
+    usd_id = (
+        await client.post("/accounts", json={"name": "USD Card", "type": "debit_card", "currency": "USD"})
+    ).json()["id"]
+    salary = categories["Salary"]["id"]
+    await client.post(
+        "/transactions", json=_txn(kzt_id, type="income", amount="1000.00", category_id=salary, date=today.isoformat())
+    )
+    await client.post(
+        "/transactions", json=_txn(usd_id, type="income", amount="10.00", category_id=salary, date=today.isoformat())
+    )
+
+    body = (await client.get("/dashboard/summary")).json()
+
+    assert body["balance"]["incomplete"] is False
+    assert money(body["balance"]["total"]) == Decimal("6000.00")
+    by_currency = {item["currency"]: item for item in body["balance"]["items"]}
+    assert money(by_currency["USD"]["amount"]) == Decimal("10.00")
+    assert money(by_currency["USD"]["amount_reporting"]) == Decimal("5000.00")
+    assert money(by_currency["USD"]["rate_to_kzt"]) == Decimal("500")
+
+
+async def test_balance_sums_several_currencies_into_the_reporting_one(
+    client: AsyncClient, test_sessionmaker, categories
+):
+    today = date.today()
+    await _seed_rate(test_sessionmaker, "USD", "500", today)
+    await _seed_rate(test_sessionmaker, "EUR", "600", today)
+
+    kzt_id = (await client.get("/accounts")).json()[0]["id"]
+    usd_id = (await client.post("/accounts", json={"name": "USD", "type": "debit_card", "currency": "USD"})).json()["id"]
+    eur_id = (await client.post("/accounts", json={"name": "EUR", "type": "debit_card", "currency": "EUR"})).json()["id"]
+    salary = categories["Salary"]["id"]
+    for account_id, amount in ((kzt_id, "100.00"), (usd_id, "2.00"), (eur_id, "3.00")):
+        await client.post(
+            "/transactions",
+            json=_txn(account_id, type="income", amount=amount, category_id=salary, date=today.isoformat()),
+        )
+
+    body = (await client.get("/dashboard/summary")).json()
+
+    # 100 + 2 * 500 + 3 * 600
+    assert money(body["balance"]["total"]) == Decimal("2900.00")
+    assert {item["currency"] for item in body["balance"]["items"]} == {"EUR", "KZT", "USD"}
+
+
+async def test_balance_flags_a_currency_whose_rate_is_missing(client: AsyncClient, monkeypatch, categories):
+    """A foreign balance with no usable rate stays visible but is not silently
+    folded into the total as though it were already KZT."""
+    today = date.today()
+
+    async def _unavailable(*args, **kwargs):
+        raise HTTPException(status_code=503, detail="NBK unavailable")
+
+    monkeypatch.setattr("app.services.dashboard_service.get_exchange_rate", _unavailable)
+
+    kzt_id = (await client.get("/accounts")).json()[0]["id"]
+    usd_id = (
+        await client.post("/accounts", json={"name": "USD Card", "type": "debit_card", "currency": "USD"})
+    ).json()["id"]
+    await client.post(
+        "/transactions",
+        json=_txn(kzt_id, type="income", amount="1000.00", category_id=categories["Salary"]["id"], date=today.isoformat()),
+    )
+    # A transfer rather than a USD income: the destination side of a transfer
+    # carries its own amount, so recording it needs no USD rate at all.
+    await client.post(
+        "/transactions",
+        json=_txn(
+            kzt_id, type="transfer", amount="500.00", transfer_amount="1.00", transfer_account_id=usd_id,
+            date=today.isoformat(),
+        ),
+    )
+
+    body = (await client.get("/dashboard/summary")).json()
+
+    assert body["balance"]["incomplete"] is True
+    assert money(body["balance"]["total"]) == Decimal("500.00")
+    usd = next(item for item in body["balance"]["items"] if item["currency"] == "USD")
+    assert money(usd["amount"]) == Decimal("1.00")
+    assert usd["amount_reporting"] is None
+
+
+async def test_balance_of_an_empty_foreign_account_needs_no_rate(client: AsyncClient, monkeypatch):
+    async def _unavailable(*args, **kwargs):
+        raise HTTPException(status_code=503, detail="NBK unavailable")
+
+    monkeypatch.setattr("app.services.dashboard_service.get_exchange_rate", _unavailable)
+    await client.post("/accounts", json={"name": "Empty USD", "type": "savings", "currency": "USD"})
+
+    body = (await client.get("/dashboard/summary")).json()
+
+    assert body["balance"]["incomplete"] is False
+    usd = next(item for item in body["balance"]["items"] if item["currency"] == "USD")
+    assert money(usd["amount"]) == 0
+    assert money(usd["amount_reporting"]) == 0

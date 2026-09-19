@@ -58,6 +58,12 @@ async def _currency_fields(
 ) -> dict:
     """Resolve account currencies and freeze the KZT conversion snapshot.
 
+    Also resolves the transaction's own currency and the amount in it. A
+    transaction isn't forced into its account's currency — paying 5 USD with a
+    KZT card is currency="USD", transaction_amount=5, amount=2650 (what the
+    account was really debited) — so `currency` falls back to the account's
+    and `transaction_amount` to `amount` when the caller leaves them out.
+
     The caller may submit a manual/CSV rate; otherwise the official NBK rate
     for the transaction date is cached and used. Client-supplied base amounts
     are never trusted because they must remain consistent with amount*rate.
@@ -72,6 +78,27 @@ async def _currency_fields(
     account = await session.get(Account, account_id)
     if account is None:
         raise HTTPException(status_code=400, detail="Account not found")
+
+    currency = (values.get("currency") or (current.currency if current else None) or account.currency).upper()
+    same_currency = currency == account.currency.upper()
+    transaction_amount = values.get("transaction_amount")
+    if transaction_amount is None:
+        if same_currency:
+            # One currency, one number: the two figures can't disagree.
+            transaction_amount = amount
+        elif current is not None:
+            # A foreign-currency row keeps its own figure while only the
+            # account-side debit is being edited.
+            transaction_amount = current.transaction_amount
+        else:
+            transaction_amount = amount
+    if same_currency and transaction_amount != amount:
+        raise HTTPException(
+            status_code=422,
+            detail="transaction_amount must equal amount when the transaction currency matches the account currency",
+        )
+    values["currency"] = currency
+    values["transaction_amount"] = transaction_amount
 
     explicit_rate = values.get("exchange_rate_to_kzt")
     if explicit_rate is not None:

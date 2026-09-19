@@ -1,27 +1,134 @@
 """Aggregation logic behind the Overview dashboard."""
 import calendar
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import TransactionPurpose, TransactionType
 from app.models.account import Account
+from app.models.exchange_rate import ExchangeRate
 from app.models.transaction import Transaction
-from app.schemas.dashboard import CategoryBreakdownChildItem, CategoryBreakdownItem, DashboardSummary
+from app.schemas.dashboard import (
+    BalanceSummary,
+    CategoryBreakdownChildItem,
+    CategoryBreakdownItem,
+    CurrencyBalance,
+    DashboardSummary,
+)
+from app.services.account_service import account_balances
 from app.services.category_rollup import rollup_spending_by_top_level_category
 from app.services.currency import transaction_amount_kzt
+from app.services.exchange_rate_service import get_exchange_rate
+from app.services.settings_service import get_or_create_app_settings
 
 # Categorical slots are capped at 8 (dataviz skill: a 9th series folds into "Other",
 # never a generated hue) — this is also the exact size of the default category set.
 MAX_CHART_SLICES = 8
 OTHER_SLICE_COLOR = "#898781"  # muted ink, reserved for the non-categorical rollup
 
+# A currency with nothing cached at all gets one short, bounded attempt at an
+# official rate, so a fresh install with a foreign account shows a real number
+# instead of a permanent "no rate". A currency that already has a cached rate
+# never triggers a network call here — a dashboard load must not wait on NBK.
+COLD_RATE_TIMEOUT_SECONDS = 3.0
+
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
     last_day = calendar.monthrange(year, month)[1]
     return date(year, month, 1), date(year, month, last_day)
+
+
+async def _rate_to_kzt(session: AsyncSession, as_of: date, currency: str) -> tuple[Decimal | None, date | None]:
+    """The official rate for one currency, or (None, None) when none could be
+    established. KZT is its own identity, so it never needs a lookup."""
+    currency = currency.upper()
+    if currency == "KZT":
+        return Decimal("1"), as_of
+
+    cached = (
+        await session.execute(
+            select(ExchangeRate)
+            .where(ExchangeRate.currency == currency, ExchangeRate.requested_date <= as_of)
+            .order_by(ExchangeRate.requested_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if cached is None:
+        # Nothing cached on or before this date. A later official rate is still
+        # a real rate, and `rate_date` travels with it so the UI can say which
+        # day it belongs to.
+        cached = (
+            await session.execute(
+                select(ExchangeRate)
+                .where(ExchangeRate.currency == currency)
+                .order_by(ExchangeRate.requested_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if cached is None:
+        try:
+            cached = await get_exchange_rate(session, as_of, currency, timeout=COLD_RATE_TIMEOUT_SECONDS)
+        except HTTPException:
+            return None, None
+    return cached.rate_to_kzt, cached.effective_date
+
+
+async def get_balance_summary(session: AsyncSession, as_of: date) -> BalanceSummary:
+    """Total money across every account, expressed in the app's reporting
+    currency.
+
+    Each account holds its balance in its own currency; this is the one place
+    they're added up. Everything converts through KZT — that's the currency the
+    official rates are quoted in — and then into the reporting currency, so a
+    future non-KZT reporting currency needs no new rate plumbing.
+
+    A currency with no usable rate is reported as such rather than dropped: its
+    balance stays visible, it just doesn't contribute to the total, and
+    `incomplete` says so.
+    """
+    reporting_currency = (await get_or_create_app_settings(session)).currency.upper()
+    balances, _ = await account_balances(session)
+    accounts = (await session.execute(select(Account))).scalars().all()
+
+    by_currency: dict[str, Decimal] = defaultdict(Decimal)
+    for account in accounts:
+        by_currency[account.currency.upper()] += balances.get(account.id, Decimal("0"))
+
+    reporting_rate, _ = await _rate_to_kzt(session, as_of, reporting_currency)
+
+    items: list[CurrencyBalance] = []
+    total = Decimal("0")
+    incomplete = False
+    for currency in sorted(by_currency):
+        amount = by_currency[currency]
+        if amount == 0:
+            # Zero is zero in every currency — no rate needed, and no reason to
+            # reach for one (or to call the currency unconvertible).
+            items.append(CurrencyBalance(currency=currency, amount=amount, amount_reporting=Decimal("0")))
+            continue
+        rate, rate_date = await _rate_to_kzt(session, as_of, currency)
+        if rate is None or reporting_rate is None:
+            incomplete = True
+            items.append(CurrencyBalance(currency=currency, amount=amount))
+            continue
+        converted = (amount * rate / reporting_rate).quantize(Decimal("0.01"))
+        total += converted
+        items.append(
+            CurrencyBalance(
+                currency=currency,
+                amount=amount,
+                amount_reporting=converted,
+                rate_to_kzt=rate,
+                rate_date=rate_date,
+            )
+        )
+    return BalanceSummary(
+        reporting_currency=reporting_currency, total=total, incomplete=incomplete, items=items
+    )
 
 
 async def get_dashboard_summary(session: AsyncSession, year: int, month: int) -> DashboardSummary:
@@ -81,6 +188,12 @@ async def get_dashboard_summary(session: AsyncSession, year: int, month: int) ->
             )
         )
 
+    # All-time, not month-scoped — the money actually sitting in the accounts.
+    balance = await get_balance_summary(session, date.today())
+    # get_balance_summary may have cached a freshly fetched official rate; this
+    # is a GET, but that write is the same one the /exchange-rates route makes.
+    await session.commit()
+
     return DashboardSummary(
         year=year,
         month=month,
@@ -89,4 +202,5 @@ async def get_dashboard_summary(session: AsyncSession, year: int, month: int) ->
         net=real_income - spent,
         transferred_out=transferred_out,
         spending_by_category=spending_by_category,
+        balance=balance,
     )

@@ -1,11 +1,11 @@
 import { Archive, ArchiveRestore, Banknote, CreditCard, Package, Pencil, PiggyBank, TrendingUp, Trash2, Wallet, type LucideIcon } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
-import type { Account, AccountType, AccountWithBalance } from "@/types";
+import type { AccountType, AccountWithBalance } from "@/types";
 
 interface AccountListProps {
   items: AccountWithBalance[];
-  onEdit: (account: Account) => void;
+  onEdit: (account: AccountWithBalance) => void;
   onToggleArchived: (account: AccountWithBalance) => void;
   onDelete: (account: AccountWithBalance) => void;
 }
@@ -48,14 +48,14 @@ export function AccountList({ items, onEdit, onToggleArchived, onDelete }: Accou
                 )}
               </span>
               <span className="block truncate text-xs text-text-muted">
-                {t(`account.type.${account.type}` as TranslationKey)}
+                {t(`account.type.${account.type}` as TranslationKey)} · {account.currency.toUpperCase()}
               </span>
             </span>
             <span
               className="shrink-0 text-sm font-medium tabular-nums"
               style={{ color: balance < 0 ? "var(--danger)" : "var(--text-primary)" }}
             >
-              {formatCurrency(balance)}
+              {formatCurrency(balance, account.currency)}
             </span>
             <span className="flex shrink-0 gap-1">
               <button

@@ -23,6 +23,12 @@ id_ed25519
 *.sqlite3
 aurum-backup-*.json
 
+# Local financial documents and scratch output: real bank statements
+# (bills/), temporary PDF/PNG renders (tmp/) and personal notes contain
+# real account data and must never be committed.
+bills/
+tmp/
+
 # Python
 __pycache__/
 *.pyc

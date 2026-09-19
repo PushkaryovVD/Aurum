@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Dialog } from "@/components/ui/Dialog";
@@ -10,6 +10,7 @@ import { useCategories } from "@/hooks/useCategories";
 import { useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransactions";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { useTranslation } from "@/lib/i18n";
+import { CURRENCIES } from "@/lib/currency";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import { formatCurrency } from "@/lib/format";
 import { divideDecimal, multiplyDecimal } from "@/lib/decimal";
@@ -182,6 +183,16 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   const isForeignCurrency = Boolean(
     accountCurrency && transactionCurrency && transactionCurrency !== accountCurrency
   );
+
+  // The full curated ISO list, not just the currencies already in use: a
+  // transaction's currency is independent of any account's, so someone whose
+  // only account is a KZT one still has to be able to pick USD.
+  const currencyOptions = useMemo(() => {
+    const codes = new Set(CURRENCIES.map((option) => option.code));
+    if (accountCurrency) codes.add(accountCurrency);
+    if (transactionCurrency) codes.add(transactionCurrency);
+    return Array.from(codes).sort();
+  }, [accountCurrency, transactionCurrency]);
 
   const officialRate = useExchangeRate(form.date, accountCurrency);
   const transactionRate = useExchangeRate(form.date, isForeignCurrency ? transactionCurrency : undefined);
@@ -495,14 +506,9 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               value={transactionCurrency}
               onChange={(event) => handleCurrencyChange(event.target.value)}
             >
-              {accounts
-                ? Array.from(new Set(accounts.map((account) => account.currency.toUpperCase()))).map((code) => (
-                    <option key={code} value={code}>{code}</option>
-                  ))
-                : null}
-              {transactionCurrency && !accounts?.some((account) => account.currency.toUpperCase() === transactionCurrency) && (
-                <option value={transactionCurrency}>{transactionCurrency}</option>
-              )}
+              {currencyOptions.map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
             </Select>
           </div>
         </div>

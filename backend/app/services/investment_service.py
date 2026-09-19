@@ -113,12 +113,18 @@ def _cash_transaction(
     description: str,
     purpose: TransactionPurpose,
     rate: Decimal,
+    currency: str,
 ) -> Transaction:
     rounded = amount.quantize(Decimal("0.01"))
     return Transaction(
         account_id=account_id,
         type=tx_type,
         amount=rounded,
+        # Security currency == the portfolio cash account's (enforced in
+        # create_security), so the cash leg is denominated in it and the two
+        # amounts are the same figure.
+        currency=currency,
+        transaction_amount=rounded,
         exchange_rate_to_kzt=rate,
         base_amount_kzt=(rounded * rate).quantize(Decimal("0.01")),
         exchange_rate_source=ExchangeRateSource.MANUAL,
@@ -136,10 +142,15 @@ def _update_cash_transaction(
     description: str,
     purpose: TransactionPurpose,
     rate: Decimal,
+    currency: str,
 ) -> None:
     rounded = amount.quantize(Decimal("0.01"))
     row.type = tx_type
     row.amount = rounded
+    # Keep the transaction's own figure in step with the account-side debit —
+    # they're the same number for a same-currency row.
+    row.currency = currency
+    row.transaction_amount = rounded
     row.exchange_rate_to_kzt = rate
     row.base_amount_kzt = (rounded * rate).quantize(Decimal("0.01"))
     row.exchange_rate_source = ExchangeRateSource.MANUAL
@@ -225,6 +236,7 @@ async def create_trade(session: AsyncSession, asset_id: int, payload: SecurityTr
         f"{payload.type.value.upper()} {security.ticker}",
         TransactionPurpose.INVESTMENT_TRADE,
         rate,
+        security.currency,
     )
     session.add(cash)
     await session.flush()
@@ -238,6 +250,7 @@ async def create_trade(session: AsyncSession, asset_id: int, payload: SecurityTr
             f"Fee: {security.ticker}",
             TransactionPurpose.FEE,
             rate,
+            security.currency,
         )
         session.add(fee_tx)
         await session.flush()
@@ -279,6 +292,7 @@ async def create_dividend(session: AsyncSession, asset_id: int, payload: Securit
         f"Dividend: {security.ticker}",
         TransactionPurpose.DIVIDEND,
         rate,
+        security.currency,
     )
     session.add(income)
     await session.flush()
@@ -292,6 +306,7 @@ async def create_dividend(session: AsyncSession, asset_id: int, payload: Securit
             f"Dividend tax: {security.ticker}",
             TransactionPurpose.TAX,
             rate,
+            security.currency,
         )
         session.add(tax_tx)
         await session.flush()
@@ -406,16 +421,17 @@ async def update_trade(session: AsyncSession, trade_id: int, payload: SecurityTr
         f"{payload.type.value.upper()} {security.ticker}",
         TransactionPurpose.INVESTMENT_TRADE,
         rate,
+        security.currency,
     )
     fee_tx = await session.get(Transaction, trade.fee_transaction_id) if trade.fee_transaction_id else None
     if payload.fee:
         if fee_tx is None:
-            fee_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate)
+            fee_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate, security.currency)
             session.add(fee_tx)
             await session.flush()
             trade.fee_transaction_id = fee_tx.id
         else:
-            _update_cash_transaction(fee_tx, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate)
+            _update_cash_transaction(fee_tx, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate, security.currency)
     elif fee_tx is not None:
         trade.fee_transaction_id = None
         await session.flush()
@@ -459,16 +475,16 @@ async def update_dividend(session: AsyncSession, dividend_id: int, payload: Secu
     dividend.exchange_rate_to_kzt = rate
     dividend.external_id = payload.external_id
     income = await session.get(Transaction, dividend.income_transaction_id)
-    _update_cash_transaction(income, TransactionType.INCOME, payload.gross_amount, payload.date, f"Dividend: {security.ticker}", TransactionPurpose.DIVIDEND, rate)
+    _update_cash_transaction(income, TransactionType.INCOME, payload.gross_amount, payload.date, f"Dividend: {security.ticker}", TransactionPurpose.DIVIDEND, rate, security.currency)
     tax_tx = await session.get(Transaction, dividend.tax_transaction_id) if dividend.tax_transaction_id else None
     if payload.tax_amount:
         if tax_tx is None:
-            tax_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate)
+            tax_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate, security.currency)
             session.add(tax_tx)
             await session.flush()
             dividend.tax_transaction_id = tax_tx.id
         else:
-            _update_cash_transaction(tax_tx, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate)
+            _update_cash_transaction(tax_tx, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate, security.currency)
     elif tax_tx is not None:
         dividend.tax_transaction_id = None
         await session.flush()

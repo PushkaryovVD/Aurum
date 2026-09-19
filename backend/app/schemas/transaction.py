@@ -77,19 +77,26 @@ class TransactionFields(BaseModel):
     transfer_account_id FK is ON DELETE SET NULL, so deleting an account
     leaves the transfers that pointed at it with no destination — and
     refusing to serialize such a row would take the whole transactions list
-    down with it, leaving no way in the UI to find and delete the row."""
+    down with it, leaving no way in the UI to find and delete the row.
+
+    `currency`/`transaction_amount` deliberately live on TransactionCreate,
+    TransactionUpdate and TransactionRead rather than here: they're optional
+    while writing (the route resolves them) but always present when reading,
+    and declaring them in one shared base would force one of those two shapes
+    to lie about it.
+    """
 
     account_id: int
     category_id: int | None = None
     transfer_account_id: int | None = None
     type: TransactionType
+    # What the account was actually debited, in the account's own currency —
+    # the one number that moves a balance. The transaction's own currency and
+    # amount live beside it (see TransactionCreate/TransactionRead).
     amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
     exchange_rate_to_kzt: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
     base_amount_kzt: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
     exchange_rate_source: ExchangeRateSource | None = None
-    original_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
-    original_currency: str | None = Field(default=None, min_length=3, max_length=3)
-    original_to_account_rate: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
     transfer_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
     external_id: str | None = Field(default=None, max_length=150)
     purpose: TransactionPurpose = TransactionPurpose.ORDINARY
@@ -104,18 +111,6 @@ class TransactionFields(BaseModel):
     @classmethod
     def _capitalize_description(cls, value: str) -> str:
         return capitalize_first_letter(value)
-
-    @field_validator("original_currency")
-    @classmethod
-    def _uppercase_original_currency(cls, value: str | None) -> str | None:
-        return value.upper() if value is not None else None
-
-    @model_validator(mode="after")
-    def _validate_original_currency_fields(self) -> "TransactionFields":
-        supplied = (self.original_amount, self.original_currency, self.original_to_account_rate)
-        if any(value is not None for value in supplied) and any(value is None for value in supplied):
-            raise ValueError("original_amount, original_currency and original_to_account_rate must be supplied together")
-        return self
 
 
 class TransactionBase(TransactionFields):
@@ -143,12 +138,26 @@ class TransactionSplitInput(BaseModel):
 
 class TransactionCreate(TransactionBase):
     tag_ids: list[int] = Field(default_factory=list)
+    # The transaction's own currency and the amount in it. A transaction isn't
+    # forced into its account's currency: paying 5 USD with a KZT card stores
+    # currency="USD", transaction_amount=5 and amount=2650 (what the account
+    # was really debited), so the balance stays unambiguous while the row still
+    # says what was actually paid. Both are optional here because the route
+    # fills in the account currency and `amount` respectively when they're
+    # omitted; TransactionRead reads them back as required.
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    transaction_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
     # None/omitted -> a normal single-category transaction, unchanged from
     # before. 2+ entries -> the amount is divided across categories instead
     # of using category_id (which must then be omitted — see
     # split_rule_violation). A single entry isn't accepted: that's just
     # category_id with extra steps.
     splits: list[TransactionSplitInput] | None = None
+
+    @field_validator("currency")
+    @classmethod
+    def _uppercase_currency(cls, value: str | None) -> str | None:
+        return value.upper() if value is not None else None
 
     @model_validator(mode="after")
     def _validate_splits(self) -> "TransactionCreate":
@@ -171,12 +180,11 @@ class TransactionUpdate(BaseModel):
     transfer_account_id: int | None = None
     type: TransactionType | None = None
     amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    transaction_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
     exchange_rate_to_kzt: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
     base_amount_kzt: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
     exchange_rate_source: ExchangeRateSource | None = None
-    original_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
-    original_currency: str | None = Field(default=None, min_length=3, max_length=3)
-    original_to_account_rate: Decimal | None = Field(default=None, gt=0, max_digits=20, decimal_places=10)
     transfer_amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
     external_id: str | None = Field(default=None, max_length=150)
     purpose: TransactionPurpose | None = None
@@ -196,6 +204,11 @@ class TransactionUpdate(BaseModel):
     def _capitalize_description(cls, value: str | None) -> str | None:
         return capitalize_first_letter(value) if value is not None else None
 
+    @field_validator("currency")
+    @classmethod
+    def _uppercase_currency(cls, value: str | None) -> str | None:
+        return value.upper() if value is not None else None
+
 
 class TransactionSplitRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -212,6 +225,9 @@ class TransactionRead(TransactionFields):
 
     id: int
     account: AccountRead
+    # Stored NOT NULL, so a read never has to show them as optional.
+    currency: str
+    transaction_amount: Decimal
     category: CategoryRead | None = None
     tags: list[TagRead] = Field(default_factory=list)
     splits: list[TransactionSplitRead] = Field(default_factory=list)

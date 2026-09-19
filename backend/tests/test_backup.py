@@ -93,3 +93,51 @@ async def test_backup_roundtrip_preserves_transaction_splits(client: AsyncClient
     splits_by_note = {s["note"]: s for s in refetched["splits"]}
     assert splits_by_note["candy and snacks"]["category_id"] == sweets
     assert refetched["category"] is None
+
+
+async def test_backup_roundtrip_preserves_transaction_currency(client: AsyncClient, account_id):
+    created = await client.post(
+        "/transactions",
+        json=_txn(account_id, amount="2650.00", currency="USD", transaction_amount="5.00"),
+    )
+    txn_id = created.json()["id"]
+
+    payload = (await client.get("/backup/export")).json()
+    exported = next(t for t in payload["transactions"] if t["id"] == txn_id)
+    assert exported["currency"] == "USD"
+    assert exported["transaction_amount"] == "5.00"
+    # The merchant-currency columns are gone from the model — an export must
+    # never reintroduce them.
+    assert "original_currency" not in exported
+
+    import_resp = await client.post("/backup/import", json=payload)
+    assert import_resp.status_code == 200, import_resp.text
+
+    refetched = next(t for t in (await client.get("/transactions")).json()["items"] if t["id"] == txn_id)
+    assert refetched["currency"] == "USD"
+    assert refetched["transaction_amount"] == "5.00"
+    assert refetched["amount"] == "2650.00"
+
+
+async def test_backup_import_recovers_currency_from_legacy_original_fields(client: AsyncClient, account_id):
+    """A file exported before transaction-level currency existed has neither
+    currency nor transaction_amount, only the original_* triple. Restoring it
+    must not flatten the row to the account currency."""
+    created = await client.post("/transactions", json=_txn(account_id, amount="10.00"))
+    txn_id = created.json()["id"]
+
+    payload = (await client.get("/backup/export")).json()
+    for row in payload["transactions"]:
+        row.pop("currency", None)
+        row.pop("transaction_amount", None)
+        if row["id"] == txn_id:
+            row["original_amount"] = "5.00"
+            row["original_currency"] = "USD"
+
+    import_resp = await client.post("/backup/import", json=payload)
+    assert import_resp.status_code == 200, import_resp.text
+
+    refetched = next(t for t in (await client.get("/transactions")).json()["items"] if t["id"] == txn_id)
+    assert refetched["currency"] == "USD"
+    assert refetched["transaction_amount"] == "5.00"
+    assert refetched["amount"] == "10.00"

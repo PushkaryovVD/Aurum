@@ -156,6 +156,10 @@ async def post_recurring(session: AsyncSession, recurring_id: int) -> RecurringT
             transfer_account_id=recurring.transfer_account_id,
             type=recurring.type,
             amount=recurring.amount,
+            # The template carries no currency of its own, so a posted row is
+            # denominated in its account's — with both amounts the same figure.
+            currency=recurring.account.currency.upper(),
+            transaction_amount=recurring.amount,
             description=recurring.description,
             merchant=recurring.merchant,
             notes=recurring.notes,

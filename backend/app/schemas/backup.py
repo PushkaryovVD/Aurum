@@ -65,9 +65,20 @@ class TransactionBackup(BaseModel):
     exchange_rate_to_kzt: Decimal | None = None
     base_amount_kzt: Decimal | None = None
     exchange_rate_source: ExchangeRateSource | None = None
-    original_amount: Decimal | None = None
-    original_currency: str | None = None
-    original_to_account_rate: Decimal | None = None
+    # The transaction's own currency and the amount in it. Defaulted so a
+    # backup exported before transaction-level currency existed still imports
+    # cleanly under the same format version — restore_backup() falls back to
+    # the legacy original_* pair and then to the account currency / `amount`.
+    currency: str | None = None
+    transaction_amount: Decimal | None = None
+    # Legacy merchant-currency fields, read-only on import. A file exported
+    # before the format gained currency/transaction_amount carries these; they
+    # are never written back out (the model no longer has such columns), hence
+    # exclude=True, and exist purely so such a backup restores with its
+    # foreign-currency detail intact instead of silently flattening to the
+    # account currency.
+    original_amount: Decimal | None = Field(default=None, exclude=True)
+    original_currency: str | None = Field(default=None, exclude=True)
     transfer_amount: Decimal | None = None
     external_id: str | None = None
     purpose: TransactionPurpose = TransactionPurpose.ORDINARY

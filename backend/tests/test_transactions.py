@@ -680,3 +680,67 @@ async def test_delete_transaction_cascades_its_splits(client: AsyncClient, accou
     # category filter would still find a (now-orphaned) match.
     resp = await client.get("/transactions", params={"category_id": sweets})
     assert resp.json()["total"] == 0
+
+
+async def test_foreign_currency_transaction_keeps_the_debit_in_the_account_currency(
+    client: AsyncClient, account_id
+):
+    """Paying 5 USD with a KZT card is currency="USD", transaction_amount=5 and
+    amount=2650 — the row records what was actually paid, while the balance
+    still moves by what the account was really debited."""
+    created = await client.post(
+        "/transactions",
+        json=_txn(account_id, amount="2650.00", currency="USD", transaction_amount="5.00"),
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["currency"] == "USD"
+    assert money(body["transaction_amount"]) == Decimal("5.00")
+    assert money(body["amount"]) == Decimal("2650.00")
+
+    accounts = (await client.get("/accounts")).json()
+    assert money(accounts[0]["balance"]) == Decimal("-2650.00")
+
+
+async def test_transaction_currency_defaults_to_the_account_currency(client: AsyncClient, account_id):
+    created = await client.post("/transactions", json=_txn(account_id, amount="10.00"))
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["currency"] == "KZT"
+    assert money(body["transaction_amount"]) == Decimal("10.00")
+
+
+async def test_same_currency_transaction_amount_must_match_amount(client: AsyncClient, account_id):
+    """Two different figures in one currency would make the row contradict
+    itself, so the API refuses it rather than storing it."""
+    resp = await client.post(
+        "/transactions",
+        json=_txn(account_id, amount="10.00", currency="KZT", transaction_amount="5.00"),
+    )
+    assert resp.status_code == 422
+
+
+async def test_updating_the_debit_keeps_the_foreign_amount(client: AsyncClient, account_id):
+    created = await client.post(
+        "/transactions",
+        json=_txn(account_id, amount="2650.00", currency="USD", transaction_amount="5.00"),
+    )
+    txn_id = created.json()["id"]
+
+    updated = await client.patch(f"/transactions/{txn_id}", json={"amount": "2700.00"})
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["currency"] == "USD"
+    assert money(body["transaction_amount"]) == Decimal("5.00")
+    assert money(body["amount"]) == Decimal("2700.00")
+
+
+async def test_updating_amount_of_a_same_currency_row_moves_both_figures(client: AsyncClient, account_id):
+    created = await client.post("/transactions", json=_txn(account_id, amount="10.00"))
+    txn_id = created.json()["id"]
+
+    updated = await client.patch(f"/transactions/{txn_id}", json={"amount": "25.00"})
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert money(body["amount"]) == Decimal("25.00")
+    assert money(body["transaction_amount"]) == Decimal("25.00")

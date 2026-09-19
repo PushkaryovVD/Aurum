@@ -110,13 +110,17 @@ export interface Transaction {
   category_id: number | null;
   transfer_account_id: number | null;
   type: TransactionType;
+  // What the account was actually debited, in the account's own currency —
+  // the figure that moves the balance.
   amount: string;
+  // The transaction's own currency and the amount in it. A transaction is not
+  // forced into its account's currency: paying 5 USD with a KZT card is
+  // currency="USD", transaction_amount="5.00", amount="2650.00".
+  currency: string;
+  transaction_amount: string;
   exchange_rate_to_kzt: string | null;
   base_amount_kzt: string | null;
   exchange_rate_source: ExchangeRateSource | null;
-  original_amount: string | null;
-  original_currency: string | null;
-  original_to_account_rate: string | null;
   transfer_amount: string | null;
   external_id: string | null;
   purpose: TransactionPurpose;
@@ -143,11 +147,13 @@ export interface TransactionInput {
   transfer_account_id: number | null;
   type: TransactionType;
   amount: string;
+  // Omitted -> the account's currency / `amount` respectively (see the
+  // backend's _currency_fields). Only a genuinely foreign-currency
+  // transaction needs to send them.
+  currency?: string | null;
+  transaction_amount?: string | null;
   exchange_rate_to_kzt?: string | null;
   exchange_rate_source?: ExchangeRateSource | null;
-  original_amount?: string | null;
-  original_currency?: string | null;
-  original_to_account_rate?: string | null;
   transfer_amount?: string | null;
   external_id?: string | null;
   purpose?: TransactionPurpose;

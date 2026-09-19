@@ -307,6 +307,16 @@ export function CsvImportPage() {
         skippedRows.push({ row: rowNumber, reason: t("transactions.import.errorOriginalCurrencyIncomplete") });
         return;
       }
+      // The export's "original currency" is the transaction's own currency —
+      // meaningful only when it differs from the destination account's. When
+      // the two match, the original amount is the same number as `amount`, and
+      // sending it as a separate figure would just be a self-contradiction the
+      // backend rejects.
+      const isForeignCurrency =
+        originalAmount !== null &&
+        rawOriginalCurrency !== "" &&
+        Boolean(selectedAccount) &&
+        rawOriginalCurrency !== selectedAccount!.currency.toUpperCase();
       const description = rawDescription || rawMerchant;
       if (!description) {
         skippedRows.push({ row: rowNumber, reason: t("transactions.import.errorNoDescription") });
@@ -328,9 +338,8 @@ export function CsvImportPage() {
         date: isoDate,
         exchange_rate_to_kzt: exchangeRate ? Math.abs(exchangeRate).toString() : null,
         exchange_rate_source: exchangeRate ? "csv" : null,
-        original_amount: originalAmount ? Math.abs(originalAmount).toFixed(2) : null,
-        original_currency: originalAmount ? rawOriginalCurrency : null,
-        original_to_account_rate: originalAmount ? (Math.abs(amount) / Math.abs(originalAmount)).toString() : null,
+        currency: isForeignCurrency ? rawOriginalCurrency : null,
+        transaction_amount: isForeignCurrency ? Math.abs(originalAmount!).toFixed(2) : null,
         external_id: rawExternalId || null,
       };
 

@@ -30,11 +30,15 @@ const EMPTY_FORM = {
   account_id: "",
   category_id: "",
   transfer_account_id: "",
+  // `amount` is what the account is actually debited, in the account's own
+  // currency — the figure that moves the balance. `transaction_amount` is the
+  // same operation expressed in its own `currency`; the two differ only for a
+  // foreign-currency purchase, where `rate` links them.
   amount: "",
+  currency: "",
+  transaction_amount: "",
+  rate: "",
   exchange_rate_to_kzt: "",
-  original_amount: "",
-  original_currency: "",
-  original_to_account_rate: "",
   transfer_amount: "",
   description: "",
   merchant: "",
@@ -72,6 +76,12 @@ function toCents(value: string): number {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
 }
 
+/** The account-currency figure for a foreign-currency amount, or "" while
+ * either side is still unknown. */
+function debitFor(transactionAmount: string, rate: string): string {
+  return transactionAmount && rate ? multiplyDecimal(transactionAmount, rate, 2) ?? "" : "";
+}
+
 export function TransactionFormModal({ open, onClose, transaction }: TransactionFormModalProps) {
   const { t, language } = useTranslation();
   const { data: accounts } = useAccounts();
@@ -85,6 +95,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   const [splitRows, setSplitRows] = useState<SplitRowState[]>([emptySplitRow(), emptySplitRow()]);
   const [error, setError] = useState<string | null>(null);
   const [rateEdited, setRateEdited] = useState(false);
+  const [amountEdited, setAmountEdited] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -108,13 +119,15 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             : "",
         transfer_account_id: transaction.transfer_account_id ? String(transaction.transfer_account_id) : "",
         amount: transaction.amount,
+        currency: transaction.currency,
+        transaction_amount: transaction.transaction_amount,
+        // Derived from amount / transaction_amount (or the NBK rate) rather
+        // than stored — the form recomputes it on the fly.
+        rate: "",
         exchange_rate_to_kzt:
           transaction.exchange_rate_source === "manual" || transaction.exchange_rate_source === "csv"
             ? transaction.exchange_rate_to_kzt ?? ""
             : "",
-        original_amount: transaction.original_amount ?? "",
-        original_currency: transaction.original_currency ?? "",
-        original_to_account_rate: transaction.original_to_account_rate ?? "",
         transfer_amount: transaction.transfer_amount ?? "",
         description: transaction.description,
         merchant: transaction.merchant ?? "",
@@ -122,6 +135,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
         date: transaction.date,
       });
       setRateEdited(false);
+      setAmountEdited(false);
       setTags(transaction.tags);
       setSplitMode(hasSplits);
       setSplitRows(
@@ -137,6 +151,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
     } else {
       setForm({ ...EMPTY_FORM, account_id: accounts?.[0] ? String(accounts[0].id) : "" });
       setRateEdited(false);
+      setAmountEdited(false);
       setTags([]);
       setSplitMode(false);
       setSplitRows([emptySplitRow(), emptySplitRow()]);
@@ -160,12 +175,42 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   const isCrossCurrencyTransfer = form.type === "transfer" && Boolean(
     accountCurrency && destinationCurrency && accountCurrency !== destinationCurrency
   );
+
+  // The transaction's own currency defaults to the account's; the two only
+  // come apart for a purchase actually made in another currency.
+  const transactionCurrency = (form.currency || accountCurrency || "").toUpperCase();
+  const isForeignCurrency = Boolean(
+    accountCurrency && transactionCurrency && transactionCurrency !== accountCurrency
+  );
+
   const officialRate = useExchangeRate(form.date, accountCurrency);
+  const transactionRate = useExchangeRate(form.date, isForeignCurrency ? transactionCurrency : undefined);
+  // Rates are quoted against KZT, so a cross rate (e.g. EUR→USD) goes through
+  // KZT: divide the two official rates. KZT itself is the identity.
+  const transactionToKzt = transactionCurrency === "KZT" ? "1" : transactionRate.data?.rate_to_kzt ?? "";
+  const accountToKzt = accountCurrency === "KZT" ? "1" : officialRate.data?.rate_to_kzt ?? "";
+  const suggestedRate =
+    isForeignCurrency && transactionToKzt && accountToKzt
+      ? divideDecimal(transactionToKzt, accountToKzt, 6) ?? ""
+      : "";
+
   const previewRate = form.exchange_rate_to_kzt || officialRate.data?.rate_to_kzt || (accountCurrency === "KZT" ? "1" : "");
   const kztPreview = form.amount && previewRate ? multiplyDecimal(form.amount, previewRate, 2) : null;
   const transferRate = isCrossCurrencyTransfer && form.amount && form.transfer_amount
     ? divideDecimal(form.transfer_amount, form.amount, 6)
     : null;
+
+  // Fills the rate field from the official NBK rate as soon as it loads, and
+  // keeps the account-side debit in step with it — but never overwrites a rate
+  // or a debit the user typed themselves.
+  useEffect(() => {
+    if (!isForeignCurrency || rateEdited || !suggestedRate) return;
+    setForm((prev) => ({
+      ...prev,
+      rate: suggestedRate,
+      amount: amountEdited ? prev.amount : debitFor(prev.transaction_amount, suggestedRate),
+    }));
+  }, [suggestedRate, isForeignCurrency, rateEdited, amountEdited]);
 
   function updateSplitRow(key: string, patch: Partial<SplitRowState>) {
     setSplitRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
@@ -177,6 +222,61 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
 
   function removeSplitRow(key: string) {
     setSplitRows((prev) => (prev.length <= 2 ? prev : prev.filter((row) => row.key !== key)));
+  }
+
+  function handleAccountChange(accountId: string) {
+    // Switching accounts resets the currency context: the transaction starts
+    // out in the new account's currency, and the rate/debit fields go back to
+    // being derived rather than user-entered.
+    setForm((prev) => ({
+      ...prev,
+      account_id: accountId,
+      currency: "",
+      rate: "",
+      transfer_account_id: prev.transfer_account_id === accountId ? "" : prev.transfer_account_id,
+      transfer_amount: "",
+      exchange_rate_to_kzt: "",
+    }));
+    setRateEdited(false);
+    setAmountEdited(false);
+  }
+
+  function handleCurrencyChange(currency: string) {
+    setForm((prev) => ({ ...prev, currency, rate: "" }));
+    setRateEdited(false);
+    setAmountEdited(false);
+  }
+
+  function handleTransactionAmountChange(value: string) {
+    setForm((prev) => {
+      const account = accounts?.find((item) => String(item.id) === prev.account_id);
+      const accountCode = account?.currency.toUpperCase() ?? "";
+      const code = (prev.currency || accountCode).toUpperCase();
+      const foreign = Boolean(accountCode && code && code !== accountCode);
+      // Same currency -> the two figures are the same number. Foreign -> the
+      // debit follows the amount through the current rate.
+      return {
+        ...prev,
+        transaction_amount: value,
+        amount: foreign ? debitFor(value, prev.rate) : value,
+      };
+    });
+  }
+
+  function handleRateChange(value: string) {
+    setRateEdited(true);
+    setForm((prev) => ({ ...prev, rate: value, amount: debitFor(prev.transaction_amount, value) }));
+  }
+
+  function handleDebitChange(value: string) {
+    setAmountEdited(true);
+    setForm((prev) => {
+      const derivedRate =
+        prev.transaction_amount && Number(prev.transaction_amount) !== 0
+          ? divideDecimal(value, prev.transaction_amount, 6) ?? prev.rate
+          : prev.rate;
+      return { ...prev, amount: value, rate: derivedRate };
+    });
   }
 
   const isSplitEditingNow = form.type !== "transfer" && splitMode;
@@ -261,6 +361,10 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       splits = [];
     }
 
+    // A same-currency operation has one number, not two — the backend rejects
+    // a row whose transaction_amount disagrees with its account debit.
+    const submittedAmount = isForeignCurrency ? form.amount : form.transaction_amount;
+
     const payload: TransactionInput = {
       type: form.type,
       account_id: Number(form.account_id),
@@ -271,21 +375,20 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             ? Number(form.category_id)
             : null,
       transfer_account_id: form.type === "transfer" ? Number(form.transfer_account_id) : null,
-      amount: form.amount,
+      amount: submittedAmount,
+      currency: isForeignCurrency ? transactionCurrency : null,
+      transaction_amount: isForeignCurrency ? form.transaction_amount : null,
       exchange_rate_to_kzt: form.exchange_rate_to_kzt || null,
       exchange_rate_source: form.exchange_rate_to_kzt
         ? rateEdited
           ? "manual"
           : transaction?.exchange_rate_source ?? "manual"
         : null,
-      original_amount: form.original_amount || null,
-      original_currency: form.original_currency || null,
-      original_to_account_rate: form.original_to_account_rate || null,
       transfer_amount:
         form.type === "transfer"
           ? isCrossCurrencyTransfer
             ? form.transfer_amount || null
-            : form.amount
+            : submittedAmount
           : null,
       description: form.description,
       merchant: form.merchant || null,
@@ -342,16 +445,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             id="account"
             required
             value={form.account_id}
-            onChange={(event) => {
-              setForm((prev) => ({
-                ...prev,
-                account_id: event.target.value,
-                transfer_account_id: prev.transfer_account_id === event.target.value ? "" : prev.transfer_account_id,
-                transfer_amount: "",
-                exchange_rate_to_kzt: "",
-              }));
-              setRateEdited(false);
-            }}
+            onChange={(event) => handleAccountChange(event.target.value)}
           >
             <option value="" disabled>{t("transactions.form.selectAccount")}</option>
             {accounts?.map((account) => (
@@ -379,27 +473,104 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="amount">
-              {form.type === "transfer" ? t("transactions.form.sentAmountLabel", { currency: accountCurrency ?? "—" }) : t("transactions.form.amountCurrencyLabel", { currency: accountCurrency ?? "—" })}
+            <Label htmlFor="transaction_amount">
+              {form.type === "transfer"
+                ? t("transactions.form.sentAmountLabel", { currency: transactionCurrency || "—" })
+                : t("transactions.form.transactionAmountLabel", { currency: transactionCurrency || "—" })}
             </Label>
-            <div className="relative">
-              <Input id="amount" type="number" step="0.01" min="0.01" required className="pr-14" value={form.amount} onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))} />
-              {accountCurrency && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-text-muted">{accountCurrency}</span>}
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="date">{t("transactions.form.dateLabel")}</Label>
             <Input
-              id="date"
-              type="date"
+              id="transaction_amount"
+              type="number"
+              step="0.01"
+              min="0.01"
               required
-              value={form.date}
-              onChange={(event) => {
-                setForm((prev) => ({ ...prev, date: event.target.value, exchange_rate_to_kzt: rateEdited ? prev.exchange_rate_to_kzt : "" }));
-              }}
+              value={form.transaction_amount}
+              onChange={(event) => handleTransactionAmountChange(event.target.value)}
             />
           </div>
+          <div>
+            <Label htmlFor="transaction_currency">{t("transactions.form.currencyLabel")}</Label>
+            <Select
+              id="transaction_currency"
+              value={transactionCurrency}
+              onChange={(event) => handleCurrencyChange(event.target.value)}
+            >
+              {accounts
+                ? Array.from(new Set(accounts.map((account) => account.currency.toUpperCase()))).map((code) => (
+                    <option key={code} value={code}>{code}</option>
+                  ))
+                : null}
+              {transactionCurrency && !accounts?.some((account) => account.currency.toUpperCase() === transactionCurrency) && (
+                <option value={transactionCurrency}>{transactionCurrency}</option>
+              )}
+            </Select>
+          </div>
         </div>
+
+        <div>
+          <Label htmlFor="date">{t("transactions.form.dateLabel")}</Label>
+          <Input
+            id="date"
+            type="date"
+            required
+            value={form.date}
+            onChange={(event) => {
+              setForm((prev) => ({ ...prev, date: event.target.value, exchange_rate_to_kzt: rateEdited ? prev.exchange_rate_to_kzt : "" }));
+            }}
+          />
+        </div>
+
+        {isForeignCurrency && (
+          <div className="rounded-lg border border-border bg-surface-1 p-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="rate">
+                  {t("transactions.form.rateToAccountLabel", {
+                    currency: transactionCurrency,
+                    accountCurrency: accountCurrency ?? "—",
+                  })}
+                </Label>
+                <Input
+                  id="rate"
+                  type="number"
+                  step="0.0000000001"
+                  min="0"
+                  placeholder={transactionRate.isLoading ? t("common.loading") : t("transactions.form.ratePlaceholder")}
+                  value={form.rate}
+                  onChange={(event) => handleRateChange(event.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="amount">
+                  {t("transactions.form.debitedAmountLabel", { currency: accountCurrency ?? "—" })}
+                </Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={form.amount}
+                  onChange={(event) => handleDebitChange(event.target.value)}
+                />
+              </div>
+            </div>
+            {!form.rate && transactionRate.data && (
+              <p className="mt-2 text-xs text-text-muted">
+                {t("transactions.form.rateInfo", {
+                  rate: suggestedRate || transactionRate.data.rate_to_kzt,
+                  currency: transactionCurrency,
+                  accountCurrency: accountCurrency ?? "",
+                  date: transactionRate.data.effective_date,
+                })}
+              </p>
+            )}
+            {!form.rate && transactionRate.isError && (
+              <p className="mt-2 text-xs text-warning">{t("transactions.form.nbkRateUnavailable")}</p>
+            )}
+            {form.rate && rateEdited && <p className="mt-2 text-xs text-text-muted">{t("transactions.form.manualRateInfo")}</p>}
+          </div>
+        )}
 
         {isCrossCurrencyTransfer && (
           <div className="rounded-lg border border-border bg-surface-1 p-3">
@@ -456,38 +627,6 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
           </div>
         )}
 
-        {form.type !== "transfer" && (
-          <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer text-sm text-text-secondary">
-              {t("transactions.form.originalCurrencyDetails")}
-            </summary>
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder={t("transactions.form.originalAmountLabel")}
-                value={form.original_amount}
-                onChange={(event) => setForm((prev) => ({ ...prev, original_amount: event.target.value }))}
-              />
-              <Input
-                maxLength={3}
-                placeholder={t("transactions.form.originalCurrencyLabel")}
-                value={form.original_currency}
-                onChange={(event) => setForm((prev) => ({ ...prev, original_currency: event.target.value.toUpperCase() }))}
-              />
-              <Input
-                type="number"
-                step="0.0000000001"
-                min="0"
-                placeholder={t("transactions.form.originalRateLabel")}
-                value={form.original_to_account_rate}
-                onChange={(event) => setForm((prev) => ({ ...prev, original_to_account_rate: event.target.value }))}
-              />
-            </div>
-          </details>
-        )}
-
         <div>
           <Label htmlFor="description">{t("transactions.form.descriptionLabel")}</Label>
           <Input
@@ -520,7 +659,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               <option value="">{t("transactions.form.noCategory")}</option>
               {categorySelectOptions.map((category) => (
                 <option key={category.id} value={category.id}>
-                  {category.indented ? `    ↳ ` : ""}
+                  {category.indented ? `    ↳ ` : ""}
                   {translateCategoryName(category.name)}
                 </option>
               ))}

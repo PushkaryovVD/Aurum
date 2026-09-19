@@ -78,8 +78,8 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                     ? ` → ${formatCurrency(tx.transfer_amount, destinationAccount.currency)}`
                     : ""}
                 </span>
-                {tx.original_amount && tx.original_currency && (
-                  <span className="text-[11px] text-text-muted">{t("transactions.originalAmount", { amount: tx.original_amount, currency: tx.original_currency })}</span>
+                {tx.currency.toUpperCase() !== tx.account.currency.toUpperCase() && (
+                  <span className="text-[11px] text-text-muted">{t("transactions.originalAmount", { amount: tx.transaction_amount, currency: tx.currency })}</span>
                 )}
                 {tx.base_amount_kzt && tx.account.currency.toUpperCase() !== "KZT" && (
                   <span className="text-[11px] text-text-muted">≈ {formatCurrency(tx.base_amount_kzt, "KZT")}</span>

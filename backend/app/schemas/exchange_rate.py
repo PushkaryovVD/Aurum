@@ -12,6 +12,30 @@ class ExchangeRateRead(BaseModel):
     source: str
 
 
+class CrossRateRead(BaseModel):
+    """One currency's price in another, resolved server-side.
+
+    Rates are quoted against KZT, so a cross rate is the ratio of the two legs —
+    arithmetic the transaction form used to do itself from two separate NBK
+    lookups, where it could drift from what the reports compute.
+    """
+
+    requested_date: date_
+    from_currency: str
+    to_currency: str
+    # How many units of `to_currency` one unit of `from_currency` buys.
+    rate: Decimal
+    # The KZT legs the ratio was built from, so a caller that also needs "what
+    # is this currency worth in KZT" doesn't have to ask a second time.
+    from_rate_to_kzt: Decimal
+    to_rate_to_kzt: Decimal
+    # The legs can come from different days: the loader walks back up to a week
+    # when a currency had no quote on the requested day, and hiding that would
+    # make the ratio look more precise than it is.
+    from_effective_date: date_
+    to_effective_date: date_
+
+
 class ExchangeRateSync(BaseModel):
     start_date: date_
     end_date: date_

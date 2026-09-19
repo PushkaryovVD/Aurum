@@ -90,3 +90,32 @@ async def get_exchange_rate(
         raise HTTPException(status_code=503, detail="NBK exchange-rate service is unavailable") from exc
 
     raise HTTPException(status_code=422, detail=f"No NBK rate found for {currency} near {requested_date.isoformat()}")
+
+
+# A cross rate is a ratio of two KZT quotes; six places is the precision the
+# transaction form stores its rate at.
+CROSS_RATE_PRECISION = Decimal("0.000001")
+
+
+async def get_cross_rate(
+    session: AsyncSession, requested_date: date_, from_currency: str, to_currency: str
+) -> tuple[ExchangeRate, ExchangeRate]:
+    """The two KZT legs whose ratio is the cross rate.
+
+    Returns both rows rather than a bare number so the caller can see which days
+    the ratio was actually built from — the legs are not guaranteed to share one.
+    """
+    source = await get_exchange_rate(session, requested_date, from_currency)
+    target = await get_exchange_rate(session, requested_date, to_currency)
+    return source, target
+
+
+def cross_ratio(source: ExchangeRate, target: ExchangeRate) -> Decimal:
+    """How many units of `target` one unit of `source` buys.
+
+    Both sides may be KZT: `get_exchange_rate` answers that with an identity row
+    worth 1, so KZT→USD and USD→KZT fall out of the same division.
+    """
+    if not target.rate_to_kzt:
+        raise HTTPException(status_code=422, detail=f"No usable KZT rate for {target.currency}")
+    return (source.rate_to_kzt / target.rate_to_kzt).quantize(CROSS_RATE_PRECISION)

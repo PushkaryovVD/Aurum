@@ -6,24 +6,25 @@ branches. A branch updates this checklist before it is merged.
 
 ## Current state — resume here
 
-_Last updated on the `feature/auto-categorization` branch._
+_Last updated on `develop`._
 
 ### Where the work lives
 
-| Branch | Contains | In `develop`? |
-|---|---|---|
-| `feature/multi-currency-transactions` | Transaction-level currency, account currency, dashboard total balance | no |
-| `feature/freedom-import` | the above (merged in) **plus** the bank-statement import pipeline | no |
-| `feature/auto-categorization` | the above (merged in) **plus** ordered categorization rules | no |
+`develop` is the working branch and now contains everything: `main` plus the
+features below, merged in stack order. The feature branches are kept rather than
+deleted, so each one is still reviewable on its own.
 
-These are stacked, not siblings: each branch contains its predecessor, so
-`feature/auto-categorization` is the tip — `develop` plus 12 commits. Nothing has
-been pushed to a remote.
+| Merged into `develop` | Contains |
+|---|---|
+| `feature/multi-currency-transactions` | Transaction-level currency, account currency, dashboard total balance |
+| `feature/freedom-import` | Bank-statement import pipeline |
+| `feature/auto-categorization` | Ordered categorization rules |
 
 ### Verified state
 
-- `pytest`: **185 passed** (10 of them new, covering the rules).
+- `pytest`: **185 passed** (10 of them covering the rules).
 - `vitest`: **58 passed**; `npm run build` clean.
+- Both run against the merged `develop` tree.
 - The Tradernet adapter was run against the real `bills/tradernet_table.xlsx`:
   155 rows, 104 importable, 0 warnings, dates 2021-03-24 … 2026-09-08.
 - Migrations: head is `b7e2c4f19a35` (categorization rules). Every test run
@@ -32,9 +33,9 @@ been pushed to a remote.
 
 ### Blocked, or waiting on a decision
 
-1. **Nothing is merged into `develop`.** Merge in stack order —
-   `feature/multi-currency-transactions`, then `feature/freedom-import`, then
-   `feature/auto-categorization` — and run CI after each one.
+1. **`develop` is ahead of `main` and has not been pushed**, so CI (GitHub
+   Actions) has not run against any of this yet. Pushing is a deliberate step,
+   not a side effect of merging.
 2. **Tradernet trades/securities cannot be imported from the cash-movement
    export.** That file carries a commission row per trade (trade id, side,
    ticker) but no quantity and no price — those live in the broker's *trades*
@@ -46,14 +47,14 @@ been pushed to a remote.
 
 ### Next, in order
 
-1. Merge the three branches into `develop` (stack order above), then run CI there.
-2. Server-side cross-rate endpoint, so the transaction form stops resolving a
+1. Server-side cross-rate endpoint, so the transaction form stops resolving a
    cross rate from two client-side NBK lookups.
-3. Run the rules while entering a transaction by hand. The backend already
+2. Run the rules while entering a transaction by hand. The backend already
    decides this on commit and on import preview; the manual form does not call
    it yet, so a typed-in transaction still starts with an empty category.
-4. Investments import from the broker trades report — needs a fixture (see above).
-5. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
+3. Investments import from the broker trades report — needs a fixture (see above).
+4. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
+5. The rest of the roadmap, in the order listed below.
 
 ## Delivery order
 
@@ -62,8 +63,8 @@ been pushed to a remote.
 - [x] `feature/bank-import` — currency-aware generic bank CSV import
 - [x] `feature/investments` — manual securities, trades and dividends
 - [x] `feature/transaction-currency-ux` — explicit currency context in the transaction form
-- [ ] `feature/multi-currency-transactions` — transaction-level currency with NBK cross rates
-- [ ] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
+- [x] `feature/multi-currency-transactions` — transaction-level currency with NBK cross rates
+- [x] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
 - [ ] `feature/kz-bank-statements` — Kaspi/Halyk PDF statement adapters
 - [x] `feature/auto-categorization` — ordered rules applied to import preview and bulk apply
 - [ ] `feature/envelope-budgeting` — monthly zero-based envelopes and rollover

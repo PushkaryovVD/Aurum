@@ -28,8 +28,14 @@ class StatementRow(BaseModel):
     details: str | None = None
     purpose: TransactionPurpose = TransactionPurpose.ORDINARY
     security_symbol: str | None = None
-    # Chosen by the user in the preview; the parser never guesses one.
+    # Chosen by the user in the preview; the parser never guesses one. Filled in
+    # by the categorization rules when one matches (see `matched_rule`), and
+    # left for the user to decide otherwise.
     category_id: int | None = None
+    # The name of the rule that chose `category_id`, so the preview can say why
+    # rather than just showing a category that appeared by itself. Informational
+    # only — the commit reads `category_id`.
+    matched_rule: str | None = None
     importable: bool = True
     warning: str | None = None
 

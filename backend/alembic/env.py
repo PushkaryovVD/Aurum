@@ -13,6 +13,7 @@ from app.models import (  # noqa: F401 — registers metadata
     Asset,
     AssetValuation,
     Budget,
+    CategorizationRule,
     Category,
     CryptoHolding,
     CryptoSyncState,

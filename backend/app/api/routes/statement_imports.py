@@ -4,14 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_session
 from app.importers import SUPPORTED_EXTENSIONS, resolve_importer
 from app.schemas.statement_import import StatementCommit, StatementCommitResult, StatementPreview
-from app.services.statement_import_service import commit_statement
+from app.services.statement_import_service import commit_statement, suggest_row_categories
 
 router = APIRouter(prefix="/statement-imports", tags=["statement-imports"])
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @router.post("/preview", response_model=StatementPreview)
-async def preview_statement(file: UploadFile = File(...)) -> StatementPreview:
+async def preview_statement(
+    file: UploadFile = File(...), session: AsyncSession = Depends(get_session)
+) -> StatementPreview:
     """Reads a bank document and returns what it recognised — without writing
     anything. The user reviews and corrects these rows, then posts them back to
     /commit; nothing reaches the ledger until they do."""
@@ -23,7 +25,11 @@ async def preview_statement(file: UploadFile = File(...)) -> StatementPreview:
     if importer is None:
         supported = ", ".join(SUPPORTED_EXTENSIONS)
         raise HTTPException(422, f"Unsupported file type. Supported formats: {supported}")
-    return importer.parse(name, content)
+    preview = importer.parse(name, content)
+    # Whatever the saved rules already decide is filled in here, so the user
+    # reviews the real proposal instead of an empty category column.
+    await suggest_row_categories(session, preview.rows)
+    return preview
 
 
 @router.post("/commit", response_model=StatementCommitResult)

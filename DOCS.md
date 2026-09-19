@@ -32,6 +32,7 @@ like Postman/Insomnia.
 - [Crypto](#crypto)
 - [Dashboard, Cash Flow & Reports](#dashboard-cash-flow--reports)
 - [Insights & Advice](#insights--advice)
+- [Exchange Rates](#exchange-rates)
 - [Settings](#settings)
 - [Backup & Restore](#backup--restore)
 - [Recipes](#recipes)
@@ -942,6 +943,47 @@ if you're consuming this programmatically rather than trying to parse rendered s
 // GET /advice
 { "items": [ { "key": "rising_category", "tone": "warning", "params": { "category": "Dining", "percent": 34.2 } } ] }
 ```
+
+## Exchange Rates
+
+Official KZT rates from the National Bank of Kazakhstan, cached in `exchange_rates` so the same day
+and currency is never fetched twice. Every rate the app stores alongside a transaction — and every
+conversion it displays — comes from here.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/exchange-rates` | The rate for one currency on one date: `?date=2026-09-18&currency=USD`. |
+| `GET` | `/exchange-rates/cross` | One currency's price in another: `?date=2026-09-18&from=USD&to=EUR`. |
+| `POST` | `/exchange-rates/sync` | Pre-fetch a range: `{"start_date": …, "end_date": …, "currencies": ["USD", "EUR"]}`, at most 366 days. |
+
+**`GET /exchange-rates`** returns `requested_date`, `effective_date`, `currency`, `rate_to_kzt` and
+`source` (`nbk`, `manual`, `csv`, or `identity` for KZT itself). `effective_date` is the day the rate
+actually belongs to: when a currency had no quote on `requested_date` — a weekend, a holiday — the
+loader walks back up to seven days and reports which day it landed on, rather than presenting an old
+rate as a fresh one.
+
+**`GET /exchange-rates/cross`** answers "how many units of `to` does one unit of `from` buy". Rates
+are quoted against KZT, so the cross rate is the ratio of the two legs. Either side may be KZT, and
+the same currency on both sides is a legitimate question whose answer is `1`. The response carries
+both legs and both effective dates, so a caller that also needs "what is this currency worth in KZT"
+doesn't have to ask a second time:
+
+```json
+{
+  "requested_date": "2026-09-18",
+  "from_currency": "USD",
+  "to_currency": "EUR",
+  "rate": "0.909091",
+  "from_rate_to_kzt": "500.0000000000",
+  "to_rate_to_kzt": "550.0000000000",
+  "from_effective_date": "2026-09-18",
+  "to_effective_date": "2026-09-15"
+}
+```
+
+The two legs are not guaranteed to share an effective date, which is why each carries its own. If no
+rate can be found within a week the endpoint answers `422`; if the NBK service itself is unreachable,
+`503`. Callers that store a rate treat both as "no official rate" and fall back to a manual one.
 
 ## Settings
 

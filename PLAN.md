@@ -22,7 +22,7 @@ deleted, so each one is still reviewable on its own.
 
 ### Verified state
 
-- `pytest`: **185 passed** (10 of them covering the rules).
+- `pytest`: **193 passed** (10 of them covering the rules, 8 the cross-rate endpoint).
 - `vitest`: **58 passed**; `npm run build` clean.
 - Both run against the merged `develop` tree.
 - The Tradernet adapter was run against the real `bills/tradernet_table.xlsx`:
@@ -47,14 +47,12 @@ deleted, so each one is still reviewable on its own.
 
 ### Next, in order
 
-1. Server-side cross-rate endpoint, so the transaction form stops resolving a
-   cross rate from two client-side NBK lookups.
-2. Run the rules while entering a transaction by hand. The backend already
+1. Run the rules while entering a transaction by hand. The backend already
    decides this on commit and on import preview; the manual form does not call
    it yet, so a typed-in transaction still starts with an empty category.
-3. Investments import from the broker trades report — needs a fixture (see above).
-4. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
-5. The rest of the roadmap, in the order listed below.
+2. Investments import from the broker trades report — needs a fixture (see above).
+3. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
+4. The rest of the roadmap, in the order listed below.
 
 ## Delivery order
 

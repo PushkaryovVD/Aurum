@@ -243,6 +243,14 @@ export function StatementImportPage() {
                                 </option>
                               ))}
                           </Select>
+                          {/* Where the category came from, so a value that
+                              appeared by itself is explained rather than
+                              merely surprising. */}
+                          {row.matched_rule && (
+                            <span className="mt-1 block text-xs text-text-muted">
+                              {t("statementImport.matchedRule", { name: row.matched_rule })}
+                            </span>
+                          )}
                         </td>
                         <td className={`p-2 text-xs ${row.importable ? "text-success" : "text-warning"}`}>
                           {row.importable ? t("statementImport.ready") : row.warning}

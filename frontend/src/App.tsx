@@ -10,6 +10,7 @@ import { AdvicePage } from "@/pages/AdvicePage";
 import { BudgetPage } from "@/pages/BudgetPage";
 import { CashFlowPage } from "@/pages/CashFlowPage";
 import { CategoriesPage } from "@/pages/CategoriesPage";
+import { CategorizationRulesPage } from "@/pages/CategorizationRulesPage";
 import { CryptoPage } from "@/pages/CryptoPage";
 import { CsvImportPage } from "@/pages/CsvImportPage";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -59,6 +60,7 @@ export default function App() {
             <Route path="/roi" element={<RoiPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
             <Route path="/categories" element={<CategoriesPage />} />
+            <Route path="/rules" element={<CategorizationRulesPage />} />
             <Route path="/cash-flow" element={<CashFlowPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/transactions/import" element={<CsvImportPage />} />

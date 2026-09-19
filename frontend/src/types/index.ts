@@ -7,9 +7,11 @@ export type TransactionPurpose = "ordinary" | "investment_trade" | "dividend" | 
 export interface StatementRow {
   source_row: string; external_id: string; date: string; type: TransactionType; amount: string;
   currency: string; description: string; details: string | null; purpose: TransactionPurpose;
-  security_symbol: string | null; importable: boolean; warning: string | null;
+  security_symbol: string | null; category_id: number | null; importable: boolean; warning: string | null;
 }
-export interface StatementPreview { provider: string; file_name: string; rows: StatementRow[]; warnings: string[] }
+export interface StatementPreview {
+  provider: string; provider_label: string; file_name: string; rows: StatementRow[]; warnings: string[];
+}
 export interface StatementCommitResult { created: number; duplicates: number; ignored: number }
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 export type SecurityTradeType = "buy" | "sell";

@@ -20,6 +20,7 @@ import { RecurringPage } from "@/pages/RecurringPage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { RoiPage } from "@/pages/RoiPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { StatementImportPage } from "@/pages/StatementImportPage";
 import { TransactionsPage } from "@/pages/TransactionsPage";
 
 export default function App() {
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="/cash-flow" element={<CashFlowPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/transactions/import" element={<CsvImportPage />} />
+            <Route path="/transactions/import/statements" element={<StatementImportPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/budget" element={<BudgetPage />} />
             <Route path="/advice" element={<AdvicePage />} />

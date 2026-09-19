@@ -2,7 +2,15 @@ export type AccountType = "checking" | "debit_card" | "savings" | "credit_card" 
 export type CategoryKind = "income" | "expense";
 export type TransactionType = "income" | "expense" | "transfer";
 export type ExchangeRateSource = "nbk" | "manual" | "csv";
-export type TransactionPurpose = "ordinary" | "investment_trade" | "dividend" | "fee" | "tax";
+export type TransactionPurpose = "ordinary" | "investment_trade" | "dividend" | "coupon" | "fee" | "tax";
+
+export interface StatementRow {
+  source_row: string; external_id: string; date: string; type: TransactionType; amount: string;
+  currency: string; description: string; details: string | null; purpose: TransactionPurpose;
+  security_symbol: string | null; importable: boolean; warning: string | null;
+}
+export interface StatementPreview { provider: string; file_name: string; rows: StatementRow[]; warnings: string[] }
+export interface StatementCommitResult { created: number; duplicates: number; ignored: number }
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 export type SecurityTradeType = "buy" | "sell";
 

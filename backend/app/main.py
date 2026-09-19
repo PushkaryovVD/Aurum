@@ -21,6 +21,7 @@ from app.api.routes import (
     recurring,
     reports,
     settings as settings_routes,
+    statement_imports,
     tags,
     transactions,
 )
@@ -91,6 +92,7 @@ app.include_router(tags.router, prefix="/api")
 app.include_router(crypto.router, prefix="/api")
 app.include_router(exchange_rates.router, prefix="/api")
 app.include_router(investments.router, prefix="/api")
+app.include_router(statement_imports.router, prefix="/api")
 
 
 @app.get("/api/health")

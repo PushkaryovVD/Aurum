@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.enums import TransactionPurpose, TransactionType
 
@@ -22,8 +22,13 @@ class StatementRow(BaseModel):
     external_id: str = ""
     date: date
     type: TransactionType
+    # `amount`/`account_currency` are the movement that changes the selected
+    # account. `transaction_amount`/`currency` preserve the merchant-side
+    # figure (for example 19.58 BYN charged as 2918.98 KZT).
     amount: Decimal = Field(gt=0)
+    account_currency: str | None = Field(default=None, min_length=3, max_length=3)
     currency: str = Field(min_length=3, max_length=3)
+    transaction_amount: Decimal | None = Field(default=None, gt=0)
     description: str
     details: str | None = None
     purpose: TransactionPurpose = TransactionPurpose.ORDINARY
@@ -38,6 +43,17 @@ class StatementRow(BaseModel):
     matched_rule: str | None = None
     importable: bool = True
     warning: str | None = None
+
+    @model_validator(mode="after")
+    def fill_currency_defaults(self):
+        # Backwards compatible with previews produced before statement rows
+        # distinguished the account and purchase currencies.
+        self.currency = self.currency.upper()
+        self.account_currency = (self.account_currency or self.currency).upper()
+        self.transaction_amount = self.transaction_amount or self.amount
+        if self.account_currency == self.currency and self.transaction_amount != self.amount:
+            raise ValueError("transaction_amount must equal amount when both currencies match")
+        return self
 
 
 class StatementPreview(BaseModel):

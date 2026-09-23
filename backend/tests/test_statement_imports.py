@@ -13,6 +13,8 @@ from httpx import AsyncClient
 from openpyxl import Workbook
 
 from app.services import statement_import_service
+from app.importers.freedom_bank import FreedomBankPdfImporter
+from app.importers.kaspi import KaspiPdfImporter
 from tests.helpers import money
 
 HEADER = ["Операция №", "Дата", "Операция", "Комментарий", "Сумма", "Валюта"]
@@ -112,6 +114,86 @@ async def test_unsupported_file_type_names_what_is_supported(client: AsyncClient
     response = await client.post("/statement-imports/preview", files={"file": ("statement.csv", b"a,b")})
     assert response.status_code == 422
     assert ".xlsx" in response.json()["detail"]
+    assert ".pdf" in response.json()["detail"]
+
+
+def test_kaspi_text_statement_preserves_fx_purchase_and_reconciles():
+    pages = [
+        """Kaspi Bank\nВЫПИСКА Kaspi Gold\nДоступно на 17.09.26 + 5 607,35 ₸""",
+        """Дата Сумма Операция Детали
+18.09.26 - 1 000,00 ₸   Перевод на свой      На Kaspi Депозит
+счет
+17.09.26 - 200,00 ₸   Разное      Комиссия за перевод на карту др. банка
+17.09.26 - 6 000,00 ₸   Перевод      На карту другого банка Super App P2P
+17.09.26 + 10 000,00 ₸   Поступление со      С Kaspi Депозита
+своего счета
+17.09.26 - 1 900,00 ₸   Покупка      YANDEX.GO
+17.09.26 + 2 000,00 ₸   Поступление со      С Kaspi Депозита
+своего счета
+17.09.26 - 1 650,00 ₸   Покупка      Аппарат самообслуживания
+17.09.26 - 2 918,98 ₸   Покупка      YANDEX.EDA
+(- 19,58 BYN)
+17.09.26 - 785,00 ₸   Покупка      Аппарат самообслуживания
+- Сумма заблокирована и ожидает списания
+Доступно на 18.09.26 + 3 153,37 ₸""",
+    ]
+
+    preview = KaspiPdfImporter().parse_pages("kaspi.pdf", pages)
+
+    assert len(preview.rows) == 9
+    fx = next(row for row in preview.rows if row.details == "YANDEX.EDA")
+    assert fx.account_currency == "KZT"
+    assert fx.currency == "BYN"
+    assert fx.amount == Decimal("2918.98")
+    assert fx.transaction_amount == Decimal("19.58")
+    assert sum(row.importable for row in preview.rows) == 5
+    assert preview.warnings == ["Balance check passed: opening balance plus operations equals closing balance"]
+
+
+def test_freedom_bank_pending_row_stays_visible_but_is_not_imported():
+    pages = [
+        "Фридом Банк Казахстан\nВыписка по карте",
+        """Дата Сумма Валюта Операция Детали
+17.09.2026
+ -2.51 $ USD Сумма в
+обработке WEIXIN Panduo platform Beijing CN
+17.09.2026 +6,000.00 ₸ KZT Пополнение Перевод с карты на карту""",
+    ]
+
+    preview = FreedomBankPdfImporter().parse_pages("freedom.pdf", pages)
+
+    assert len(preview.rows) == 2
+    assert preview.rows[0].currency == "USD"
+    assert preview.rows[0].importable is False
+    assert preview.rows[1].amount == Decimal("6000.00")
+    assert preview.rows[1].type.value == "income"
+
+
+async def test_commit_preserves_merchant_currency_from_kaspi_fx_purchase(client: AsyncClient):
+    kzt = (await client.get("/accounts")).json()[0]
+    row = {
+        "source_row": "page 2, operation 8",
+        "date": "2026-09-17",
+        "type": "expense",
+        "amount": "2918.98",
+        "account_currency": "KZT",
+        "currency": "BYN",
+        "transaction_amount": "19.58",
+        "description": "Покупка",
+        "details": "YANDEX.EDA",
+    }
+
+    response = await client.post(
+        "/statement-imports/commit",
+        json={"provider": "kaspi_gold_pdf", "accounts_by_currency": {"KZT": kzt["id"]}, "rows": [row]},
+    )
+    assert response.status_code == 200, response.text
+
+    stored = (await client.get("/transactions")).json()["items"][0]
+    assert money(stored["amount"]) == Decimal("2918.98")
+    assert stored["currency"] == "BYN"
+    assert money(stored["transaction_amount"]) == Decimal("19.58")
+    assert money(stored["base_amount_kzt"]) == Decimal("2918.98")
 
 
 async def test_tradernet_commit_is_atomic_and_idempotent(client: AsyncClient, monkeypatch):
@@ -223,6 +305,7 @@ async def test_edits_made_in_the_preview_are_what_gets_stored(
         **rows[0],
         "description": "Продукты",
         "amount": "750.00",
+        "transaction_amount": "750.00",
         "type": "expense",
         "category_id": groceries,
     }

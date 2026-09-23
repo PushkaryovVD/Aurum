@@ -6,7 +6,8 @@ export type TransactionPurpose = "ordinary" | "investment_trade" | "dividend" | 
 
 export interface StatementRow {
   source_row: string; external_id: string; date: string; type: TransactionType; amount: string;
-  currency: string; description: string; details: string | null; purpose: TransactionPurpose;
+  account_currency: string; currency: string; transaction_amount: string; description: string;
+  details: string | null; purpose: TransactionPurpose;
   security_symbol: string | null; category_id: number | null; importable: boolean; warning: string | null;
   // Name of the categorization rule that chose `category_id`, when one did —
   // shown next to the category so it's clear where the value came from.

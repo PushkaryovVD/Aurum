@@ -53,7 +53,7 @@ async def suggest_row_categories(
             # rule should match the text they can actually see.
             merchant=row.details,
             amount=row.amount,
-            currency=row.currency,
+            currency=row.account_currency,
             account_id=(account_by_currency or {}).get(row.currency.upper()),
             transaction_type=row.type,
         )
@@ -80,11 +80,14 @@ def _import_key(row: StatementRow) -> str:
     """
     if row.external_id:
         return row.external_id
-    digest = sha256(
-        "|".join(
-            [row.date.isoformat(), row.type.value, str(row.amount), row.currency.upper(), row.description]
-        ).encode()
-    ).hexdigest()
+    parts = [row.date.isoformat(), row.type.value, str(row.amount), row.account_currency]
+    # Preserve the pre-PDF digest for ordinary same-currency rows so existing
+    # imports remain idempotent after upgrading. Only FX purchases need the
+    # extra merchant-side identity fields.
+    if row.currency != row.account_currency or row.transaction_amount != row.amount:
+        parts.extend([str(row.transaction_amount), row.currency])
+    parts.append(row.description)
+    digest = sha256("|".join(parts).encode()).hexdigest()
     return f"auto:{digest[:40]}"
 
 
@@ -98,10 +101,10 @@ async def _rate_snapshot(
     figure — exactly what manual entry does, because a missing rate must never
     cost the user a transaction.
     """
-    if row.currency.upper() == "KZT":
+    if row.account_currency == "KZT":
         return Decimal("1"), ExchangeRateSource.NBK
     try:
-        official = await get_exchange_rate(session, row.date, row.currency)
+        official = await get_exchange_rate(session, row.date, row.account_currency)
     except HTTPException as exc:
         if exc.status_code not in {422, 503}:
             raise
@@ -149,9 +152,9 @@ async def commit_statement(session: AsyncSession, payload: StatementCommit) -> S
 
     rows_by_account: dict[int, list[StatementRow]] = defaultdict(list)
     for row in importable:
-        account = accounts.get(row.currency.upper())
+        account = accounts.get(row.account_currency)
         if account is None:
-            raise HTTPException(422, f"No destination account selected for {row.currency.upper()}")
+            raise HTTPException(422, f"No destination account selected for {row.account_currency}")
         rows_by_account[account.id].append(row)
 
     created = 0
@@ -182,12 +185,12 @@ async def commit_statement(session: AsyncSession, payload: StatementCommit) -> S
                     account_id=account_id,
                     category_id=row.category_id,
                     type=row.type,
-                    # The destination account was required to match the row's
-                    # currency above, so the account-side debit and the
-                    # transaction's own amount are the same figure here.
+                    # The destination account matches account_currency. The
+                    # transaction-side fields may still preserve a foreign
+                    # merchant amount (for example a BYN purchase on KZT card).
                     amount=row.amount,
-                    currency=row.currency.upper(),
-                    transaction_amount=row.amount,
+                    currency=row.currency,
+                    transaction_amount=row.transaction_amount,
                     exchange_rate_to_kzt=rate,
                     base_amount_kzt=(row.amount * rate).quantize(Decimal("0.01")) if rate is not None else None,
                     exchange_rate_source=source,

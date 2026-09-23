@@ -29,19 +29,32 @@ export function StatementImportPage() {
 
   const importable = useMemo(() => rows.filter((row) => row.importable), [rows]);
   const currencies = useMemo(
-    () => [...new Set(importable.map((row) => row.currency.toUpperCase()))].sort(),
+    () => [...new Set(importable.map((row) => row.account_currency.toUpperCase()))].sort(),
     [importable]
   );
   // The curated ISO list plus whatever the document actually used, so a row's
   // currency can be corrected to something no account holds yet.
   const currencyOptions = useMemo(() => {
     const codes = new Set(CURRENCIES.map((option) => option.code));
-    for (const row of rows) codes.add(row.currency.toUpperCase());
+    for (const row of rows) {
+      codes.add(row.account_currency.toUpperCase());
+      codes.add(row.currency.toUpperCase());
+    }
     return [...codes].sort();
   }, [rows]);
 
   function updateRow(index: number, patch: Partial<StatementRow>) {
     setRows((prev) => prev.map((row, current) => (current === index ? { ...row, ...patch } : row)));
+  }
+
+  function updateAccountAmount(index: number, amount: string) {
+    const row = rows[index];
+    updateRow(index, {
+      amount,
+      ...(row.account_currency === row.currency && row.transaction_amount === row.amount
+        ? { transaction_amount: amount }
+        : {}),
+    });
   }
 
   async function choose(file?: File) {
@@ -55,7 +68,7 @@ export function StatementImportPage() {
       setRows(data.rows);
       const defaults: Record<string, number> = {};
       const currenciesInFile = new Set(
-        data.rows.filter((row) => row.importable).map((row) => row.currency.toUpperCase())
+        data.rows.filter((row) => row.importable).map((row) => row.account_currency.toUpperCase())
       );
       for (const currency of currenciesInFile) {
         const account = accounts.find((item) => item.currency.toUpperCase() === currency);
@@ -105,7 +118,7 @@ export function StatementImportPage() {
             <input
               className="hidden"
               type="file"
-              accept=".xlsx"
+              accept=".xlsx,.pdf,application/pdf"
               disabled={busy}
               onChange={(event) => choose(event.target.files?.[0])}
             />
@@ -155,13 +168,15 @@ export function StatementImportPage() {
               ))}
 
               <div className="max-h-[520px] overflow-auto rounded-lg border border-border">
-                <table className="w-full min-w-[900px] text-sm">
+                <table className="w-full min-w-[1180px] text-sm">
                   <thead className="sticky top-0 bg-surface-2 text-left text-xs text-text-muted">
                     <tr>
                       <th className="p-2">{t("transactions.form.dateLabel")}</th>
                       <th className="p-2">{t("statementImport.operation")}</th>
                       <th className="p-2">{t("transactions.form.amountLabel")}</th>
-                      <th className="p-2">{t("transactions.import.currencyColumnLabel")}</th>
+                      <th className="p-2">{t("statementImport.accountCurrency")}</th>
+                      <th className="p-2">{t("statementImport.transactionAmount")}</th>
+                      <th className="p-2">{t("statementImport.transactionCurrency")}</th>
                       <th className="p-2">{t("statementImport.type")}</th>
                       <th className="p-2">{t("statementImport.category")}</th>
                       <th className="p-2">{t("statementImport.status")}</th>
@@ -196,19 +211,53 @@ export function StatementImportPage() {
                             className="w-28"
                             value={row.amount}
                             disabled={!row.importable}
-                            onChange={(event) => updateRow(index, { amount: event.target.value })}
+                            onChange={(event) => updateAccountAmount(index, event.target.value)}
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Select
+                            value={row.account_currency.toUpperCase()}
+                            disabled={!row.importable}
+                            onChange={(event) =>
+                              updateRow(index, {
+                                account_currency: event.target.value,
+                                ...(event.target.value === row.currency ? { transaction_amount: row.amount } : {}),
+                              })
+                            }
+                          >
+                            {currencyOptions.map((code) => (
+                              <option key={code} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                          </Select>
+                        </td>
+                        <td className="p-2">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            className="w-28"
+                            value={row.transaction_amount}
+                            disabled={!row.importable}
+                            onChange={(event) => updateRow(index, { transaction_amount: event.target.value })}
                           />
                         </td>
                         <td className="p-2">
                           <Select
                             value={row.currency.toUpperCase()}
                             disabled={!row.importable}
-                            onChange={(event) => updateRow(index, { currency: event.target.value })}
+                            onChange={(event) =>
+                              updateRow(index, {
+                                currency: event.target.value,
+                                ...(event.target.value === row.account_currency
+                                  ? { transaction_amount: row.amount }
+                                  : {}),
+                              })
+                            }
                           >
                             {currencyOptions.map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
+                              <option key={code} value={code}>{code}</option>
                             ))}
                           </Select>
                         </td>

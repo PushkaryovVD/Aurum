@@ -201,6 +201,8 @@ parser.
 | Adapter | `provider` | File | Notes |
 |---|---|---|---|
 | Tradernet Global / Freedom Broker | `tradernet` | `.xlsx` | Cash-movement export with columns `Операция №`, `Дата`, `Операция`, `Комментарий`, `Сумма`, `Валюта`. Dates may arrive as Excel serial numbers. |
+| Kaspi Gold | `kaspi_gold_pdf` | `.pdf` | Russian text-layer statement. Reconciles dated opening/closing available balances; own-account transfers and blocked amounts stay in preview but are not posted. FX purchases preserve both the KZT card debit and merchant currency amount. |
+| Freedom Bank Kazakhstan | `freedom_bank_pdf` | `.pdf` | Russian card statement. Posted rows are imported by their account currency; pending card amounts remain visible in preview and are not posted. |
 
 The upload limit is 10 MB.
 
@@ -549,8 +551,19 @@ explicitly): **T-Bank** (semicolon CSV, `Сумма платежа`, rows with `
 **monobank** (Ukrainian-language CSV, `Сума в валюті картки (…)`) and **PrivatBank**
 (`Сума в валюті картки`, `Опис операції`). Profiles live in `frontend/src/lib/bankPresets.ts` —
 adding a bank is one declarative entry (header matchers, date/amount format, optional row filter).
-Banks that only export PDF/XLSX (Sber, Kaspi, Halyk, maib…) are imported via a third-party
-PDF→CSV converter and the manual mapping.
+Kaspi Gold and Freedom Bank Kazakhstan text-layer PDFs can be uploaded directly through
+the statement preview. Other PDF formats (including Halyk until a redacted fixture is
+available) still require conversion to CSV and manual mapping. Aurum never sends a bank
+statement to a third-party OCR service.
+
+To inspect a supported statement outside the UI, run this locally from `backend/`:
+
+```bash
+python -m scripts.statement_to_csv ../bills/kaspi.pdf kaspi-normalized.csv --include-skipped
+```
+
+Without `--include-skipped`, pending and own-account transfer rows are omitted from the
+CSV. The web preview always shows them together with the reason they will not be posted.
 
 ```json
 { "items": [ /* 1–5000 TransactionCreate objects */ ] }

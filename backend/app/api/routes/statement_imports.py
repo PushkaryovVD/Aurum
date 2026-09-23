@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session
-from app.importers import SUPPORTED_EXTENSIONS, resolve_importer
+from app.importers import SUPPORTED_EXTENSIONS, resolve_importers
 from app.schemas.statement_import import StatementCommit, StatementCommitResult, StatementPreview
 from app.services.statement_import_service import commit_statement, suggest_row_categories
 
@@ -21,11 +21,21 @@ async def preview_statement(
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "Statement file is larger than 10 MB")
     name = file.filename or "statement"
-    importer = resolve_importer(name)
-    if importer is None:
+    importers = resolve_importers(name)
+    if not importers:
         supported = ", ".join(SUPPORTED_EXTENSIONS)
         raise HTTPException(422, f"Unsupported file type. Supported formats: {supported}")
-    preview = importer.parse(name, content)
+    errors: list[str] = []
+    for importer in importers:
+        try:
+            preview = importer.parse(name, content)
+            break
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            errors.append(str(exc.detail))
+    else:
+        raise HTTPException(422, "Statement format was not recognized: " + "; ".join(errors))
     # Whatever the saved rules already decide is filled in here, so the user
     # reviews the real proposal instead of an empty category column.
     await suggest_row_categories(session, preview.rows)

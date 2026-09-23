@@ -22,11 +22,16 @@ deleted, so each one is still reviewable on its own.
 
 ### Verified state
 
-- `pytest`: **199 passed** (16 of them covering the rules, 8 the cross-rate endpoint).
+- `pytest`: **202 passed**, including Kaspi/Freedom parsing and preservation of
+  both account-side and merchant-side currency amounts.
 - `vitest`: **58 passed**; `npm run build` clean.
 - Both run against the merged `develop` tree.
 - The Tradernet adapter was run against the real `bills/tradernet_table.xlsx`:
   155 rows, 104 importable, 0 warnings, dates 2021-03-24 … 2026-09-08.
+- The Kaspi adapter was run against `bills/kaspi.pdf`: 9 recognized rows, 5
+  importable, and the opening/closing balance reconciliation passes. The
+  Freedom Bank adapter recognizes 2 rows in `bills/freedom.pdf`; its pending
+  USD row remains visible but is not importable.
 - Migrations: head is `b7e2c4f19a35` (categorization rules). Every test run
   creates a fresh database and migrates it, so the chain is exercised on each
   run; the real database is migrated by the container entrypoint.
@@ -41,14 +46,14 @@ deleted, so each one is still reviewable on its own.
    ticker) but no quantity and no price — those live in the broker's *trades*
    report, which is not in `bills/`. The Investments-side import needs that
    fixture before it can start.
-3. **Kaspi/Halyk need OCR.** `bills/kaspi.pdf` is a scan with no text layer.
-   `bills/freedom.pdf` has a text layer, but its table columns are reflowed and
-   the layout is not reliable enough to parse.
+3. **Halyk is waiting for a fixture.** The supplied Kaspi Gold and Freedom Bank
+   PDFs both have usable text layers and now parse locally. A Halyk adapter is
+   intentionally not guessed without a real, redacted statement version.
 
 ### Next, in order
 
 1. Investments import from the broker trades report — needs a fixture (see above).
-2. `feature/kz-bank-statements` — Kaspi/Halyk, OCR phase.
+2. Complete `feature/kz-bank-statements` with Halyk after a redacted fixture is available.
 3. The rest of the roadmap, in the order listed below.
 
 ## Delivery order
@@ -60,7 +65,7 @@ deleted, so each one is still reviewable on its own.
 - [x] `feature/transaction-currency-ux` — explicit currency context in the transaction form
 - [x] `feature/multi-currency-transactions` — transaction-level currency with NBK cross rates
 - [x] `feature/freedom-import` — previewed, idempotent Freedom Broker XLSX import
-- [ ] `feature/kz-bank-statements` — Kaspi/Halyk PDF statement adapters
+- [ ] `feature/kz-bank-statements` — Kaspi/Freedom delivered; Halyk waits for fixture
 - [x] `feature/auto-categorization` — ordered rules applied to import preview and bulk apply
 - [ ] `feature/envelope-budgeting` — monthly zero-based envelopes and rollover
 - [ ] `feature/asset-depreciation` — depreciation and quarterly revaluation
@@ -225,11 +230,12 @@ parser's reading is a proposal, and only what the user confirms is written.
 - [x] Rows that are not cash movements (reservations, trade settlements,
   internal transfers) stay visible in the preview with the reason, never
   silently dropped.
-- [ ] Kaspi and Halyk statements are PDFs. Kaspi's is a scan with no text layer,
-  so it needs OCR before an adapter is worth writing (see the
-  kz-bank-statements milestone). The Freedom Bank card statement PDF does carry
-  a text layer, but its table columns are reflowed and the layout is not
-  reliable enough to parse without a visual model.
+- [x] Kaspi Gold and Freedom Bank Kazakhstan text-layer PDF adapters are based
+  on the supplied real statements. Kaspi preserves the merchant-side amount
+  and currency for FX purchases and verifies dated opening/closing balances.
+  Pending rows and own-account transfers remain visible but are not posted.
+- [ ] Halyk PDF parsing waits for a redacted real statement; no layout is
+  inferred from Kaspi or Freedom formats.
 
 ## Kazakhstan bank statement adapters (`feature/kz-bank-statements`)
 
@@ -252,6 +258,24 @@ parser's reading is a proposal, and only what the user confirms is written.
   so parsing can be tested independently of the web UI.
 - Acceptance fixtures are synthetic or irreversibly redacted and include
   refunds, transfers, fees, FX purchases and duplicate exports.
+
+Delivered in the current branch:
+
+- [x] Content-selected adapters allow several banks to share the `.pdf`
+  extension without depending on the uploaded filename.
+- [x] Kaspi Gold RU text PDF: purchases, fees, incoming/outgoing movements,
+  internal-transfer safeguards, blocked-amount safeguards, FX purchase amount
+  and dated balance reconciliation.
+- [x] Freedom Bank Kazakhstan RU text PDF: KZT/USD rows and explicit exclusion
+  of amounts still being processed.
+- [x] Preview distinguishes account movement currency from purchase currency;
+  commit preserves both figures and maps the row to the account currency.
+- [x] Local `python -m scripts.statement_to_csv` converter; no document is sent
+  to OCR or another external service.
+- [x] Synthetic parser tests plus smoke checks against local `bills/kaspi.pdf`
+  and `bills/freedom.pdf`.
+- [ ] Halyk RU/KZ variants, refunds and Halyk-specific duplicate IDs require a
+  redacted fixture before implementation.
 
 ## Auto-categorization (`feature/auto-categorization`)
 

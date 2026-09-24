@@ -13,7 +13,37 @@ import { useNetWorthSummary } from "@/hooks/useNetWorth";
 import { useAcceptAssetProjection, useAssetRevaluationReminders, useAssets, useDeleteAsset } from "@/hooks/useAssets";
 import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
-import type { Asset, NetWorthRange } from "@/types";
+import type { Asset, AssetRevaluationReminder, NetWorthRange } from "@/types";
+
+interface AssetRevaluationReminderCardProps {
+  reminder: AssetRevaluationReminder;
+  asset?: Asset;
+  isPending: boolean;
+  onAccept: (assetId: number) => void;
+  onEnterMarketValue: (asset: Asset) => void;
+}
+
+export function AssetRevaluationReminderCard({ reminder, asset, isPending, onAccept, onEnterMarketValue }: AssetRevaluationReminderCardProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-text-primary sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="font-medium">{t("netWorth.revaluation.title")}</p>
+        <p className="mt-1 text-text-secondary">
+          {t("netWorth.revaluation.message", { name: reminder.asset_name, date: formatTransactionDate(reminder.latest_market_value_date) })}
+        </p>
+      </div>
+      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <Button className="w-full sm:w-auto" variant="ghost" onClick={() => asset && onEnterMarketValue(asset)} disabled={!asset}>
+          {t("netWorth.revaluation.enterMarketValue")}
+        </Button>
+        <Button className="w-full sm:w-auto" onClick={() => onAccept(reminder.asset_id)} disabled={isPending}>
+          {t("netWorth.revaluation.accept", { value: formatCurrency(reminder.projected_value) })}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function NetWorthPage() {
   const { t } = useTranslation();
@@ -51,15 +81,14 @@ export function NetWorthPage() {
       <AlertBanner />
 
       {(revaluationReminders ?? []).map((reminder) => (
-        <div key={reminder.asset_id} className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-text-primary">
-          <p className="font-medium">{t("netWorth.revaluation.title")}</p>
-          <p className="mt-1 text-text-secondary">
-            {t("netWorth.revaluation.message", { name: reminder.asset_name, date: formatTransactionDate(reminder.latest_market_value_date) })}
-          </p>
-          <Button className="mt-3" onClick={() => acceptProjection.mutate(reminder.asset_id)} disabled={acceptProjection.isPending}>
-            {t("netWorth.revaluation.accept", { value: formatCurrency(reminder.projected_value) })}
-          </Button>
-        </div>
+        <AssetRevaluationReminderCard
+          key={reminder.asset_id}
+          reminder={reminder}
+          asset={assets?.find((item) => item.id === reminder.asset_id)}
+          isPending={acceptProjection.isPending}
+          onAccept={(assetId) => acceptProjection.mutate(assetId)}
+          onEnterMarketValue={openEditModal}
+        />
       ))}
 
       <NetWorthChart summary={summary} isLoading={isSummaryLoading} range={range} onRangeChange={setRange} />

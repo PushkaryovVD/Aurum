@@ -119,6 +119,15 @@ async def test_overdue_reminder_accept_is_idempotent(client: AsyncClient, test_s
     assert first.status_code == second.status_code == 200
     assert (await client.get("/assets/revaluation-reminders")).json() == []
 
+    accepted_value = first.json()["current_value"]
+    summary = (await client.get("/net-worth/summary", params={"range": "all"})).json()
+    vehicle_slice = next(item for item in summary["breakdown"] if item["key"] == "vehicles")
+    neutral_slice = next(item for item in summary["capital_roles"] if item["role"] == "neutral")
+    medium_risk_slice = next(item for item in summary["risk_levels"] if item["risk_level"] == "medium")
+    assert vehicle_slice["amount"] == accepted_value
+    assert neutral_slice["total_value"] == accepted_value
+    assert medium_risk_slice["total_value"] == accepted_value
+
     async with test_sessionmaker() as session:
         count = await session.scalar(
             select(func.count()).select_from(AssetValuation).where(

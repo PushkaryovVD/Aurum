@@ -78,6 +78,11 @@ export function AssetsTable({ items, onEdit, onDelete }: AssetsTableProps) {
                   {t("netWorth.assetsTable.marketValue", { value: formatCurrency(asset.latest_market_value) })}
                 </span>
               )}
+              {asset.projected_value !== null && (
+                <span className="block text-xs tabular-nums text-text-muted">
+                  {t("netWorth.assetsTable.projectionValue", { value: formatCurrency(asset.projected_value) })}
+                </span>
+              )}
               {asset.unrealized_change !== null && (
                 <span className="block text-xs tabular-nums text-text-muted">
                   {t("netWorth.assetsTable.unrealizedChange", { value: formatCurrency(asset.unrealized_change) })}

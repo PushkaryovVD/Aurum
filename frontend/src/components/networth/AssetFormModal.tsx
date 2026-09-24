@@ -38,6 +38,29 @@ const EMPTY_FORM = {
   annual_depreciation_rate: "",
 };
 
+type AssetFormState = typeof EMPTY_FORM;
+const UNSIGNED_DECIMAL = /^\d+(?:\.\d{1,6})?$/;
+const SIGNED_DECIMAL = /^-?\d+(?:\.\d{1,6})?$/;
+
+export function validateAssetForm(form: AssetFormState): TranslationKey | null {
+  if (!UNSIGNED_DECIMAL.test(form.value)) return "netWorth.form.validation.money";
+  if (form.monthly_cash_flow && !SIGNED_DECIMAL.test(form.monthly_cash_flow)) return "netWorth.form.validation.money";
+  if (form.valuation_mode === "manual_only") return null;
+  if (!form.acquisition_date) return "netWorth.form.validation.depreciationRequired";
+  if (!UNSIGNED_DECIMAL.test(form.acquisition_cost)) return "netWorth.form.validation.money";
+  if (form.residual_value && !UNSIGNED_DECIMAL.test(form.residual_value)) return "netWorth.form.validation.money";
+  if (Number(form.residual_value || "0") > Number(form.acquisition_cost)) return "netWorth.form.validation.residualValue";
+  if (form.valuation_mode === "straight_line") {
+    const years = Number(form.useful_life_years);
+    if (!Number.isInteger(years) || years < 1 || years > 100) return "netWorth.form.validation.usefulLife";
+  } else {
+    if (!UNSIGNED_DECIMAL.test(form.annual_depreciation_rate)) return "netWorth.form.validation.annualRate";
+    const rate = Number(form.annual_depreciation_rate);
+    if (rate <= 0 || rate >= 100) return "netWorth.form.validation.annualRate";
+  }
+  return null;
+}
+
 export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
   const { t } = useTranslation();
   const createAsset = useCreateAsset();
@@ -77,6 +100,12 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+
+    const validationError = validateAssetForm(form);
+    if (validationError) {
+      setError(t(validationError));
+      return;
+    }
 
     try {
       if (asset) {
@@ -153,16 +182,15 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
           </Select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="asset-value">
               {asset ? t("netWorth.form.currentValueLabel") : t("netWorth.form.valueLabel")}
             </Label>
             <Input
               id="asset-value"
-              type="number"
-              step="0.01"
-              min="0"
+              type="text"
+              inputMode="decimal"
               required
               value={form.value}
               onChange={(event) => setForm((prev) => ({ ...prev, value: event.target.value }))}
@@ -188,18 +216,18 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
         </div>
 
         {form.valuation_mode !== "manual_only" && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="asset-acquisition-date">{t("netWorth.form.acquisitionDateLabel")}</Label>
               <Input id="asset-acquisition-date" type="date" required value={form.acquisition_date} onChange={(event) => setForm((prev) => ({ ...prev, acquisition_date: event.target.value }))} />
             </div>
             <div>
               <Label htmlFor="asset-acquisition-cost">{t("netWorth.form.acquisitionCostLabel")}</Label>
-              <Input id="asset-acquisition-cost" type="number" step="0.01" min="0" required value={form.acquisition_cost} onChange={(event) => setForm((prev) => ({ ...prev, acquisition_cost: event.target.value }))} />
+              <Input id="asset-acquisition-cost" type="text" inputMode="decimal" required value={form.acquisition_cost} onChange={(event) => setForm((prev) => ({ ...prev, acquisition_cost: event.target.value }))} />
             </div>
             <div>
               <Label htmlFor="asset-residual-value">{t("netWorth.form.residualValueLabel")}</Label>
-              <Input id="asset-residual-value" type="number" step="0.01" min="0" value={form.residual_value} onChange={(event) => setForm((prev) => ({ ...prev, residual_value: event.target.value }))} />
+              <Input id="asset-residual-value" type="text" inputMode="decimal" value={form.residual_value} onChange={(event) => setForm((prev) => ({ ...prev, residual_value: event.target.value }))} />
             </div>
             {form.valuation_mode === "straight_line" ? (
               <div>
@@ -209,7 +237,7 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
             ) : (
               <div>
                 <Label htmlFor="asset-annual-rate">{t("netWorth.form.annualRateLabel")}</Label>
-                <Input id="asset-annual-rate" type="number" step="0.0001" min="0.0001" max="99.9999" required value={form.annual_depreciation_rate} onChange={(event) => setForm((prev) => ({ ...prev, annual_depreciation_rate: event.target.value }))} />
+                <Input id="asset-annual-rate" type="text" inputMode="decimal" required value={form.annual_depreciation_rate} onChange={(event) => setForm((prev) => ({ ...prev, annual_depreciation_rate: event.target.value }))} />
               </div>
             )}
           </div>
@@ -255,8 +283,8 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
           <Label htmlFor="asset-cash-flow">{t("netWorth.form.cashFlowLabel")}</Label>
           <Input
             id="asset-cash-flow"
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             placeholder={t("netWorth.form.cashFlowPlaceholder")}
             value={form.monthly_cash_flow}
             onChange={(event) => setForm((prev) => ({ ...prev, monthly_cash_flow: event.target.value }))}

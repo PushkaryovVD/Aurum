@@ -187,8 +187,9 @@ async def add_asset_valuation(
     )
     await session.execute(upsert_stmt)
     await session.commit()
+    session.expire(asset, ["valuations"])
 
-    refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset_id))
+    refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
     return _to_read(refreshed.scalar_one())
 
 
@@ -266,6 +267,7 @@ async def accept_projected_revaluation(
     )
     await session.execute(upsert_stmt)
     await session.commit()
+    session.expire(asset, ["valuations"])
     refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
     return _to_read(refreshed.scalar_one())
 

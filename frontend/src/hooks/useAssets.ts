@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addAssetValuation, acceptAssetProjection, createAsset, deleteAsset, fetchAssetRevaluationReminders, fetchAssets, updateAsset } from "@/api/assets";
+import { ApiError } from "@/api/client";
 import type { AssetInput, AssetUpdateInput, AssetValuationInput } from "@/types";
 
 function useInvalidateNetWorth() {
@@ -7,6 +8,7 @@ function useInvalidateNetWorth() {
   return () => {
     queryClient.invalidateQueries({ queryKey: ["assets"] });
     queryClient.invalidateQueries({ queryKey: ["net-worth-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["asset-revaluation-reminders"] });
   };
 }
 
@@ -20,12 +22,13 @@ export function useAssetRevaluationReminders() {
 
 export function useAcceptAssetProjection() {
   const invalidate = useInvalidateNetWorth();
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => acceptAssetProjection(id),
     onSuccess: () => {
       invalidate();
-      queryClient.invalidateQueries({ queryKey: ["asset-revaluation-reminders"] });
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && (error.status === 404 || error.status === 409)) invalidate();
     },
   });
 }

@@ -392,6 +392,7 @@ export interface Asset {
   projected_value: string | null;
   accumulated_depreciation: string | null;
   latest_market_value: string | null;
+  latest_market_value_date: string | null;
   unrealized_change: string | null;
 }
 

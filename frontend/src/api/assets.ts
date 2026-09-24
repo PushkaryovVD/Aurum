@@ -1,5 +1,5 @@
 import { api } from "@/api/client";
-import type { Asset, AssetInput, AssetUpdateInput, AssetValuationInput } from "@/types";
+import type { Asset, AssetInput, AssetRevaluationReminder, AssetUpdateInput, AssetValuationInput } from "@/types";
 
 export function fetchAssets() {
   return api.get<Asset[]>("/assets");
@@ -15,6 +15,14 @@ export function updateAsset(id: number, input: AssetUpdateInput) {
 
 export function addAssetValuation(id: number, input: AssetValuationInput) {
   return api.post<Asset>(`/assets/${id}/valuations`, input);
+}
+
+export function fetchAssetRevaluationReminders() {
+  return api.get<AssetRevaluationReminder[]>("/assets/revaluation-reminders");
+}
+
+export function acceptAssetProjection(id: number) {
+  return api.post<Asset>(`/assets/${id}/revaluation-reminders/accept`, {});
 }
 
 export function deleteAsset(id: number) {

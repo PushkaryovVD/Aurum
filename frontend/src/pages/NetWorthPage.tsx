@@ -10,7 +10,8 @@ import { AssetsTable } from "@/components/networth/AssetsTable";
 import { AssetFormModal } from "@/components/networth/AssetFormModal";
 import { AlertBanner } from "@/components/insights/AlertBanner";
 import { useNetWorthSummary } from "@/hooks/useNetWorth";
-import { useAssets, useDeleteAsset } from "@/hooks/useAssets";
+import { useAcceptAssetProjection, useAssetRevaluationReminders, useAssets, useDeleteAsset } from "@/hooks/useAssets";
+import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { Asset, NetWorthRange } from "@/types";
 
@@ -22,7 +23,9 @@ export function NetWorthPage() {
   const [range, setRange] = useState<NetWorthRange>("5y");
   const { data: summary, isLoading: isSummaryLoading } = useNetWorthSummary(range);
   const { data: assets, isLoading: isAssetsLoading } = useAssets();
+  const { data: revaluationReminders } = useAssetRevaluationReminders();
   const deleteAsset = useDeleteAsset();
+  const acceptProjection = useAcceptAssetProjection();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
@@ -46,6 +49,18 @@ export function NetWorthPage() {
   return (
     <div className="space-y-5">
       <AlertBanner />
+
+      {(revaluationReminders ?? []).map((reminder) => (
+        <div key={reminder.asset_id} className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-text-primary">
+          <p className="font-medium">{t("netWorth.revaluation.title")}</p>
+          <p className="mt-1 text-text-secondary">
+            {t("netWorth.revaluation.message", { name: reminder.asset_name, date: formatTransactionDate(reminder.latest_market_value_date) })}
+          </p>
+          <Button className="mt-3" onClick={() => acceptProjection.mutate(reminder.asset_id)} disabled={acceptProjection.isPending}>
+            {t("netWorth.revaluation.accept", { value: formatCurrency(reminder.projected_value) })}
+          </Button>
+        </div>
+      ))}
 
       <NetWorthChart summary={summary} isLoading={isSummaryLoading} range={range} onRangeChange={setRange} />
 

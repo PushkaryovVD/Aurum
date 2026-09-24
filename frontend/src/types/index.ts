@@ -368,6 +368,7 @@ export type AssetClass = "investments" | "crypto" | "real_estate" | "vehicles" |
 export type NetWorthRange = "30d" | "90d" | "1y" | "5y" | "all";
 export type CapitalRole = "income" | "neutral" | "drain";
 export type RiskLevel = "low" | "medium" | "high";
+export type AssetValuationMode = "manual_only" | "straight_line" | "annual_percentage";
 
 export interface Asset {
   id: number;
@@ -378,10 +379,20 @@ export interface Asset {
   capital_role: CapitalRole;
   monthly_cash_flow: string | null;
   risk_level: RiskLevel;
+  acquisition_date: string | null;
+  acquisition_cost: string | null;
+  residual_value: string | null;
+  valuation_mode: AssetValuationMode;
+  useful_life_years: number | null;
+  annual_depreciation_rate: string | null;
   current_value: string;
   current_base_value_kzt: string | null;
   as_of_date: string;
   exchange_rate_to_kzt?: string | null;
+  projected_value: string | null;
+  accumulated_depreciation: string | null;
+  latest_market_value: string | null;
+  unrealized_change: string | null;
 }
 
 export interface AssetInput {
@@ -392,6 +403,12 @@ export interface AssetInput {
   capital_role?: CapitalRole;
   monthly_cash_flow?: string | null;
   risk_level?: RiskLevel;
+  acquisition_date?: string | null;
+  acquisition_cost?: string | null;
+  residual_value?: string | null;
+  valuation_mode?: AssetValuationMode;
+  useful_life_years?: number | null;
+  annual_depreciation_rate?: string | null;
   value: string;
   as_of_date: string;
 }
@@ -403,6 +420,21 @@ export interface AssetUpdateInput {
   capital_role?: CapitalRole;
   monthly_cash_flow?: string | null;
   risk_level?: RiskLevel;
+  acquisition_date?: string | null;
+  acquisition_cost?: string | null;
+  residual_value?: string | null;
+  valuation_mode?: AssetValuationMode;
+  useful_life_years?: number | null;
+  annual_depreciation_rate?: string | null;
+}
+
+export interface AssetRevaluationReminder {
+  asset_id: number;
+  asset_name: string;
+  due_date: string;
+  projected_value: string;
+  latest_market_value: string;
+  latest_market_value_date: string;
 }
 
 export interface AssetValuationInput {

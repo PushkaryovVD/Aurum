@@ -63,6 +63,26 @@ export function AssetsTable({ items, onEdit, onDelete }: AssetsTableProps) {
               <span className="block text-sm font-medium tabular-nums text-text-primary">
                 {formatCurrency(asset.current_value)}
               </span>
+              {asset.acquisition_cost !== null && (
+                <span className="block text-xs tabular-nums text-text-muted">
+                  {t("netWorth.assetsTable.purchaseCost", { value: formatCurrency(asset.acquisition_cost) })}
+                </span>
+              )}
+              {asset.accumulated_depreciation !== null && (
+                <span className="block text-xs tabular-nums text-text-muted">
+                  {t("netWorth.assetsTable.depreciation", { value: formatCurrency(asset.accumulated_depreciation) })}
+                </span>
+              )}
+              {asset.latest_market_value !== null && (
+                <span className="block text-xs tabular-nums text-text-muted">
+                  {t("netWorth.assetsTable.marketValue", { value: formatCurrency(asset.latest_market_value) })}
+                </span>
+              )}
+              {asset.unrealized_change !== null && (
+                <span className="block text-xs tabular-nums text-text-muted">
+                  {t("netWorth.assetsTable.unrealizedChange", { value: formatCurrency(asset.unrealized_change) })}
+                </span>
+              )}
               {cashFlow !== null && cashFlow !== 0 && (
                 <span
                   className="block text-xs tabular-nums"

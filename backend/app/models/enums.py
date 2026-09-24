@@ -50,6 +50,14 @@ class AssetClass(str, enum.Enum):
     OTHER = "other"
 
 
+class AssetValuationMode(str, enum.Enum):
+    """How a manually tracked asset obtains its current planning value."""
+
+    MANUAL_ONLY = "manual_only"
+    STRAIGHT_LINE = "straight_line"
+    ANNUAL_PERCENTAGE = "annual_percentage"
+
+
 class CapitalRole(str, enum.Enum):
     """How an asset behaves month to month — set by the user, not inferred:
     the same laptop can be a productive work tool (NEUTRAL) or dead weight

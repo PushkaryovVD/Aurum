@@ -10,7 +10,7 @@ from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text, UniqueCons
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import AssetClass, CapitalRole, RiskLevel
+from app.models.enums import AssetClass, AssetValuationMode, CapitalRole, RiskLevel
 from app.models.mixins import TimestampMixin
 
 
@@ -24,6 +24,18 @@ class Asset(Base, TimestampMixin):
     )
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # These inputs define a planning projection only. Recorded market values
+    # remain AssetValuation snapshots and are never mutated by projection code.
+    acquisition_date: Mapped[date_ | None] = mapped_column(Date, nullable=True)
+    acquisition_cost: Mapped[Numeric | None] = mapped_column(Numeric(14, 2), nullable=True)
+    residual_value: Mapped[Numeric | None] = mapped_column(Numeric(14, 2), nullable=True)
+    valuation_mode: Mapped[AssetValuationMode] = mapped_column(
+        Enum(AssetValuationMode, name="asset_valuation_mode", native_enum=False, length=20),
+        nullable=False,
+        default=AssetValuationMode.MANUAL_ONLY,
+    )
+    useful_life_years: Mapped[int | None] = mapped_column(nullable=True)
+    annual_depreciation_rate: Mapped[Numeric | None] = mapped_column(Numeric(7, 4), nullable=True)
 
     # User-assigned, not inferred (see CapitalRole docstring).
     capital_role: Mapped[CapitalRole] = mapped_column(

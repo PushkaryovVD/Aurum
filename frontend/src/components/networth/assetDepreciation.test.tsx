@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "@/lib/i18n";
 import type { Asset } from "@/types";
-import { AssetFormModal, validateAssetForm } from "./AssetFormModal";
+import { AssetFormModal, shouldRecordAssetValuation, validateAssetForm } from "./AssetFormModal";
 import { AssetsTable } from "./AssetsTable";
 import { AssetRevaluationReminderCard } from "@/pages/NetWorthPage";
 
@@ -107,6 +107,28 @@ describe("asset depreciation UI", () => {
     act(() => buttons[1]?.click());
     expect(onEnterMarketValue).toHaveBeenCalledWith(asset);
     expect(onAccept).toHaveBeenCalledWith(asset.id);
+  });
+
+  it("records a new dated market snapshot even when the reminder value is unchanged", () => {
+    const unchangedValueWithNewDate = {
+      name: asset.name,
+      asset_class: asset.asset_class,
+      value: asset.current_value,
+      as_of_date: "2026-09-28",
+      notes: "",
+      capital_role: asset.capital_role,
+      monthly_cash_flow: "",
+      risk_level: asset.risk_level,
+      acquisition_date: asset.acquisition_date ?? "",
+      acquisition_cost: asset.acquisition_cost ?? "",
+      residual_value: asset.residual_value ?? "",
+      valuation_mode: asset.valuation_mode,
+      useful_life_years: asset.useful_life_years?.toString() ?? "",
+      annual_depreciation_rate: asset.annual_depreciation_rate ?? "",
+    };
+    expect(unchangedValueWithNewDate.as_of_date).not.toBe(asset.as_of_date);
+    expect(shouldRecordAssetValuation(asset, unchangedValueWithNewDate, false)).toBe(false);
+    expect(shouldRecordAssetValuation(asset, unchangedValueWithNewDate, true)).toBe(true);
   });
 
   it("validates decimal strings and depreciation cross-field rules", () => {

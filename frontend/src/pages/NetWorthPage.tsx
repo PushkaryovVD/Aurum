@@ -59,14 +59,23 @@ export function NetWorthPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+  const [recordValuationOnSave, setRecordValuationOnSave] = useState(false);
 
   function openCreateModal() {
     setEditingAsset(null);
+    setRecordValuationOnSave(false);
     setModalOpen(true);
   }
 
   function openEditModal(asset: Asset) {
     setEditingAsset(asset);
+    setRecordValuationOnSave(false);
+    setModalOpen(true);
+  }
+
+  function openMarketValuationModal(asset: Asset) {
+    setEditingAsset(asset);
+    setRecordValuationOnSave(true);
     setModalOpen(true);
   }
 
@@ -87,7 +96,7 @@ export function NetWorthPage() {
           asset={assets?.find((item) => item.id === reminder.asset_id)}
           isPending={acceptProjection.isPending}
           onAccept={(assetId) => acceptProjection.mutate(assetId)}
-          onEnterMarketValue={openEditModal}
+          onEnterMarketValue={openMarketValuationModal}
         />
       ))}
 
@@ -116,7 +125,12 @@ export function NetWorthPage() {
         </CardContent>
       </Card>
 
-      <AssetFormModal open={modalOpen} onClose={() => setModalOpen(false)} asset={editingAsset} />
+      <AssetFormModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        asset={editingAsset}
+        recordValuationOnSave={recordValuationOnSave}
+      />
     </div>
   );
 }

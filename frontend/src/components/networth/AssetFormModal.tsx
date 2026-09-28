@@ -10,6 +10,7 @@ interface AssetFormModalProps {
   open: boolean;
   onClose: () => void;
   asset?: Asset | null;
+  recordValuationOnSave?: boolean;
 }
 
 const ASSET_CLASSES: AssetClass[] = ["investments", "crypto", "real_estate", "vehicles", "precious_metals", "other"];
@@ -61,7 +62,11 @@ export function validateAssetForm(form: AssetFormState): TranslationKey | null {
   return null;
 }
 
-export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
+export function shouldRecordAssetValuation(asset: Asset, form: AssetFormState, recordValuationOnSave: boolean): boolean {
+  return recordValuationOnSave || form.value !== asset.current_value;
+}
+
+export function AssetFormModal({ open, onClose, asset, recordValuationOnSave = false }: AssetFormModalProps) {
   const { t } = useTranslation();
   const createAsset = useCreateAsset();
   const updateAsset = useUpdateAsset();
@@ -126,7 +131,7 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
             annual_depreciation_rate: form.annual_depreciation_rate || null,
           },
         });
-        if (form.value !== asset.current_value) {
+        if (shouldRecordAssetValuation(asset, form, recordValuationOnSave)) {
           await addValuation.mutateAsync({ id: asset.id, input: { value: form.value, as_of_date: form.as_of_date } });
         }
       } else {

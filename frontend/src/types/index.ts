@@ -612,6 +612,121 @@ export interface BudgetStatusResponse {
   items: BudgetStatus[];
 }
 
+export interface EnvelopeMonthRef {
+  year: number;
+  month: number;
+}
+
+export interface EnvelopeWarning {
+  code:
+    | "overspent"
+    | "underfunded"
+    | "unbudgeted_spending"
+    | "refund_without_envelope"
+    | "available_to_assign_negative"
+    | "fx_coverage_incomplete"
+    | "income_before_tracking_start"
+    | "closed_month_ledger_drift";
+  category_id?: number | null;
+  amount?: string | null;
+  closed_activity_total?: string | null;
+  activity_total?: string | null;
+  delta?: string | null;
+}
+
+export interface EnvelopeItem {
+  category_id: number;
+  category_name: string;
+  category_color: string;
+  category_icon: string | null;
+  is_unbudgeted: boolean;
+  planned_amount: string;
+  assigned_amount: string;
+  activity: string;
+  carried_in: string;
+  available: string;
+  is_overspent: boolean;
+  rollover_positive: boolean;
+  rollover_negative: boolean;
+  has_row: boolean;
+}
+
+export interface EnvelopeMonth {
+  year: number;
+  month: number;
+  tracking_start: EnvelopeMonthRef | null;
+  is_closed: boolean;
+  has_ledger_drift: boolean;
+  fx_incomplete: boolean;
+  income: string;
+  assigned: string;
+  available_to_assign: string;
+  items: EnvelopeItem[];
+  warnings: EnvelopeWarning[];
+}
+
+export interface EnvelopeMonthSummary extends EnvelopeMonthRef {
+  is_closed: boolean;
+  has_ledger_drift: boolean;
+}
+
+export interface EnvelopeAllocationInput {
+  planned_amount?: string;
+  assigned_amount: string;
+  rollover_positive?: boolean;
+  rollover_negative?: boolean;
+}
+
+export interface EnvelopeMoveInput {
+  from_category_id: number;
+  to_category_id: number;
+  amount: string;
+  note?: string | null;
+}
+
+export interface EnvelopeTemplateItemInput {
+  category_id: number;
+  planned_amount: string;
+  rollover_positive: boolean;
+  rollover_negative: boolean;
+}
+
+export interface EnvelopeTemplateItem extends EnvelopeTemplateItemInput {
+  id?: number;
+  category_name?: string;
+}
+
+export interface EnvelopeTemplate {
+  id: number;
+  name: string;
+  items: EnvelopeTemplateItem[];
+}
+
+export interface EnvelopeTemplateInput {
+  name: string;
+  items: EnvelopeTemplateItemInput[];
+}
+
+export interface EnvelopeFundInput {
+  template_id?: number | null;
+  copy_plan_from?: EnvelopeMonthRef | null;
+}
+
+export interface EnvelopeFundResult extends EnvelopeMonth {
+  unfunded: Array<{ category_id: number; shortfall: string }>;
+}
+
+export interface EnvelopeAuditEvent {
+  id: number;
+  event_type: "allocation" | "move" | "template_applied" | "month_closed" | "month_reopened";
+  category_id: number | null;
+  from_category_id: number | null;
+  to_category_id: number | null;
+  amount: string;
+  note: string | null;
+  created_at: string;
+}
+
 export interface AdviceItem {
   key: string;
   tone: "positive" | "neutral" | "warning";

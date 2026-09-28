@@ -15,6 +15,7 @@ import {
   Target,
   TrendingUp,
   Landmark,
+  WalletCards,
   type LucideIcon,
 } from "lucide-react";
 
@@ -42,6 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
   { labelKey: "nav.cashFlow", to: "/cash-flow", icon: Activity },
   { labelKey: "nav.reports", to: "/reports", icon: PieChart },
   { labelKey: "nav.budget", to: "/budget", icon: Target },
+  { labelKey: "nav.envelopes", to: "/envelopes", icon: WalletCards },
   { labelKey: "nav.recurring", to: "/recurring", icon: Repeat },
   { labelKey: "nav.goals", to: "/goals", icon: Flag },
   { labelKey: "nav.advice", to: "/advice", icon: Lightbulb },

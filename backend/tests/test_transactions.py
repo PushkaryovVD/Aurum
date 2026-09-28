@@ -82,12 +82,13 @@ async def test_update_capitalizes_description_first_letter(client: AsyncClient, 
     assert resp.json()["description"] == "New coffee shop"
 
 
-async def test_create_income_rejects_expense_category(client: AsyncClient, account_id, categories):
+async def test_create_income_accepts_expense_category_as_refund(client: AsyncClient, account_id, categories):
     expense_category = categories["Groceries"]
     resp = await client.post(
         "/transactions", json=_txn(account_id, type="income", amount="500.00", category_id=expense_category["id"])
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 201
+    assert resp.json()["category_id"] == expense_category["id"]
 
 
 async def test_create_expense_with_matching_category_succeeds(client: AsyncClient, account_id, categories):

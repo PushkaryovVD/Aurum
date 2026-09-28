@@ -14,6 +14,7 @@ from app.api.routes import (
     categorization,
     crypto,
     dashboard,
+    envelopes,
     exchange_rates,
     goals,
     insights,
@@ -86,6 +87,7 @@ app.include_router(reports.router, prefix="/api")
 app.include_router(insights.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(budgets.router, prefix="/api")
+app.include_router(envelopes.router, prefix="/api")
 app.include_router(advice.router, prefix="/api")
 app.include_router(goals.router, prefix="/api")
 app.include_router(recurring.router, prefix="/api")

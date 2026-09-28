@@ -81,3 +81,35 @@ async def test_idle_cash_respects_custom_threshold(client: AsyncClient, account_
     assert resp.status_code == 200
 
     assert "idle_cash" not in await _alert_keys(client)
+
+
+async def test_current_month_overspent_envelope_raises_alert(client: AsyncClient, account_id, categories):
+    today = date.today()
+    groceries = categories["Groceries"]["id"]
+    await client.post(
+        "/transactions",
+        json=_txn(
+            account_id,
+            type="income",
+            amount="10.00",
+            category_id=categories["Salary"]["id"],
+            date=today.isoformat(),
+        ),
+    )
+    await client.post(f"/envelopes/{today.year}/{today.month}/open")
+    await client.put(
+        f"/envelopes/{today.year}/{today.month}/allocations/{groceries}",
+        json={"assigned_amount": "10.00"},
+    )
+    await client.post(
+        "/transactions",
+        json=_txn(
+            account_id,
+            type="expense",
+            amount="20.00",
+            category_id=groceries,
+            date=today.isoformat(),
+        ),
+    )
+
+    assert "envelope_overspent" in await _alert_keys(client)

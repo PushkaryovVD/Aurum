@@ -148,19 +148,22 @@ async def _currency_fields(
 async def _ensure_category_matches_type(
     session: AsyncSession, category_id: int | None, transaction_type: TransactionType
 ) -> Category | None:
-    """A category picked for an income transaction must itself be an income
-    category (and likewise for expense) — otherwise the dashboard's spending
-    breakdown, which only joins EXPENSE-typed rows, would silently misclassify
-    the entry. Returns the fetched category (or None for category_id=None) so
-    callers that also need the row itself — _build_splits, below — don't have
-    to fetch it a second time."""
+    """Validate explicit category choices without hiding expense refunds.
+
+    Expenses still require an expense category. Income may use an income
+    category or an expense category: the latter is a refund and envelope
+    budgeting attributes it back to that category. Automatic categorization
+    remains kind-strict, so only an explicit user/import choice creates a
+    refund. Returns the fetched row so split validation need not fetch twice.
+    """
     if category_id is None:
         return None
     expected_kind = _TYPE_TO_CATEGORY_KIND.get(transaction_type)
     category = await session.get(Category, category_id)
     if category is None:
         raise HTTPException(status_code=400, detail="Category not found")
-    if expected_kind is not None and category.kind != expected_kind:
+    is_expense_refund = transaction_type == TransactionType.INCOME and category.kind == CategoryKind.EXPENSE
+    if expected_kind is not None and category.kind != expected_kind and not is_expense_refund:
         raise HTTPException(
             status_code=400,
             detail=f"Category '{category.name}' is a {category.kind.value} category and cannot be used for a {transaction_type.value} transaction",

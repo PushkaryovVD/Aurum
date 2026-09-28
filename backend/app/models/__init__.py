@@ -5,6 +5,13 @@ from app.models.categorization_rule import CategorizationRule
 from app.models.category import Category
 from app.models.crypto import CryptoHolding, CryptoPortfolio, CryptoSyncState, CryptoTransaction
 from app.models.exchange_rate import ExchangeRate
+from app.models.envelope import (
+    EnvelopeAllocation,
+    EnvelopeAuditLog,
+    EnvelopeMonth,
+    EnvelopeTemplate,
+    EnvelopeTemplateItem,
+)
 from app.models.goal import Goal, GoalContribution
 from app.models.investment import InvestmentPortfolio, Security, SecurityDividend, SecurityPrice, SecurityTrade
 from app.models.recurring import RecurringTransaction
@@ -24,6 +31,11 @@ __all__ = [
     "CryptoPortfolio",
     "CryptoSyncState",
     "CryptoTransaction",
+    "EnvelopeAllocation",
+    "EnvelopeAuditLog",
+    "EnvelopeMonth",
+    "EnvelopeTemplate",
+    "EnvelopeTemplateItem",
     "Goal",
     "GoalContribution",
     "RecurringTransaction",

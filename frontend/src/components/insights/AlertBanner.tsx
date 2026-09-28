@@ -8,6 +8,7 @@ const ALERT_MESSAGE_KEYS: Record<string, TranslationKey> = {
   negative_cash_flow_streak: "insights.negativeCashFlow",
   net_worth_decline_streak: "insights.netWorthDecline",
   budget_exceeded: "insights.budgetExceeded",
+  envelope_overspent: "insights.envelopeOverspent",
   risky_allocation_exceeded: "insights.riskyAllocationExceeded",
   idle_cash: "insights.idleCash",
 };
@@ -18,6 +19,9 @@ function alertMessage(alert: FinancialAlert, t: ReturnType<typeof useTranslation
   // a plural-aware word form through a plain {{count}} template.
   if (alert.key === "budget_exceeded" && alert.params.count === 1) {
     return t("insights.budgetExceededOne");
+  }
+  if (alert.key === "envelope_overspent" && alert.params.count === 1) {
+    return t("insights.envelopeOverspentOne");
   }
   if (alert.key === "idle_cash" && alert.params.count === 1) {
     return t("insights.idleCashOne", alert.params);

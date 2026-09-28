@@ -1,8 +1,8 @@
 """Proactive early-warning checks, computed from data that already exists.
-Five signals: sustained negative monthly cash flow, a sustained net-worth
-decline, one or more over-budget categories, too much capital in medium/high
-risk tiers (the "80% at zero risk, 20% at most exposed" rule), and cash
-sitting idle in a depository account. The first two only look at
+Six signals: sustained negative monthly cash flow, a sustained net-worth
+decline, one or more over-budget categories, overspent budget envelopes, too
+much capital in medium/high risk tiers (the "80% at zero risk, 20% at most
+exposed" rule), and cash sitting idle in a depository account. The first two only look at
 fully-elapsed calendar months, so a same-month false alarm (rent already
 paid, salary not landed yet) never fires — their "sustained for how long"
 thresholds, the risk-allocation percentage, and the idle-cash amount/days are
@@ -25,6 +25,7 @@ from app.schemas.insights import AlertsResponse, FinancialAlert
 from app.schemas.net_worth import NetWorthSummary
 from app.services.budget_service import get_budget_status
 from app.services.dashboard_service import get_dashboard_summary
+from app.services.envelope_service import get_status as get_envelope_status
 from app.services.net_worth_service import get_net_worth_summary
 from app.services.settings_service import get_or_create_app_settings
 
@@ -181,6 +182,17 @@ async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
                 key="budget_exceeded",
                 severity="warning",
                 params={"count": over_budget_count},
+            )
+        )
+
+    envelope_status = await get_envelope_status(session, today.year, today.month)
+    overspent_envelope_count = sum(1 for item in envelope_status.items if item.is_overspent)
+    if overspent_envelope_count > 0:
+        alerts.append(
+            FinancialAlert(
+                key="envelope_overspent",
+                severity="warning",
+                params={"count": overspent_envelope_count},
             )
         )
 

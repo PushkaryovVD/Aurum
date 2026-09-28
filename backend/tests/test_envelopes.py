@@ -313,6 +313,68 @@ async def test_refund_without_envelope_becomes_assignable_with_warning(
     assert warning["category_id"] == groceries
 
 
+async def test_assigning_a_stray_refund_does_not_reclassify_it_as_envelope_activity(
+    client: AsyncClient, account_id: int, categories: dict[str, dict]
+):
+    groceries = categories["Groceries"]["id"]
+    await client.post("/envelopes/2026/8/open")
+    await client.post(
+        "/transactions",
+        json=txn_payload(
+            account_id,
+            type="income",
+            category_id=groceries,
+            amount="25.00",
+            date="2026-08-15",
+        ),
+    )
+
+    assigned = await client.put(
+        f"/envelopes/2026/8/allocations/{groceries}",
+        json={"assigned_amount": "25.00"},
+    )
+    assert assigned.status_code == 200, assigned.text
+    item = next(row for row in assigned.json()["items"] if row["category_id"] == groceries)
+    assert money(item["activity"]) == Decimal("0.00")
+    assert money(item["available"]) == Decimal("25.00")
+    assert money(assigned.json()["available_to_assign"]) == Decimal("0.00")
+
+
+async def test_reducing_an_allocation_remains_allowed_after_income_is_deleted(
+    client: AsyncClient, account_id: int, categories: dict[str, dict]
+):
+    groceries = categories["Groceries"]["id"]
+    income_id = await _income(client, account_id, categories["Salary"]["id"], "100.00", "2026-08-01")
+    await client.post("/envelopes/2026/8/open")
+    await client.put(
+        f"/envelopes/2026/8/allocations/{groceries}",
+        json={"assigned_amount": "100.00"},
+    )
+    deleted = await client.delete(f"/transactions/{income_id}")
+    assert deleted.status_code == 204, deleted.text
+
+    reduced = await client.put(
+        f"/envelopes/2026/8/allocations/{groceries}",
+        json={"assigned_amount": "90.00"},
+    )
+    assert reduced.status_code == 200, reduced.text
+    assert money(reduced.json()["assigned"]) == Decimal("90.00")
+
+
+async def test_fund_next_month_rejects_a_closed_source_month_without_opening_target(
+    client: AsyncClient, categories: dict[str, dict]
+):
+    await client.post("/envelopes/2026/8/open")
+    closed = await client.post("/envelopes/2026/8/close")
+    assert closed.status_code == 200, closed.text
+
+    rejected = await client.post("/envelopes/2026/8/fund-next-month")
+    assert rejected.status_code == 409
+    assert (await client.get("/envelopes")).json() == [
+        {"year": 2026, "month": 8, "is_closed": True, "has_ledger_drift": False}
+    ]
+
+
 async def test_recategorizing_transaction_moves_activity_between_envelopes(
     client: AsyncClient, account_id: int, categories: dict[str, dict]
 ):

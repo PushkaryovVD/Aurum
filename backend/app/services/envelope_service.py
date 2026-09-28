@@ -100,6 +100,7 @@ async def _calculation_data(session: AsyncSession, target: MonthKey):
                 Transaction.category_id,
                 Category.kind,
                 Category.parent_id,
+                Transaction.created_at,
                 transaction_amount_kzt().label("amount_kzt"),
             )
             .join(Account, Account.id == Transaction.account_id)
@@ -194,6 +195,17 @@ async def get_status(session: AsyncSession, year: int, month: int) -> EnvelopeSt
                 return parent_id
             return category_id
 
+        def refund_envelope(category_id: int | None, parent_id: int | None, transaction_created_at: datetime | None) -> int | None:
+            resolved = resolve_envelope(category_id, parent_id)
+            if resolved is None:
+                return None
+            allocation = current_rows.get(resolved)
+            if allocation is None:
+                return None
+            if transaction_created_at is None or allocation.created_at is None:
+                return resolved
+            return resolved if allocation.created_at <= transaction_created_at else None
+
         for tx in plain_by_month.get(key, []):
             if tx.amount_kzt is None:
                 fx_incomplete = True
@@ -206,8 +218,8 @@ async def get_status(session: AsyncSession, year: int, month: int) -> EnvelopeSt
                 if tx.kind in {None, CategoryKind.INCOME}:
                     income += tx.amount_kzt
                 elif tx.kind == CategoryKind.EXPENSE:
-                    resolved = resolve_envelope(tx.category_id, tx.parent_id)
-                    if resolved is not None and resolved in current_rows:
+                    resolved = refund_envelope(tx.category_id, tx.parent_id, tx.created_at)
+                    if resolved is not None:
                         activity[resolved] += tx.amount_kzt
                     else:
                         stray_refunds += tx.amount_kzt
@@ -348,7 +360,7 @@ async def set_allocation(session: AsyncSession, year: int, month: int, category_
     old_assigned = allocation.assigned_amount if allocation else ZERO
     status = await get_status(session, year, month)
     delta = payload.assigned_amount - old_assigned
-    if delta > status.available_to_assign:
+    if delta > ZERO and delta > status.available_to_assign:
         raise HTTPException(400, "Allocation exceeds money available to assign")
     if allocation is None:
         allocation = EnvelopeAllocation(year=year, month=month, category_id=category_id)
@@ -506,6 +518,13 @@ async def fund(session: AsyncSession, year: int, month: int, payload: EnvelopeFu
             unfunded.append(EnvelopeShortfall(category_id=row.category_id, shortfall=shortfall))
     await session.commit()
     return EnvelopeFundResult(status=await get_status(session, year, month), unfunded=unfunded)
+
+
+async def fund_next_month(session: AsyncSession, year: int, month: int) -> EnvelopeFundResult:
+    await _require_open_month(session, year, month)
+    next_year, next_month = _next_month((year, month))
+    await open_month(session, next_year, next_month)
+    return await fund(session, next_year, next_month, EnvelopeFundInput(copy_plan_from=MonthRef(year=year, month=month)))
 
 
 async def close_month(session: AsyncSession, year: int, month: int) -> EnvelopeStatus:

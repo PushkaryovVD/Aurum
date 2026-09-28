@@ -21,6 +21,7 @@ from app.services.envelope_service import (
     close_month,
     delete_allocation,
     fund,
+    fund_next_month as fund_next_envelope_month,
     get_status,
     move,
     open_month,
@@ -142,9 +143,7 @@ async def fund_envelopes(payload: EnvelopeFundInput, year: int = YEAR, month: in
 
 @router.post("/{year}/{month}/fund-next-month", response_model=EnvelopeFundResult)
 async def fund_next_month(year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeFundResult:
-    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
-    await open_month(session, next_year, next_month)
-    return await fund(session, next_year, next_month, EnvelopeFundInput(copy_plan_from={"year": year, "month": month}))
+    return await fund_next_envelope_month(session, year, month)
 
 
 @router.post("/{year}/{month}/close", response_model=EnvelopeStatus)

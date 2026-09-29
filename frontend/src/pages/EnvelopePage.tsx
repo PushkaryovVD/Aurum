@@ -9,6 +9,7 @@ import { EnvelopeTable } from "@/components/envelopes/EnvelopeTable";
 import { EnvelopeTemplateModal } from "@/components/envelopes/EnvelopeTemplateModal";
 import { EnvelopeWarnings } from "@/components/envelopes/EnvelopeWarnings";
 import { envelopeErrorKey } from "@/components/envelopes/envelopeFormLogic";
+import { ContextualHelp } from "@/components/help/ContextualHelp";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { Button } from "@/components/ui/Button";
@@ -96,6 +97,7 @@ export function EnvelopePage() {
         <h1 className="text-xl font-semibold text-text-primary">{t("envelope.title")}</h1>
         <p className="mt-1 max-w-3xl text-sm text-text-muted">{t("envelope.subtitle")}</p>
       </header>
+      <ContextualHelp topicId="envelopes" />
 
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1"><MonthSelector month={month} onChange={setMonth} /></div>

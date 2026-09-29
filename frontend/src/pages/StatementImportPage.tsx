@@ -4,6 +4,7 @@ import { ArrowLeft, Upload } from "lucide-react";
 import { commitStatement, previewStatement } from "@/api/statementImports";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { ContextualHelp } from "@/components/help/ContextualHelp";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCategories } from "@/hooks/useCategories";
@@ -102,6 +103,7 @@ export function StatementImportPage() {
 
   return (
     <div className="space-y-5">
+      <ContextualHelp topicId="transactions" />
       <Link
         to="/transactions/import"
         className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary"

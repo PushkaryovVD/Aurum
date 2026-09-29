@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { RuleFormModal } from "@/components/categorization/RuleFormModal";
+import { ContextualHelp } from "@/components/help/ContextualHelp";
 import { useAccounts } from "@/hooks/useAccounts";
 import {
   useApplyCategorizationRules,
@@ -92,6 +93,7 @@ export function CategorizationRulesPage() {
 
   return (
     <div className="space-y-5">
+      <ContextualHelp topicId="rules" />
       <Card>
         <CardHeader>
           <CardTitle>{t("rules.title")}</CardTitle>

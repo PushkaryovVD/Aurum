@@ -20,6 +20,7 @@ const ru = {
   "nav.recurring": "Регулярные",
   "nav.goals": "Цели",
   "nav.advice": "Советы",
+  "nav.help": "Справка",
   "nav.settings": "Настройки",
   "nav.comingSoon": "скоро",
 
@@ -789,6 +790,7 @@ const en: Record<keyof typeof ru, string> = {
   "nav.recurring": "Recurring",
   "nav.goals": "Goals",
   "nav.advice": "Advice",
+  "nav.help": "Help",
   "nav.settings": "Settings",
   "nav.comingSoon": "soon",
 

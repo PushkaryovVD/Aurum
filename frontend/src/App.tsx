@@ -16,6 +16,7 @@ import { CsvImportPage } from "@/pages/CsvImportPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { EnvelopePage } from "@/pages/EnvelopePage";
 import { GoalsPage } from "@/pages/GoalsPage";
+import { HelpPage } from "@/pages/HelpPage";
 import { ImportCenterPage } from "@/pages/ImportCenterPage";
 import { InvestmentsPage } from "@/pages/InvestmentsPage";
 import { NetWorthPage } from "@/pages/NetWorthPage";
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/advice" element={<AdvicePage />} />
             <Route path="/goals" element={<GoalsPage />} />
             <Route path="/recurring" element={<RecurringPage />} />
+            <Route path="/help" element={<HelpPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>

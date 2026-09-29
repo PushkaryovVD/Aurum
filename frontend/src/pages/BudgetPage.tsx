@@ -7,6 +7,7 @@ import { YearSelector } from "@/components/layout/YearSelector";
 import { AlertBanner } from "@/components/insights/AlertBanner";
 import { BudgetList } from "@/components/budget/BudgetList";
 import { BudgetFormModal } from "@/components/budget/BudgetFormModal";
+import { ContextualHelp } from "@/components/help/ContextualHelp";
 import { useBudgets, useBudgetStatus, useDeleteBudget } from "@/hooks/useBudgets";
 import { useTransactionYears } from "@/hooks/useTransactions";
 import { useTranslation } from "@/lib/i18n";
@@ -53,6 +54,7 @@ export function BudgetPage() {
   return (
     <div className="space-y-5">
       <AlertBanner />
+      <ContextualHelp topicId="budgets" />
 
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">

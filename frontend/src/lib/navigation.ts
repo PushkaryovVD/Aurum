@@ -2,6 +2,7 @@ import {
   Activity,
   ArrowLeftRight,
   Calculator,
+  CircleHelp,
   Flag,
   Layers,
   Lightbulb,
@@ -45,5 +46,6 @@ export const NAV_ITEMS: NavItem[] = [
   { labelKey: "nav.recurring", to: "/recurring", icon: Repeat },
   { labelKey: "nav.goals", to: "/goals", icon: Flag },
   { labelKey: "nav.advice", to: "/advice", icon: Lightbulb },
+  { labelKey: "nav.help", to: "/help", icon: CircleHelp },
   { labelKey: "nav.settings", to: "/settings", icon: Settings },
 ];

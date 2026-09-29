@@ -81,6 +81,8 @@ Aurum watches your numbers in the background and surfaces a warning the moment s
 ### 🌐 Bilingual, Mobile-First
 Full Russian/English UI with a language switch in Settings, a light/dark/system theme toggle, and every screen designed mobile-first from day one.
 
+The main navigation includes an in-app **Help / Справка** guide for every primary product area. Complex workflows such as envelope budgeting, categorization rules, budgets, and statement import also include compact, touch-friendly explanations and examples directly on the page.
+
 ### 💾 Full Backup & Restore
 Export your entire dataset — accounts, transactions, assets, budgets, goals — to a single JSON file at any time, and restore it later on a fresh install.
 

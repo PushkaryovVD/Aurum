@@ -6,14 +6,17 @@ from decimal import Decimal
 from fastapi import HTTPException
 
 from app.importers.base import StatementImporter
-from app.importers.pdf_text import extract_pdf_pages
+from app.importers.pdf_text import extract_pdf_pages, extract_pdf_pages_ocr
 from app.models.enums import TransactionPurpose, TransactionType
 from app.schemas.statement_import import StatementPreview, StatementRow
 
-_ROW = re.compile(r"^(\d{2}\.\d{2}\.\d{2})\s+([+-])\s*([\d ]+,\d{2})\s*₸\s+(.+)$")
+_ROW = re.compile(r"^(\d{2}\.\d{2}\.\d{2})\s+([+-])\s*([\d ]+,\d{2})\s*[₸TТ]\s+(.+)$")
 _ORIGINAL = re.compile(r"^\(\s*-?\s*([\d ]+,\d{2})\s+([A-Z]{3})\s*\)$")
-_BALANCE = re.compile(r"([+-])\s*([\d ]+,\d{2})\s*₸")
+_BALANCE = re.compile(r"([+-])\s*([\d ]+,\d{2})\s*[₸TТ]")
 _AVAILABLE_DATE = re.compile(r"Доступно на (\d{2}\.\d{2}\.\d{2})", re.IGNORECASE)
+_INCOMING = re.compile(r"^Поступление\s+[сc][оo]\b", re.IGNORECASE)
+_OCR_PENDING_INCOMING = re.compile(r"^S[cс]\s+", re.IGNORECASE)
+_OCR_WARNING = "Local OCR was used; review every row before importing"
 _OPERATIONS = sorted(
     ("Поступление со своего счета", "Перевод на свой счет", "Пополнение", "Покупка", "Перевод", "Снятие", "Разное"),
     key=len,
@@ -39,7 +42,34 @@ class KaspiPdfImporter(StatementImporter):
     extensions = (".pdf",)
 
     def parse(self, file_name: str, content: bytes) -> StatementPreview:
-        return self.parse_pages(file_name, extract_pdf_pages(content))
+        used_ocr = False
+        try:
+            pages = extract_pdf_pages(content)
+        except HTTPException as exc:
+            if "local OCR is required" not in str(exc.detail):
+                raise
+            pages = extract_pdf_pages_ocr(content)
+            used_ocr = True
+
+        try:
+            preview = self.parse_pages(file_name, pages)
+        except HTTPException as exc:
+            text = "\n".join(pages)
+            readable_cyrillic = sum("А" <= char <= "я" or char in "Ёё" for char in text) >= 20
+            if used_ocr or exc.detail != "Not a supported Kaspi Gold statement" or readable_cyrillic:
+                raise
+            preview = self.parse_pages(file_name, extract_pdf_pages_ocr(content))
+            used_ocr = True
+
+        if used_ocr:
+            if "Balance check passed: opening balance plus operations equals closing balance" not in preview.warnings:
+                raise HTTPException(422, "The OCR statement could not be reconciled; review the source PDF")
+            preview.warnings.insert(0, _OCR_WARNING)
+            preview.requires_row_confirmation = True
+            for row in preview.rows:
+                row.importable = False
+                row.warning = row.warning or "OCR row requires explicit confirmation"
+        return preview
 
     def parse_pages(self, file_name: str, pages: list[str]) -> StatementPreview:
         text = "\n".join(pages)
@@ -59,7 +89,16 @@ class KaspiPdfImporter(StatementImporter):
                 if line.startswith("- Сумма заблокирована"):
                     current[2].append(line)
                 elif not line or line.startswith(
-                    ("ИТОГО", "Дата Сумма", "Kaspi Bank", "АО ", "Остаток на конец", "Раздел «")
+                    (
+                        "ИТОГО",
+                        "Дата Сумма",
+                        "Kaspi Bank",
+                        "АО ",
+                        "AO ",
+                        "Доступно на",
+                        "Остаток на конец",
+                        "Раздел «",
+                    )
                 ):
                     chunks.append(current)
                     current = None
@@ -78,7 +117,7 @@ class KaspiPdfImporter(StatementImporter):
             raw_date, sign, raw_amount, rest = match.groups()
             amount = _money(raw_amount)
             signed_total += amount if sign == "+" else -amount
-            pending = any(line.startswith("- Сумма заблокирована") for line in continuation)
+            pending = any("Сумма заблокирована" in line for line in continuation)
             original_amount: Decimal | None = None
             original_currency = "KZT"
             words = [rest]
@@ -90,17 +129,24 @@ class KaspiPdfImporter(StatementImporter):
                 elif not line.startswith("- Сумма заблокирована"):
                     words.append(line)
             joined = " ".join(words)
+            joined = re.sub(r"^Pa3Hoe\b", "Разное", joined, flags=re.IGNORECASE)
             if joined.startswith("Перевод на свой"):
                 operation = "Перевод на свой счет"
                 details = joined[len("Перевод на свой"):].strip()
                 details = details.removesuffix(" счет").strip()
-            elif joined.startswith("Поступление со"):
+            elif incoming := _INCOMING.match(joined):
                 operation = "Поступление со своего счета"
-                details = joined[len("Поступление со"):].strip()
+                details = joined[incoming.end():].strip()
+                if marker := _OCR_PENDING_INCOMING.match(details):
+                    pending = True
+                    details = details[marker.end():].strip()
                 details = details.removesuffix(" своего счета").strip()
             else:
                 operation = next((name for name in _OPERATIONS if joined.startswith(name)), joined)
                 details = joined[len(operation):].strip()
+            if details.startswith("©"):
+                pending = True
+                details = details.removeprefix("©").strip()
             details = details or None
             internal = operation in {"Перевод на свой счет", "Поступление со своего счета"}
             warning = None

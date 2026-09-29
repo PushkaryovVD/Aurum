@@ -86,7 +86,7 @@ export function StatementImportPage() {
   }
 
   async function save() {
-    if (!preview || currencies.some((currency) => !mapping[currency])) return;
+    if (!preview || importable.length === 0 || currencies.some((currency) => !mapping[currency])) return;
     setBusy(true);
     setError(null);
     try {
@@ -140,6 +140,9 @@ export function StatementImportPage() {
                 {t("statementImport.recognized", { provider: preview.provider_label, count: rows.length })}
               </p>
               <p className="text-xs text-text-muted">{t("statementImport.editedHint")}</p>
+              {preview.requires_row_confirmation && (
+                <p className="text-xs text-warning">{t("statementImport.confirmEachOcrRow")}</p>
+              )}
               {skipped > 0 && (
                 <p className="text-xs text-warning">{t("statementImport.skipped", { count: skipped })}</p>
               )}
@@ -310,7 +313,19 @@ export function StatementImportPage() {
                           )}
                         </td>
                         <td className={`p-2 text-xs ${row.importable ? "text-success" : "text-warning"}`}>
-                          {row.importable ? t("statementImport.ready") : row.warning}
+                          {preview.requires_row_confirmation ? (
+                            <label className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                checked={row.importable}
+                                onChange={(event) => updateRow(index, { importable: event.target.checked })}
+                              />
+                              <span>
+                                {t("statementImport.includeRow")}
+                                {row.warning && <span className="mt-1 block text-warning">{row.warning}</span>}
+                              </span>
+                            </label>
+                          ) : row.importable ? t("statementImport.ready") : row.warning}
                         </td>
                       </tr>
                     ))}
@@ -322,7 +337,10 @@ export function StatementImportPage() {
                 <Button variant="ghost" onClick={() => navigate("/transactions/import")}>
                   {t("common.cancel")}
                 </Button>
-                <Button onClick={save} disabled={busy || currencies.some((currency) => !mapping[currency])}>
+                <Button
+                  onClick={save}
+                  disabled={busy || importable.length === 0 || currencies.some((currency) => !mapping[currency])}
+                >
                   {t("statementImport.import")}
                 </Button>
               </div>

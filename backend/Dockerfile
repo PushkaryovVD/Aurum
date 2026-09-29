@@ -6,7 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        tesseract-ocr \
+        tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -14,9 +17,9 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
 
-# Drop root. The app never writes to disk (PYTHONDONTWRITEBYTECODE above, no
-# uploads, no local cache), so it only needs read access to /app — which is
-# why the source stays root-owned and is merely readable here. Anything that
+# Drop root. Uploaded statements are processed in memory; local OCR streams
+# rendered pages directly to Tesseract without persisting customer documents.
+# The source stays root-owned and merely readable here. Anything that
 # manages to execute code in this container now lands as an unprivileged user
 # instead of root, which is the difference between a bad day and a container
 # escape.

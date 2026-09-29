@@ -201,10 +201,14 @@ parser.
 | Adapter | `provider` | File | Notes |
 |---|---|---|---|
 | Tradernet Global / Freedom Broker | `tradernet` | `.xlsx` | Cash-movement export with columns `Операция №`, `Дата`, `Операция`, `Комментарий`, `Сумма`, `Валюта`. Dates may arrive as Excel serial numbers. |
-| Kaspi Gold | `kaspi_gold_pdf` | `.pdf` | Russian text-layer statement. Reconciles dated opening/closing available balances; own-account transfers and blocked amounts stay in preview but are not posted. FX purchases preserve both the KZT card debit and merchant currency amount. |
+| Kaspi Gold | `kaspi_gold_pdf` | `.pdf` | Russian text-layer or scanned statement. Scanned pages use local `rus+eng` OCR with bounded page/runtime limits and are rejected unless opening balance + operations equals closing balance. Own-account transfers and blocked amounts stay in preview but are not posted. FX purchases preserve both the KZT card debit and merchant currency amount. |
 | Freedom Bank Kazakhstan | `freedom_bank_pdf` | `.pdf` | Russian card statement. Posted rows are imported by their account currency; pending card amounts remain visible in preview and are not posted. |
 
 The upload limit is 10 MB.
+
+OCR processing is local to the backend: statement pages are rendered and streamed to Tesseract in
+an isolated, resource-limited subprocess, without an external OCR service or persistent source-file
+storage. OCR rows start excluded: the user must review and explicitly select every row to import.
 
 ### Web UI
 

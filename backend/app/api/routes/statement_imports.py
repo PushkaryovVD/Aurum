@@ -1,3 +1,10 @@
+import asyncio
+import json
+import os
+from pathlib import Path
+import signal
+import sys
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +15,57 @@ from app.services.statement_import_service import commit_statement, suggest_row_
 
 router = APIRouter(prefix="/statement-imports", tags=["statement-imports"])
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+PREVIEW_TIMEOUT_SECONDS = 130
+_preview_slot = asyncio.Semaphore(1)
+_WORKER_PATH = Path(__file__).resolve().parents[2] / "importers" / "statement_preview_worker.py"
+
+
+async def _kill_and_reap(process: asyncio.subprocess.Process) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    finally:
+        await process.wait()
+
+
+async def _parse_in_worker(name: str, content: bytes) -> StatementPreview:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(_WORKER_PATH),
+        name,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        stdout, _ = await asyncio.wait_for(
+            process.communicate(content),
+            timeout=PREVIEW_TIMEOUT_SECONDS,
+        )
+    except TimeoutError as exc:
+        await _kill_and_reap(process)
+        raise HTTPException(422, "Statement parsing timed out") from exc
+    except BaseException:
+        if process.returncode is None:
+            await _kill_and_reap(process)
+        raise
+
+    if process.returncode != 0:
+        raise HTTPException(422, "Statement parsing failed")
+    try:
+        result = json.loads(stdout)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(422, "Statement parser returned an invalid result") from exc
+    if not isinstance(result, dict):
+        raise HTTPException(422, "Statement parser returned an invalid result")
+    if error := result.get("error"):
+        raise HTTPException(422, str(error))
+    try:
+        return StatementPreview.model_validate(result["preview"])
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(422, "Statement parser returned an invalid result") from exc
 
 
 @router.post("/preview", response_model=StatementPreview)
@@ -25,17 +83,8 @@ async def preview_statement(
     if not importers:
         supported = ", ".join(SUPPORTED_EXTENSIONS)
         raise HTTPException(422, f"Unsupported file type. Supported formats: {supported}")
-    errors: list[str] = []
-    for importer in importers:
-        try:
-            preview = importer.parse(name, content)
-            break
-        except HTTPException as exc:
-            if exc.status_code != 422:
-                raise
-            errors.append(str(exc.detail))
-    else:
-        raise HTTPException(422, "Statement format was not recognized: " + "; ".join(errors))
+    async with _preview_slot:
+        preview = await _parse_in_worker(name, content)
     # Whatever the saved rules already decide is filled in here, so the user
     # reviews the real proposal instead of an empty category column.
     await suggest_row_categories(session, preview.rows)

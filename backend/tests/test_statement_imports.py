@@ -4,20 +4,32 @@ The pipeline the tests pin down is parse -> preview/edit -> validate -> commit:
 nothing is written to the ledger until the user confirms, and re-uploading the
 same document adds nothing.
 """
+import asyncio
 from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from openpyxl import Workbook
 
+from app.api.routes import statement_imports as statement_import_routes
 from app.services import statement_import_service
 from app.importers.freedom_bank import FreedomBankPdfImporter
 from app.importers.kaspi import KaspiPdfImporter
+from app.importers import kaspi as kaspi_importer
+from app.importers.ocr_worker import validate_render_size
+from app.schemas.statement_import import StatementPreview
 from tests.helpers import money
 
 HEADER = ["Операция №", "Дата", "Операция", "Комментарий", "Сумма", "Валюта"]
+
+
+def test_ocr_rejects_a_page_that_expands_beyond_the_pixel_limit():
+    with pytest.raises(ValueError, match="pixel limit"):
+        validate_render_size(20_000, 20_000)
 
 
 def _workbook(rows: list[list]) -> bytes:
@@ -110,6 +122,67 @@ async def test_unrecognized_document_is_rejected_without_crashing(client: AsyncC
     assert response.status_code == 422
 
 
+async def test_preview_timeout_kills_and_reaps_the_worker_process_group(monkeypatch):
+    events: list[object] = []
+    spawned: list[object] = []
+
+    class SlowProcess:
+        pid = 4321
+        returncode = None
+
+        async def communicate(self, content):
+            await asyncio.sleep(1)
+
+        async def wait(self):
+            events.append("reaped")
+            self.returncode = -9
+
+    async def create_process(*args, **kwargs):
+        spawned.extend(args)
+        return SlowProcess()
+
+    monkeypatch.setattr(statement_import_routes.asyncio, "create_subprocess_exec", create_process)
+    monkeypatch.setattr(statement_import_routes.os, "killpg", lambda pid, sig: events.append((pid, sig)))
+    monkeypatch.setattr(statement_import_routes, "PREVIEW_TIMEOUT_SECONDS", 0.01)
+
+    with pytest.raises(HTTPException, match="timed out"):
+        await statement_import_routes._parse_in_worker("slow.pdf", b"pdf")
+
+    assert events == [(4321, statement_import_routes.signal.SIGKILL), "reaped"]
+    assert "-m" not in spawned
+    assert str(spawned[1]).endswith("app/importers/statement_preview_worker.py")
+
+
+async def test_preview_timeout_reaps_worker_if_process_group_already_exited(monkeypatch):
+    events: list[str] = []
+
+    class ExitedProcess:
+        pid = 4321
+        returncode = None
+
+        async def communicate(self, content):
+            await asyncio.sleep(1)
+
+        async def wait(self):
+            events.append("reaped")
+            self.returncode = 0
+
+    async def create_process(*args, **kwargs):
+        return ExitedProcess()
+
+    def already_exited(pid, sig):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(statement_import_routes.asyncio, "create_subprocess_exec", create_process)
+    monkeypatch.setattr(statement_import_routes.os, "killpg", already_exited)
+    monkeypatch.setattr(statement_import_routes, "PREVIEW_TIMEOUT_SECONDS", 0.01)
+
+    with pytest.raises(HTTPException, match="timed out"):
+        await statement_import_routes._parse_in_worker("slow.pdf", b"pdf")
+
+    assert events == ["reaped"]
+
+
 async def test_unsupported_file_type_names_what_is_supported(client: AsyncClient):
     response = await client.post("/statement-imports/preview", files={"file": ("statement.csv", b"a,b")})
     assert response.status_code == 422
@@ -148,6 +221,69 @@ def test_kaspi_text_statement_preserves_fx_purchase_and_reconciles():
     assert fx.transaction_amount == Decimal("19.58")
     assert sum(row.importable for row in preview.rows) == 5
     assert preview.warnings == ["Balance check passed: opening balance plus operations equals closing balance"]
+
+
+def _kaspi_ocr_pages(*, closing: str = "1 240,00") -> list[str]:
+    """Synthetic, redacted representation of Kaspi's image-text layout.
+
+    Real PDFs of this form have an unusable embedded character map, so local
+    Tesseract sees the tenge glyph as T/Т and sometimes reads the pending icon
+    as © or ``Sc``. The fixture keeps those OCR artefacts without retaining any
+    customer, card, account, or merchant data from an actual statement.
+    """
+
+    return [
+        "СПРАВКА об остатке на счете",
+        f"""ВЫПИСКА
+по Kaspi Gold за период с 01.09.26 по 02.09.26
+Доступно на 01.09.26 + 1 000,00 T
+Дата Сумма Операция Детали
+02.09.26 - 100,00 T Покупка © Магазин
+02.09.26 + 50,00 T Поступление co Sc Kaspi Депозита
+своего счета
+02.09.26 - 10,00 T Pa3Hoe Комиссия за перевод
+02.09.26 - 200,00 T Покупка Онлайн-сервис
+(- 1,00 USD)
+02.09.26 + 500,00 T Пополнение Доход
+Доступно на 02.09.26 + {closing} T
+АО «Kaspi Bank»""",
+    ]
+
+
+def test_kaspi_ocr_layout_preserves_rows_fx_and_pending_markers():
+    preview = KaspiPdfImporter().parse_pages("kaspi-ocr.pdf", _kaspi_ocr_pages())
+
+    assert len(preview.rows) == 5
+    assert [row.importable for row in preview.rows] == [False, False, True, True, True]
+    assert preview.rows[1].description == "Поступление со своего счета"
+    assert preview.rows[2].purpose.value == "fee"
+    assert preview.rows[3].currency == "USD"
+    assert preview.rows[3].transaction_amount == Decimal("1.00")
+    assert preview.warnings == ["Balance check passed: opening balance plus operations equals closing balance"]
+
+
+def test_kaspi_parse_falls_back_to_local_ocr_for_unreadable_text_layer(monkeypatch):
+    monkeypatch.setattr(kaspi_importer, "extract_pdf_pages", lambda content: ["ducuhpcyhuh"])
+    monkeypatch.setattr(kaspi_importer, "extract_pdf_pages_ocr", lambda content: _kaspi_ocr_pages())
+
+    preview = KaspiPdfImporter().parse("kaspi.pdf", b"pdf")
+
+    assert len(preview.rows) == 5
+    assert preview.warnings[0] == "Local OCR was used; review every row before importing"
+    assert preview.requires_row_confirmation is True
+    assert all(not row.importable for row in preview.rows)
+
+
+def test_kaspi_ocr_fallback_rejects_an_unreconciled_statement(monkeypatch):
+    monkeypatch.setattr(kaspi_importer, "extract_pdf_pages", lambda content: ["ducuhpcyhuh"])
+    monkeypatch.setattr(
+        kaspi_importer,
+        "extract_pdf_pages_ocr",
+        lambda content: _kaspi_ocr_pages(closing="1 241,00"),
+    )
+
+    with pytest.raises(HTTPException, match="could not be reconciled"):
+        KaspiPdfImporter().parse("kaspi.pdf", b"pdf")
 
 
 def test_freedom_bank_pending_row_stays_visible_but_is_not_imported():

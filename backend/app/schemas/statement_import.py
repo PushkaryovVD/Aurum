@@ -64,6 +64,7 @@ class StatementPreview(BaseModel):
     file_name: str
     rows: list[StatementRow]
     warnings: list[str]
+    requires_row_confirmation: bool = False
 
 
 class StatementCommit(BaseModel):

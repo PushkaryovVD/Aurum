@@ -15,6 +15,7 @@ export interface StatementRow {
 }
 export interface StatementPreview {
   provider: string; provider_label: string; file_name: string; rows: StatementRow[]; warnings: string[];
+  requires_row_confirmation: boolean;
 }
 export interface StatementCommitResult { created: number; duplicates: number; ignored: number }
 

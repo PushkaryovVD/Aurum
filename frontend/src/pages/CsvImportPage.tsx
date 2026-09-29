@@ -452,7 +452,7 @@ export function CsvImportPage() {
     <div className="space-y-5">
       <div className="flex items-center gap-2">
         <Link
-          to="/transactions"
+          to="/transactions/import"
           aria-label={t("common.back")}
           className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"
         >

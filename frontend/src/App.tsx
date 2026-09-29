@@ -16,6 +16,7 @@ import { CsvImportPage } from "@/pages/CsvImportPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { EnvelopePage } from "@/pages/EnvelopePage";
 import { GoalsPage } from "@/pages/GoalsPage";
+import { ImportCenterPage } from "@/pages/ImportCenterPage";
 import { InvestmentsPage } from "@/pages/InvestmentsPage";
 import { NetWorthPage } from "@/pages/NetWorthPage";
 import { RecurringPage } from "@/pages/RecurringPage";
@@ -64,7 +65,8 @@ export default function App() {
             <Route path="/rules" element={<CategorizationRulesPage />} />
             <Route path="/cash-flow" element={<CashFlowPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/transactions/import" element={<CsvImportPage />} />
+            <Route path="/transactions/import" element={<ImportCenterPage />} />
+            <Route path="/transactions/import/csv" element={<CsvImportPage />} />
             <Route path="/transactions/import/statements" element={<StatementImportPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/budget" element={<BudgetPage />} />

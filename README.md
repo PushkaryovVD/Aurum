@@ -58,13 +58,13 @@ Aurum treats your financial life as a **system**, not a spreadsheet.
 ## 🧩 Core Features
 
 ### 💰 Cash Flow & Transactions
-Log income, expenses, and transfers across as many accounts as you want, organized into categories (with one level of subcategories) plus free-form tags, and searchable. One purchase spanning multiple subcategories of the same parent (a grocery receipt part "Sweets", part "Alcohol") can be recorded as a single split transaction instead of several — every report and chart still counts each share under its own category. Already have history elsewhere? Import a bank's CSV export in a guided 3-step wizard instead of typing every line by hand — with built-in profiles for T-Bank, monobank and PrivatBank exports (columns, date/amount formats and declined-payment rows handled automatically), and manual column mapping for everything else. A dedicated Cash Flow view charts income vs. expense month by month.
+Log income, expenses, and transfers across as many accounts as you want, organized into categories (with one level of subcategories) plus free-form tags, and searchable. One purchase spanning multiple subcategories of the same parent (a grocery receipt part "Sweets", part "Alcohol") can be recorded as a single split transaction instead of several — every report and chart still counts each share under its own category. Already have history elsewhere? Open **Upload statement** from Transactions to import a Kaspi Gold or Freedom Bank PDF, a Tradernet/Freedom Broker XLSX statement, or a CSV export from another bank. PDF/XLSX documents are reviewed before import; CSV includes built-in profiles for T-Bank, monobank and PrivatBank plus manual column mapping. A dedicated Cash Flow view charts income vs. expense month by month.
 
 ### 📈 Net Worth Engine
 A live net worth timeline (30 days to all-time) aggregating cash and every manually tracked asset — investments, crypto, real estate, vehicles, precious metals — into one number, with a full breakdown by asset class, by how each asset behaves (income / neutral / drain), and by risk level.
 
-### 🪙 Crypto Tracker
-A CoinMarketCap-style portfolio tab for the coins you actually hold: live price plus 1h/24h/7d change, your holdings value, average buy price, and profit/loss — computed from a full buy/sell history, no separate portfolio tracker needed. Refresh on demand with one button, or let it auto-refresh once a day; either way it plugs straight into the Net Worth engine above as just another tracked asset.
+### 🪙 Crypto Assets
+Crypto holdings remain part of Net Worth as tracked assets, including their live valuation and buy/sell history. They are no longer exposed as a separate primary-navigation tab.
 
 ### 🎯 Budgets, Goals & Recurring Payments
 Set a monthly limit per category and watch progress bars fill up. Track savings goals with a running contribution log. Register recurring bills and post them with one click when they're due — nothing runs automatically in the background.

@@ -206,6 +206,20 @@ parser.
 
 The upload limit is 10 MB.
 
+### Web UI
+
+Open **Transactions → Upload statement** (`/transactions/import`) and choose the source document:
+
+- **Kaspi Bank** — Kaspi Gold PDF;
+- **Freedom Bank** — card-statement PDF;
+- **Freedom Broker / Tradernet** — XLSX cash-movement export;
+- **Another bank** — CSV import with manual column mapping.
+
+The chosen Kaspi/Freedom/Tradernet option narrows the browser file picker to the expected
+extension. This is only a client-side convenience: the server still recognises the document
+from its contents before it produces a preview, so an uploaded file is never trusted merely
+because of its name or selected card.
+
 **Preview response** (`StatementPreview`):
 
 ```json
@@ -544,17 +558,17 @@ Used by the CSV import wizard, but callable directly for any bulk load (e.g. syn
 export tool). All rows are validated **before** any is inserted — one bad row fails the whole
 request with no partial import.
 
-The wizard itself (`/transactions/import`) is bank-agnostic: it auto-detects delimiter and
-encoding and lets you map columns by hand. On top of that it ships **bank profiles** that pre-fill
-the mapping and formats when the header row matches a known export (or when you pick the bank
-explicitly): **T-Bank** (semicolon CSV, `Сумма платежа`, rows with `Статус ≠ OK` skipped),
-**monobank** (Ukrainian-language CSV, `Сума в валюті картки (…)`) and **PrivatBank**
-(`Сума в валюті картки`, `Опис операції`). Profiles live in `frontend/src/lib/bankPresets.ts` —
-adding a bank is one declarative entry (header matchers, date/amount format, optional row filter).
-Kaspi Gold and Freedom Bank Kazakhstan text-layer PDFs can be uploaded directly through
-the statement preview. Other PDF formats (including Halyk until a redacted fixture is
-available) still require conversion to CSV and manual mapping. Aurum never sends a bank
-statement to a third-party OCR service.
+`/transactions/import` is the import hub. Its **Another bank** card opens the bank-agnostic CSV
+wizard at `/transactions/import/csv`, which auto-detects delimiter and encoding and lets you map
+columns by hand. It also ships **bank profiles** that pre-fill mapping and formats when the header
+row matches a known export (or when you pick the bank explicitly): **T-Bank** (semicolon CSV,
+`Сумма платежа`, rows with `Статус ≠ OK` skipped), **monobank** (Ukrainian-language CSV,
+`Сума в валюті картки (…)`) and **PrivatBank** (`Сума в валюті картки`, `Опис операції`). Profiles
+live in `frontend/src/lib/bankPresets.ts` — adding a CSV bank is one declarative entry (header
+matchers, date/amount format, optional row filter). Kaspi Gold and Freedom Bank Kazakhstan
+text-layer PDFs can be uploaded directly through the statement preview. Other PDF formats
+(including Halyk until a redacted fixture is available) still require conversion to CSV and manual
+mapping. Aurum never sends a bank statement to a third-party OCR service.
 
 To inspect a supported statement outside the UI, run this locally from `backend/`:
 

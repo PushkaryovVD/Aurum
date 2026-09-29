@@ -22,39 +22,62 @@ deleted, so each one is still reviewable on its own.
 
 ### Verified state
 
-- `pytest`: **202 passed**, including Kaspi/Freedom parsing and preservation of
-  both account-side and merchant-side currency amounts.
-- `vitest`: **58 passed**; `npm run build` clean.
-- Both run against the merged `develop` tree.
+- Published `develop` head: `e36ad945c1bcc5a58aff8b4cb7e7a7fe0286a4d8`.
+- `pytest`: **280 passed**; `vitest`: **79 passed**; TypeScript and the production
+  frontend build pass; the production npm audit reports zero vulnerabilities.
 - The Tradernet adapter was run against the real `bills/tradernet_table.xlsx`:
   155 rows, 104 importable, 0 warnings, dates 2021-03-24 … 2026-09-08.
-- The Kaspi adapter was run against `bills/kaspi.pdf`: 9 recognized rows, 5
-  importable, and the opening/closing balance reconciliation passes. The
-  Freedom Bank adapter recognizes 2 rows in `bills/freedom.pdf`; its pending
-  USD row remains visible but is not importable.
-- Migrations: head is `b7e2c4f19a35` (categorization rules). Every test run
-  creates a fresh database and migrates it, so the chain is exercised on each
-  run; the real database is migrated by the container entrypoint.
+- A real image-only Kaspi Gold PDF was validated without retaining its private
+  data: local OCR recognized 38 rows, preserved two foreign-currency movements,
+  identified blocked/internal hints, and reconciled opening + movements to the
+  closing balance. Every OCR row starts excluded and needs explicit confirmation.
+- Statement parsing runs in a resource-limited process group and does not persist
+  uploaded source documents.
 
 ### Blocked, or waiting on a decision
 
-1. **`develop` is ahead of `main` and has not been pushed**, so CI (GitHub
-   Actions) has not run against any of this yet. Pushing is a deliberate step,
-   not a side effect of merging.
-2. **Tradernet trades/securities cannot be imported from the cash-movement
+1. **Tradernet trades/securities cannot be imported from the cash-movement
    export.** That file carries a commission row per trade (trade id, side,
    ticker) but no quantity and no price — those live in the broker's *trades*
    report, which is not in `bills/`. The Investments-side import needs that
    fixture before it can start.
-3. **Halyk is waiting for a fixture.** The supplied Kaspi Gold and Freedom Bank
-   PDFs both have usable text layers and now parse locally. A Halyk adapter is
-   intentionally not guessed without a real, redacted statement version.
+2. **Halyk is waiting for a fixture.** A Halyk adapter is intentionally not
+   guessed without a real, redacted statement version.
 
 ### Next, in order
 
-1. Investments import from the broker trades report — needs a fixture (see above).
-2. Complete `feature/kz-bank-statements` with Halyk after a redacted fixture is available.
-3. The rest of the roadmap, in the order listed below.
+1. Contextual help and examples across Aurum (`t_0a8482a8` → QA `t_ca2a37e4`).
+2. Responsive source-document preview during statement review
+   (`t_e2fe89eb` → QA `t_9b7ef5f1`).
+3. Investments import from the broker trades report — needs a fixture (see above).
+4. Complete `feature/kz-bank-statements` with Halyk after a redacted fixture is available.
+5. The rest of the roadmap, in the order listed below.
+
+### Active UX milestones — 2026-09-29
+
+#### Contextual help and examples
+
+- Add a discoverable bilingual Help/Guide page covering every primary product
+  area in plain language: what it solves, when to use it, one concrete example,
+  and common mistakes.
+- Prioritize envelopes/zero-based budgeting and categorization rules, since their
+  purpose is not obvious from labels alone.
+- Reuse one contextual-help component on complex pages instead of scattering
+  unrelated explanatory markup.
+- Mobile acceptance: no hover-only interactions, readable at 320/375/430 px,
+  touch-friendly controls, and no page-level horizontal scrolling.
+
+#### Statement source-document review
+
+- Keep the original upload available during preview without persisting it:
+  transactions and document side by side on desktop, with an accessible
+  review/document switch on mobile.
+- Replace the squeezed wide-table mobile experience with a touch-friendly review
+  layout while preserving editing, account mapping and explicit OCR row selection.
+- Translate parser states into user-facing RU/EN copy; do not expose raw backend
+  warnings such as OCR, blocked-amount or reconciliation messages.
+- Revoke browser object URLs when a file is replaced or the page closes. Never
+  store statement source files, extracted PII or real fixtures in Git/logs.
 
 ## Delivery order
 

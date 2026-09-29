@@ -8,6 +8,7 @@ export interface ImportOption {
   descriptionKey: TranslationKey;
   formatKey: TranslationKey;
   to: string;
+  accept: string;
 }
 
 /**
@@ -22,6 +23,7 @@ export const IMPORT_OPTIONS: readonly ImportOption[] = [
     descriptionKey: "importHub.kaspi.description",
     formatKey: "importHub.kaspi.format",
     to: "/transactions/import/statements?bank=kaspi",
+    accept: ".pdf,application/pdf",
   },
   {
     id: "freedom-bank",
@@ -29,6 +31,7 @@ export const IMPORT_OPTIONS: readonly ImportOption[] = [
     descriptionKey: "importHub.freedomBank.description",
     formatKey: "importHub.freedomBank.format",
     to: "/transactions/import/statements?bank=freedom-bank",
+    accept: ".pdf,application/pdf",
   },
   {
     id: "tradernet",
@@ -36,6 +39,7 @@ export const IMPORT_OPTIONS: readonly ImportOption[] = [
     descriptionKey: "importHub.tradernet.description",
     formatKey: "importHub.tradernet.format",
     to: "/transactions/import/statements?bank=tradernet",
+    accept: ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   },
   {
     id: "csv",
@@ -43,5 +47,6 @@ export const IMPORT_OPTIONS: readonly ImportOption[] = [
     descriptionKey: "importHub.csv.description",
     formatKey: "importHub.csv.format",
     to: "/transactions/import/csv",
+    accept: ".csv,text/csv",
   },
 ];

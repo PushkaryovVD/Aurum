@@ -9,10 +9,22 @@ describe("transaction import entry points", () => {
 
   it("offers the supported bank-statement formats and generic CSV import", () => {
     expect(IMPORT_OPTIONS).toEqual([
-      expect.objectContaining({ id: "kaspi", to: "/transactions/import/statements?bank=kaspi" }),
-      expect.objectContaining({ id: "freedom-bank", to: "/transactions/import/statements?bank=freedom-bank" }),
-      expect.objectContaining({ id: "tradernet", to: "/transactions/import/statements?bank=tradernet" }),
-      expect.objectContaining({ id: "csv", to: "/transactions/import/csv" }),
+      expect.objectContaining({
+        id: "kaspi",
+        to: "/transactions/import/statements?bank=kaspi",
+        accept: ".pdf,application/pdf",
+      }),
+      expect.objectContaining({
+        id: "freedom-bank",
+        to: "/transactions/import/statements?bank=freedom-bank",
+        accept: ".pdf,application/pdf",
+      }),
+      expect.objectContaining({
+        id: "tradernet",
+        to: "/transactions/import/statements?bank=tradernet",
+        accept: ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }),
+      expect.objectContaining({ id: "csv", to: "/transactions/import/csv", accept: ".csv,text/csv" }),
     ]);
   });
 });

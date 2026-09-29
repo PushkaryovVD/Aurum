@@ -126,7 +126,7 @@ export function StatementImportPage() {
             <input
               className="hidden"
               type="file"
-              accept=".xlsx,.pdf,application/pdf"
+              accept={selectedBank?.accept ?? ".xlsx,.pdf,application/pdf"}
               disabled={busy}
               onChange={(event) => choose(event.target.files?.[0])}
             />
@@ -319,7 +319,7 @@ export function StatementImportPage() {
               </div>
 
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => navigate("/transactions")}>
+                <Button variant="ghost" onClick={() => navigate("/transactions/import")}>
                   {t("common.cancel")}
                 </Button>
                 <Button onClick={save} disabled={busy || currencies.some((currency) => !mapping[currency])}>

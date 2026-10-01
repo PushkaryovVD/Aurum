@@ -68,6 +68,8 @@ def require_scale(value: Decimal, *, precision: int, scale: int) -> Decimal:
 
 
 def _quantize(value: Decimal, scale: int) -> Decimal:
+    if not value.is_finite():
+        raise FinancialValueError("financial values must be finite")
     with localcontext(FINANCIAL_CONTEXT):
         return value.quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_EVEN)
 
@@ -86,6 +88,8 @@ def quantize_rate(value: Decimal) -> Decimal:
 
 def allocate_largest_remainder(total: Decimal, weights: Sequence[Decimal]) -> list[Decimal]:
     """Allocate a rounded KZT total deterministically while preserving its sum."""
+    if not total.is_finite() or any(not weight.is_finite() for weight in weights):
+        raise FinancialValueError("financial values must be finite")
     if not weights or any(weight < 0 for weight in weights) or sum(weights, Decimal(0)) <= 0:
         raise FinancialValueError("allocation weights must contain a positive total")
     total = quantize_kzt(total)

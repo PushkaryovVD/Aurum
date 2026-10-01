@@ -9,6 +9,7 @@ from app.core.financial import (
     parse_decimal_string,
     quantize_kzt,
     quantize_posting,
+    quantize_rate,
     require_scale,
 )
 
@@ -39,6 +40,13 @@ def test_rounding_happens_only_at_explicit_boundaries_with_half_even():
     assert quantize_kzt(Decimal("2.355")) == Decimal("2.36")
 
 
+@pytest.mark.parametrize("quantizer", [quantize_posting, quantize_kzt, quantize_rate])
+@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
+def test_rounding_boundaries_reject_non_finite_values(quantizer, value):
+    with pytest.raises(FinancialValueError):
+        quantizer(value)
+
+
 def test_largest_remainder_preserves_signed_parent_total():
     assert allocate_largest_remainder(Decimal("0.01"), [Decimal("1"), Decimal("1"), Decimal("1")]) == [
         Decimal("0.01"),
@@ -50,3 +58,11 @@ def test_largest_remainder_preserves_signed_parent_total():
         Decimal("-0.01"),
         Decimal("0.00"),
     ]
+
+
+@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
+def test_largest_remainder_rejects_non_finite_totals_and_weights(value):
+    with pytest.raises(FinancialValueError):
+        allocate_largest_remainder(value, [Decimal("1")])
+    with pytest.raises(FinancialValueError):
+        allocate_largest_remainder(Decimal("1"), [value])

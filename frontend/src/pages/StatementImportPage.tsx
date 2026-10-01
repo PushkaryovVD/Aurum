@@ -2,20 +2,21 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Upload } from "lucide-react";
 import { commitStatement, previewStatement } from "@/api/statementImports";
+import { StatementReview } from "@/components/statements/StatementReview";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ContextualHelp } from "@/components/help/ContextualHelp";
-import { Input, Label, Select } from "@/components/ui/Input";
+import { Label, Select } from "@/components/ui/Input";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCategories } from "@/hooks/useCategories";
-import { translateCategoryName } from "@/lib/categoryLabels";
+import { useLocalStatementDocument } from "@/hooks/useLocalStatementDocument";
 import { CURRENCIES } from "@/lib/currency";
 import { IMPORT_OPTIONS } from "@/lib/importOptions";
 import { useTranslation } from "@/lib/i18n";
-import type { StatementCommitResult, StatementPreview, StatementRow, TransactionType } from "@/types";
+import type { StatementCommitResult, StatementPreview, StatementRow } from "@/types";
 
 export function StatementImportPage() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { data: accounts = [] } = useAccounts();
@@ -29,6 +30,7 @@ export function StatementImportPage() {
   const [result, setResult] = useState<StatementCommitResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { document, selectDocument, clearDocument } = useLocalStatementDocument();
   const selectedBank = IMPORT_OPTIONS.find((option) => option.id === searchParams.get("bank"));
 
   const importable = useMemo(() => rows.filter((row) => row.importable), [rows]);
@@ -63,6 +65,10 @@ export function StatementImportPage() {
 
   async function choose(file?: File) {
     if (!file) return;
+    selectDocument(file);
+    setPreview(null);
+    setRows([]);
+    setMapping({});
     setBusy(true);
     setError(null);
     setResult(null);
@@ -97,6 +103,11 @@ export function StatementImportPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function cancel() {
+    clearDocument();
+    navigate("/transactions/import");
   }
 
   const skipped = rows.length - importable.length;
@@ -174,172 +185,24 @@ export function StatementImportPage() {
                 </div>
               )}
 
-              {preview.warnings.map((warning) => (
-                <p key={warning} className="text-xs text-warning">
-                  {warning}
-                </p>
-              ))}
+              <StatementReview
+                categories={categories}
+                currencyOptions={currencyOptions}
+                document={document}
+                language={language}
+                preview={preview}
+                rows={rows}
+                t={t}
+                updateAccountAmount={updateAccountAmount}
+                updateRow={updateRow}
+              />
 
-              <div className="max-h-[520px] overflow-auto rounded-lg border border-border">
-                <table className="w-full min-w-[1180px] text-sm">
-                  <thead className="sticky top-0 bg-surface-2 text-left text-xs text-text-muted">
-                    <tr>
-                      <th className="p-2">{t("transactions.form.dateLabel")}</th>
-                      <th className="p-2">{t("statementImport.operation")}</th>
-                      <th className="p-2">{t("transactions.form.amountLabel")}</th>
-                      <th className="p-2">{t("statementImport.accountCurrency")}</th>
-                      <th className="p-2">{t("statementImport.transactionAmount")}</th>
-                      <th className="p-2">{t("statementImport.transactionCurrency")}</th>
-                      <th className="p-2">{t("statementImport.type")}</th>
-                      <th className="p-2">{t("statementImport.category")}</th>
-                      <th className="p-2">{t("statementImport.status")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, index) => (
-                      <tr key={index} className="border-t border-border align-top">
-                        <td className="p-2">
-                          <Input
-                            type="date"
-                            value={row.date}
-                            disabled={!row.importable}
-                            onChange={(event) => updateRow(index, { date: event.target.value })}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            value={row.description}
-                            disabled={!row.importable}
-                            onChange={(event) => updateRow(index, { description: event.target.value })}
-                          />
-                          {row.security_symbol && (
-                            <span className="mt-1 block text-xs text-text-muted">{row.security_symbol}</span>
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            className="w-28"
-                            value={row.amount}
-                            disabled={!row.importable}
-                            onChange={(event) => updateAccountAmount(index, event.target.value)}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Select
-                            value={row.account_currency.toUpperCase()}
-                            disabled={!row.importable}
-                            onChange={(event) =>
-                              updateRow(index, {
-                                account_currency: event.target.value,
-                                ...(event.target.value === row.currency ? { transaction_amount: row.amount } : {}),
-                              })
-                            }
-                          >
-                            {currencyOptions.map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ))}
-                          </Select>
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            className="w-28"
-                            value={row.transaction_amount}
-                            disabled={!row.importable}
-                            onChange={(event) => updateRow(index, { transaction_amount: event.target.value })}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Select
-                            value={row.currency.toUpperCase()}
-                            disabled={!row.importable}
-                            onChange={(event) =>
-                              updateRow(index, {
-                                currency: event.target.value,
-                                ...(event.target.value === row.account_currency
-                                  ? { transaction_amount: row.amount }
-                                  : {}),
-                              })
-                            }
-                          >
-                            {currencyOptions.map((code) => (
-                              <option key={code} value={code}>{code}</option>
-                            ))}
-                          </Select>
-                        </td>
-                        <td className="p-2">
-                          <Select
-                            value={row.type}
-                            disabled={!row.importable}
-                            onChange={(event) =>
-                              updateRow(index, { type: event.target.value as TransactionType, category_id: null })
-                            }
-                          >
-                            <option value="income">{t("transactions.form.typeIncome")}</option>
-                            <option value="expense">{t("transactions.form.typeExpense")}</option>
-                          </Select>
-                        </td>
-                        <td className="p-2">
-                          <Select
-                            value={row.category_id ?? ""}
-                            disabled={!row.importable}
-                            onChange={(event) =>
-                              updateRow(index, {
-                                category_id: event.target.value ? Number(event.target.value) : null,
-                              })
-                            }
-                          >
-                            <option value="">{t("transactions.form.noCategory")}</option>
-                            {categories
-                              .filter((category) => category.kind === (row.type === "income" ? "income" : "expense"))
-                              .map((category) => (
-                                <option key={category.id} value={category.id}>
-                                  {translateCategoryName(category.name)}
-                                </option>
-                              ))}
-                          </Select>
-                          {/* Where the category came from, so a value that
-                              appeared by itself is explained rather than
-                              merely surprising. */}
-                          {row.matched_rule && (
-                            <span className="mt-1 block text-xs text-text-muted">
-                              {t("statementImport.matchedRule", { name: row.matched_rule })}
-                            </span>
-                          )}
-                        </td>
-                        <td className={`p-2 text-xs ${row.importable ? "text-success" : "text-warning"}`}>
-                          {preview.requires_row_confirmation ? (
-                            <label className="flex items-start gap-2">
-                              <input
-                                type="checkbox"
-                                checked={row.importable}
-                                onChange={(event) => updateRow(index, { importable: event.target.checked })}
-                              />
-                              <span>
-                                {t("statementImport.includeRow")}
-                                {row.warning && <span className="mt-1 block text-warning">{row.warning}</span>}
-                              </span>
-                            </label>
-                          ) : row.importable ? t("statementImport.ready") : row.warning}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => navigate("/transactions/import")}>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button className="min-h-11" variant="ghost" onClick={cancel}>
                   {t("common.cancel")}
                 </Button>
                 <Button
+                  className="min-h-11"
                   onClick={save}
                   disabled={busy || importable.length === 0 || currencies.some((currency) => !mapping[currency])}
                 >

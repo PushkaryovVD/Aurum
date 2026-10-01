@@ -50,7 +50,7 @@ export function HelpPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         {HELP_TOPICS.map((topic) => (
-          <article id={topic.id} key={topic.id} className="min-w-0 scroll-mt-4 rounded-xl border border-border bg-surface-1 p-4 sm:p-5">
+          <article id={topic.id} key={topic.id} className="min-w-0 scroll-mt-20 rounded-xl border border-border bg-surface-1 p-4 sm:p-5">
             <h2 className="text-lg font-semibold text-text-primary">{localize(topic.title, language)}</h2>
             <dl className="mt-4 space-y-3 text-sm leading-6">
               <div>
@@ -70,7 +70,7 @@ export function HelpPage() {
                 <dd className="break-words text-text-secondary">{localize(topic.misunderstanding, language)}</dd>
               </div>
             </dl>
-            <Link to={topic.path} className="mt-4 inline-flex min-h-11 items-center gap-1.5 py-2 text-sm font-medium text-text-primary underline-offset-4 hover:underline">
+            <Link aria-label={`${copy.open}: ${localize(topic.title, language)}`} to={topic.path} className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded py-2 text-sm font-medium text-text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
               {copy.open}<ArrowRight size={16} />
             </Link>
           </article>

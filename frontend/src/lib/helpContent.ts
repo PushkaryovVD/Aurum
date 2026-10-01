@@ -4,7 +4,9 @@ export type HelpTopicId =
   | "dashboard"
   | "netWorth"
   | "investments"
+  | "roi"
   | "transactions"
+  | "statementImport"
   | "accounts"
   | "categories"
   | "rules"
@@ -61,6 +63,15 @@ export const HELP_TOPICS: HelpTopic[] = [
     misunderstanding: { ru: "Текущая цена не заменяет историю сделок и не является гарантией будущей доходности.", en: "A current price does not replace trade history and does not guarantee future returns." },
   },
   {
+    id: "roi",
+    path: "/roi",
+    title: { ru: "Доходность", en: "Returns" },
+    purpose: { ru: "Сравнивает результат инвестиций с вложенной суммой и показывает доходность за выбранный период.", en: "Compares investment results with the amount invested and shows returns for the selected period." },
+    whenToUse: { ru: "Используйте после внесения сделок, комиссий и выплат, чтобы оценивать портфель по фактическим данным.", en: "Use it after recording trades, fees, and payouts to evaluate the portfolio from actual data." },
+    example: { ru: "Если позиция выросла в цене, но по ней были комиссии, доходность покажет итоговый результат с учётом этих затрат.", en: "If a position gained value but incurred fees, Returns shows the resulting performance after those costs." },
+    misunderstanding: { ru: "Доходность за прошлый период не гарантирует такой же результат в будущем и зависит от полноты истории операций.", en: "Past returns do not guarantee future results and depend on a complete transaction history." },
+  },
+  {
     id: "transactions",
     path: "/transactions",
     title: { ru: "Транзакции и импорт", en: "Transactions and import" },
@@ -68,6 +79,15 @@ export const HELP_TOPICS: HelpTopic[] = [
     whenToUse: { ru: "Добавляйте операции вручную или загружайте выписку, затем проверяйте результат до сохранения.", en: "Add activity manually or upload a statement, then review the result before saving." },
     example: { ru: "Один чек можно разделить между продуктами и бытовыми товарами, не создавая две покупки.", en: "One receipt can be split between groceries and household supplies without creating two purchases." },
     misunderstanding: { ru: "Перевод между своими счетами — не доход и не расход; импорт не следует подтверждать без проверки.", en: "A transfer between your own accounts is neither income nor spending; imported rows still need review." },
+  },
+  {
+    id: "statementImport",
+    path: "/transactions/import",
+    title: { ru: "Импорт банковской выписки", en: "Bank statement import" },
+    purpose: { ru: "Распознаёт операции из загруженной выписки и готовит их к проверке до добавления в Aurum.", en: "Recognizes activity from an uploaded statement and prepares it for review before anything is added to Aurum." },
+    whenToUse: { ru: "Загрузите поддерживаемый файл, проверьте каждую распознанную строку, исправьте данные и выберите только нужные операции.", en: "Upload a supported file, review every recognized row, correct the data, and select only the activity you want." },
+    example: { ru: "После загрузки PDF проверьте дату, сумму, счёт и категорию каждой строки; только затем нажмите «Импортировать».", en: "After uploading a PDF, check each row's date, amount, account, and category before pressing Import." },
+    misunderstanding: { ru: "Предпросмотр ничего не записывает. Операции попадут в журнал только после явного нажатия «Импортировать».", en: "Preview saves nothing. Nothing reaches the ledger until you press Import explicitly." },
   },
   {
     id: "accounts",

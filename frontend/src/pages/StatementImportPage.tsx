@@ -103,7 +103,7 @@ export function StatementImportPage() {
 
   return (
     <div className="space-y-5">
-      <ContextualHelp topicId="transactions" />
+      <ContextualHelp topicId="statementImport" />
       <Link
         to="/transactions/import"
         className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-primary"

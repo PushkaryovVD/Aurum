@@ -79,6 +79,89 @@ deleted, so each one is still reviewable on its own.
 - Revoke browser object URLs when a file is replaced or the page closes. Never
   store statement source files, extracted PII or real fixtures in Git/logs.
 
+### Planned product foundations — design renewal and private user accounts
+
+#### Design-system renewal (`feature/design-system-renewal`)
+
+- Use the supplied Mercury screenshots as a **layout and interaction reference**,
+  not as a source of copied branding, logos, copy or proprietary assets. The
+  Aurum identity, bilingual wording and accessibility requirements remain its
+  own.
+- Establish a small documented token system before page-by-page restyling:
+  semantic surface/text/border/status colors, typography scale, spacing,
+  radii, elevation, icon sizing and focus states. Both light and dark themes
+  must use semantic tokens rather than page-specific hard-coded colors.
+- On desktop, progressively move data-heavy screens toward a clear three-area
+  information hierarchy: compact product rail, contextual account/workspace
+  panel, and a focused primary work area. Lists use strong row hierarchy,
+  readable date grouping, concise metadata, positive/negative amount states
+  and appropriately restrained badges.
+- Make complex finance workflows easier to scan: recurring/funding forms show
+  the immediate result and upcoming impact alongside the editable inputs,
+  without hiding destructive actions or validation behind icons alone.
+- Preserve Aurum's responsive contract: at 320/375/430 px show one focused
+  workflow at a time, provide explicit navigation between contexts, retain
+  keyboard support and approximately 44 px touch targets, and never introduce
+  page-level horizontal scrolling.
+- Roll out via representative screens and reusable components first (app shell,
+  navigation, list rows, amount/status badges, buttons, form fields and empty/
+  error states), then migrate feature pages incrementally. Each slice requires
+  RU/EN review, dark/light review and desktop/mobile visual acceptance.
+
+#### Private user accounts and data isolation (`feature/private-user-accounts`)
+
+- Replace the current single-instance trust model with first-class Aurum user
+  accounts and workspaces. Every person authenticates as an individual, owns a
+  private personal workspace, and can additionally join explicitly shared
+  household/family workspaces.
+- Treat nginx HTTP Basic Auth only as an optional deployment perimeter. It is
+  not an Aurum identity, session or authorization system and must not be used
+  to distinguish application users.
+- The first release is **invite-only**: an owner/admin creates a limited-use,
+  expiring invitation for a person to establish their own credentials. There
+  is no open registration or user enumeration. Recovery/password-reset channel
+  and initial administrator bootstrap remain architecture decisions.
+- Model identity, membership and ownership explicitly. Existing personal data
+  must migrate atomically into the initial owner's private workspace; every
+  financial entity, import and setting receives a workspace scope with database
+  foreign keys, indexes and migration guards. A user can access a workspace
+  only through a server-verified membership; no request may select another
+  user's or household's scope from a client-controlled identifier.
+- Support shared household workspaces in the first release. A household owner
+  can invite members and manage membership; members can create and edit the
+  shared financial data permitted by their role. Start with small explicit
+  roles (owner, editor/contributor and read-only viewer) rather than an
+  unbounded permission matrix.
+- Keep personal and household finances separate by default. A member chooses
+  the active workspace before creating a record; a transaction in a household
+  workspace is visible to its members, affects its shared budgets and retains
+  its author for audit. A personal transaction never silently exposes details
+  to a household or changes a household budget. If a later workflow needs a
+  private transaction to contribute to a family budget, it must use an explicit
+  contribution/allocation rule with a previewed visibility and amount impact.
+- Enforce authorization at the backend boundary, not only in the UI: resolve
+  the authenticated principal server-side, scope every query/mutation/import to
+  that principal's workspace, and return non-disclosing access failures for
+  foreign records. Add negative cross-user tests for every resource family.
+- Use current password storage and session practices: slow salted password
+  hashing, short-lived secure HttpOnly sessions/cookies, CSRF protection for
+  cookie-authenticated state changes, rate limiting and audit-safe account
+  events. Never log passwords, session tokens, reset tokens, balances or raw
+  imported statements.
+- Keep the first release private-by-default even with household sharing: no
+  implicit sharing, no global search, no user enumeration and no cross-workspace
+  reporting. Shared workspace membership and the selected workspace are the
+  only routes to shared data; delegated access outside a workspace is not a
+  shortcut around isolation.
+- Acceptance: two independent users can register/sign in according to the
+  invite-only policy; each sees only their own personal data; an owner can
+  invite a family member into a household workspace and members see only that
+  household's shared records according to role; shared transactions retain the
+  author and affect household budgets; guessed IDs, deep links, imports,
+  exports and API calls cannot cross an unauthorized workspace boundary; the
+  single-user installation upgrades without data loss; mobile sign-in, sign-out,
+  invitation and session-expiry flows are accessible in RU/EN.
+
 ## Delivery order
 
 - [x] `fix/basic-auth` — native browser Basic Auth for the whole site
@@ -93,6 +176,8 @@ deleted, so each one is still reviewable on its own.
 - [ ] `feature/envelope-budgeting` — monthly zero-based envelopes and rollover
 - [ ] `feature/asset-depreciation` — depreciation and quarterly revaluation
 - [ ] `feature/financial-precision` — end-to-end Decimal and rounding audit
+- [ ] `feature/design-system-renewal` — accessible responsive visual system and progressive screen migration
+- [ ] `feature/private-user-accounts` — individual accounts, authentication and workspace-level data isolation
 - [ ] `feature/backup-automation` — scheduled encrypted PostgreSQL backups
 - [ ] `feature/observability` — worker health, metrics and failure notifications
 - [ ] `feature/arcane-deployment` — Arcane-ready Compose profiles and runbook

@@ -12,6 +12,7 @@ test database instead. See tests/README.md for how to run this.
 import asyncio
 import os
 import subprocess
+import sys
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
@@ -72,7 +73,12 @@ def _test_database() -> Generator[None, None, None]:
     asyncio.run(_drop_and_create_test_database())
 
     env = {**os.environ, "AURUM_POSTGRES_DB": TEST_DB_NAME}
-    subprocess.run(["alembic", "upgrade", "head"], cwd=BACKEND_DIR, env=env, check=True)
+    subprocess.run(
+        [str(Path(sys.executable).with_name("alembic")), "upgrade", "head"],
+        cwd=BACKEND_DIR,
+        env=env,
+        check=True,
+    )
 
     yield
 

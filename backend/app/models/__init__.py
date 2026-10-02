@@ -1,4 +1,5 @@
 from app.models.account import Account
+from app.models.auth import AuthRateLimit, SecurityAuditEvent, UserSession
 from app.models.asset import Asset, AssetValuation
 from app.models.budget import Budget
 from app.models.categorization_rule import CategorizationRule
@@ -22,6 +23,7 @@ from app.models.workspace import User, Workspace, WorkspaceMembership
 
 __all__ = [
     "Account",
+    "AuthRateLimit",
     "AppSettings",
     "Asset",
     "AssetValuation",
@@ -40,10 +42,12 @@ __all__ = [
     "Goal",
     "GoalContribution",
     "RecurringTransaction",
+    "SecurityAuditEvent",
     "Tag",
     "Transaction",
     "TransactionSplit",
     "User",
+    "UserSession",
     "Workspace",
     "WorkspaceMembership",
 ]

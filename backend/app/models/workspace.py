@@ -47,6 +47,7 @@ class User(Base, TimestampMixin):
     id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     normalized_login: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     status: Mapped[UserStatus] = mapped_column(
         Enum(
             UserStatus,

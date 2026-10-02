@@ -19,8 +19,8 @@ async def _bootstrap_personal_workspace(
     await session.execute(
         text(
             """
-            INSERT INTO users (id, normalized_login, display_name, status)
-            VALUES (:user_id, :login, :login, 'active')
+            INSERT INTO users (id, normalized_login, display_name, status, password_hash)
+            VALUES (:user_id, :login, :login, 'active', '$argon2id$test-fixture')
             """
         ),
         {"user_id": user_id, "login": login},
@@ -122,8 +122,8 @@ async def test_active_user_without_personal_workspace_is_rejected(test_sessionma
         await session.execute(
             text(
                 """
-                INSERT INTO users (id, normalized_login, display_name, status)
-                VALUES (:id, 'orphan@example.com', 'Orphan', 'active')
+                INSERT INTO users (id, normalized_login, display_name, status, password_hash)
+                VALUES (:id, 'orphan@example.com', 'Orphan', 'active', '$argon2id$test-fixture')
                 """
             ),
             {"id": uuid4()},
@@ -156,8 +156,8 @@ async def test_second_active_personal_membership_is_rejected(test_sessionmaker):
         await session.execute(
             text(
                 """
-                INSERT INTO users (id, normalized_login, display_name, status)
-                VALUES (:id, 'extra@example.com', 'Extra', 'disabled')
+                INSERT INTO users (id, normalized_login, display_name, status, password_hash)
+                VALUES (:id, 'extra@example.com', 'Extra', 'disabled', '$argon2id$test-fixture')
                 """
             ),
             {"id": extra_user_id},

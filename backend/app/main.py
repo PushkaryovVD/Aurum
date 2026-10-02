@@ -54,9 +54,9 @@ app = FastAPI(
     # All three go away together when AURUM_ENABLE_DOCS=false — leaving
     # openapi.json reachable would keep handing out the full API map even
     # with the Swagger UI itself switched off.
-    docs_url="/api/docs" if settings.enable_docs else None,
-    redoc_url="/api/redoc" if settings.enable_docs else None,
-    openapi_url="/api/openapi.json" if settings.enable_docs else None,
+    docs_url="/api/docs" if settings.docs_enabled else None,
+    redoc_url="/api/redoc" if settings.docs_enabled else None,
+    openapi_url="/api/openapi.json" if settings.docs_enabled else None,
 )
 
 # CORS stays off unless someone deliberately opens it, and credentials are

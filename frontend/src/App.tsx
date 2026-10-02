@@ -48,7 +48,7 @@ export default function App() {
         onCloseMobile={() => setMobileNavOpen(false)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenMobileNav={() => setMobileNavOpen(true)} />
+        <Topbar mobileNavOpen={mobileNavOpen} onOpenMobileNav={() => setMobileNavOpen(true)} />
         {/* No max-width cap — the sidebar can be collapsed to free up space
             (see Sidebar.tsx's collapsed w-[72px] vs expanded w-56), and a
             fixed max-w here would leave that freed space as dead centered

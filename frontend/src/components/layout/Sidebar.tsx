@@ -165,6 +165,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobil
             onClick={onCloseMobile}
           />
           <aside
+            id="mobile-navigation"
             ref={mobileDialogRef}
             role="dialog"
             aria-modal="true"

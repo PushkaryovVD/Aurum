@@ -4,10 +4,11 @@ import { NAV_ITEMS } from "@/lib/navigation";
 import { useTranslation } from "@/lib/i18n";
 
 interface TopbarProps {
+  mobileNavOpen: boolean;
   onOpenMobileNav: () => void;
 }
 
-export function Topbar({ onOpenMobileNav }: TopbarProps) {
+export function Topbar({ mobileNavOpen, onOpenMobileNav }: TopbarProps) {
   const location = useLocation();
   const { t } = useTranslation();
   const activeItem = NAV_ITEMS.find((item) => (item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to)));
@@ -18,6 +19,8 @@ export function Topbar({ onOpenMobileNav }: TopbarProps) {
         type="button"
         onClick={onOpenMobileNav}
         aria-label={t("topbar.openMenu")}
+        aria-controls="mobile-navigation"
+        aria-expanded={mobileNavOpen}
         className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
       >
         <Menu size={20} />

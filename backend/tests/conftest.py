@@ -97,8 +97,8 @@ async def _clean_database(test_sessionmaker):
     settings before each test, so tests never see leftovers from a previous
     one and never have to guess at auto-incremented IDs from prior runs."""
     async with test_sessionmaker() as session:
-        for table in reversed(Base.metadata.sorted_tables):
-            await session.execute(text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE'))
+        table_names = ", ".join(f'"{table.name}"' for table in Base.metadata.tables.values())
+        await session.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
         await session.commit()
         await seed_default_categories(session)
         await seed_default_account(session)

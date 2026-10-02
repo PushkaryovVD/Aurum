@@ -29,6 +29,9 @@ from app.models import (  # noqa: F401 — registers metadata
     Tag,
     Transaction,
     TransactionSplit,
+    User,
+    Workspace,
+    WorkspaceMembership,
 )
 
 config = context.config

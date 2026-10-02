@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # machine-readable map of every endpoint and payload shape.
     enable_docs: bool = True
 
+    # Foundation flag only. Authentication/session enforcement is introduced
+    # in a later slice; keeping this false preserves the existing runtime.
+    app_auth_required: bool = False
+
     @property
     def database_url(self) -> str:
         return (

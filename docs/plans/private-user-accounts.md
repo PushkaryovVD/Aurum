@@ -106,12 +106,16 @@ login nor invitation acceptance may reveal whether an identifier exists.
 ### 4.1 Recommended implementation
 
 Use local email-as-login accounts (case-folded normalized identifier), an opaque
-server-side session, and invitation links copied by a household owner. This
-requires no external identity provider, mail service, JWT revocation list, or
-browser token persistence, and suits the existing same-origin SPA/API deployment.
-Email delivery/recovery is deliberately deferred: an invite is displayed once
-for secure out-of-band delivery, while password reset remains disabled until a
-verified delivery channel and its separate security design exist.
+server-side session, and non-transferable invitation links copied by a household
+owner. This requires no external identity provider, mail service, JWT revocation
+list, or browser token persistence, and suits the existing same-origin SPA/API
+deployment. An invitation is bound to its normalized intended recipient: a new
+account's submitted identifier or an already authenticated user's identifier
+must match it exactly after normalization. A leaked link is therefore not a
+portable bearer credential. Email delivery/recovery is deliberately deferred: an
+invite is displayed once for secure out-of-band delivery, while password reset
+remains disabled until a verified delivery channel and its separate security
+design exist.
 
 Add these dependencies after compatibility/security review:
 
@@ -133,10 +137,10 @@ logs. Use `secrets.token_urlsafe(32)` or stronger entropy for raw capabilities.
 
 | Table | Essential fields and invariants |
 |---|---|
-| `users` | UUID primary key; normalized login unique; display name; `password_hash`; `status` (`active`, `disabled`); timestamps. Never return `password_hash`. |
-| `workspaces` | UUID primary key; `kind` (`personal`, `household`); display name; `created_by_user_id`; timestamps. A personal workspace has one immutable owner user. |
-| `workspace_memberships` | UUID primary key; `workspace_id`, `user_id`, role, timestamps, `joined_at`, `revoked_at`; unique active membership per workspace/user. Check/trigger or service invariant: personal workspace has its owner as sole owner/member; a household has one or more active owners. |
-| `workspace_invitations` | UUID primary key; `workspace_id`; intended normalized recipient identifier (not publicly queried); role limited to editor/viewer; token HMAC; `expires_at`; `max_uses` default 1; `uses`; `revoked_at`; creator and accepted-user references; timestamps. Owner-only creation/revocation. |
+| `users` | UUID primary key; normalized login unique; display name; `password_hash`; `status` (`active`, `disabled`); nullable during a transaction `personal_workspace_id` with a unique, deferrable FK to `workspaces`; timestamps. A deferred constraint trigger requires every committed active user to point to exactly one personal workspace and rejects changing the pointer after bootstrap. Never return `password_hash`. |
+| `workspaces` | UUID primary key; `kind` (`personal`, `household`); display name; `created_by_user_id`; nullable `personal_owner_user_id REFERENCES users(id)`; timestamps. A check requires `personal_owner_user_id IS NOT NULL` exactly when `kind='personal'`. A partial unique index on `personal_owner_user_id WHERE kind='personal'` gives every user at most one personal workspace. A `BEFORE UPDATE` trigger rejects changes to `kind` or `personal_owner_user_id` once inserted. |
+| `workspace_memberships` | UUID primary key; `workspace_id`, `user_id`, role, timestamps, `joined_at`, `revoked_at`; unique active membership per workspace/user. PostgreSQL deferrable constraint triggers, not a service convention, validate at commit that every personal workspace has exactly one active membership whose user equals `personal_owner_user_id` and whose role is `owner`, and that it equals the member's `users.personal_workspace_id`; a household has one or more active owners. The triggers run after workspace/membership changes so atomic bootstrap and owner-transfer transactions remain possible but invalid final state cannot commit. |
+| `workspace_invitations` | UUID primary key; `workspace_id`; required intended normalized recipient identifier (not publicly queried); role limited to editor/viewer; token HMAC; `expires_at`; `max_uses` fixed to 1 in v1; `uses`; `revoked_at`; creator and accepted-user references; timestamps. Owner-only creation/revocation. Invitations are non-transferable and recipient-bound. |
 | `user_sessions` | UUID primary key; `user_id`; session-token HMAC; `csrf_secret`; created/last-seen/idle-expiry/absolute-expiry/revoked timestamps; optional privacy-minimized IP/user-agent hashes. Unique token HMAC. |
 | `security_audit_events` | append-only event ID, actor user nullable, workspace nullable, event type/outcome, target IDs and timestamp; no secrets or financial payloads. |
 | `auth_rate_limits` | keyed HMAC/bucket identity, window start, count, blocked-until; no plaintext login identifiers or raw IP retained. |
@@ -147,6 +151,20 @@ not replace authorization. Add `workspace_id NOT NULL REFERENCES workspaces(id)
 ON DELETE RESTRICT` to each scoped root and index `(workspace_id, id)` and common
 list/filter orderings. Do not cascade-delete financial data when a membership or
 workspace is revoked.
+
+Membership administration locks the target workspace row with `SELECT ... FOR
+UPDATE` and locks affected active memberships before changing roles or revoking
+them. Owner transfer is a separate owner-only transaction: lock workspace and
+membership rows, add/promote the new existing member to `owner`, then demote or
+remove the prior owner, and let the deferred trigger validate the final state.
+Removing or demoting the last owner, revoking the sole membership of a personal
+workspace, adding any second personal-workspace membership, or committing an
+active user without the matching personal workspace fails at the database
+boundary. The mutually referential user/workspace FKs are added `DEFERRABLE
+INITIALLY DEFERRED` after both tables exist; bootstrap creates the user,
+workspace and membership in one transaction and the deferred invariant validates
+them at commit. Migration tests must exercise the triggers directly through SQL
+and concurrent owner-transfer/removal transactions, not only service calls.
 
 ## 5. Scope, ownership, authorship and integrity rules
 
@@ -216,14 +234,22 @@ provenance. It needs its own authorization, reversal/audit and privacy contract.
 
 Keep `GET /api/health` public and add no financial/auth details to it. All
 financial endpoints require an active application session irrespective of Basic
-Auth. Exempt only the minimal public endpoints below.
+Auth. Exempt only the minimal public endpoints below. Once
+`AURUM_APP_AUTH_REQUIRED=true`, construct FastAPI with `docs_url=None`,
+`redoc_url=None` and `openapi_url=None`; `/api/docs`, `/api/redoc` and
+`/api/openapi.json` must return `404` anonymously and are not replaced by an
+application-level documentation route in v1. Development documentation may be
+enabled only while app authentication is disabled in an isolated development
+environment. This requires tightening the current `AURUM_ENABLE_DOCS` setting
+so app auth and publicly reachable schema documentation cannot coexist.
 
 | Endpoint | Contract |
 |---|---|
 | `POST /api/auth/session` | Login with identifier/password; generic failure; rate limited; sets rotated session cookie and returns current user/workspaces plus CSRF token. |
 | `DELETE /api/auth/session` | CSRF-protected logout; revokes current session and clears cookie. |
 | `GET /api/auth/me` | Current user and accessible workspace summaries, active workspace resolution and CSRF token. Never returns other users’ identifiers except authorized member display data. |
-| `POST /api/auth/invitations/accept` | Public, rate-limited invitation acceptance. Valid token plus new account fields atomically creates user, personal workspace/default seed, household membership and session, then consumes invite. Generic unavailable failure otherwise. |
+| `POST /api/auth/invitations/accept` | Public, rate-limited **new-account** invitation acceptance. The token arrives from an in-memory URL fragment, never a logged query string; normalized submitted identifier must equal the invitation recipient. Under an invitation-row lock, valid state plus unused identifier atomically creates the user, personal workspace/default seed, household membership and rotated session, then consumes the invitation. Every unavailable/mismatched/duplicate case returns the same generic response and leaves the token unconsumed. |
+| `POST /api/workspaces/invitations/accept` | Authenticated, CSRF-protected **existing-account** invitation acceptance. It uses the session user only; the normalized session identifier must equal the invitation recipient. Under the same invitation-row lock, it rejects expired/revoked/used/mismatched/already-member cases generically, creates one membership and consumes the token atomically. It never creates a second user or personal workspace. |
 | `GET/POST/PATCH/DELETE /api/workspaces...` | Authenticated workspace metadata and household membership/invitation management. Personal workspace cannot be member-managed. Owner routes require `owner`; financial mutation routes require `editor` or `owner`; reads require membership. |
 | Existing `/api/*` financial routes | Same route paths where possible. Add session/CSRF/context dependency globally or per router; remove client-supplied scope. Responses include only current workspace data. |
 
@@ -232,6 +258,18 @@ lookup endpoints. Do not expose invitation status before acceptance. Return a
 non-disclosing 404 for foreign scoped data and 403 only for a recognized member
 whose role lacks an action, so ID probing cannot distinguish another workspace’s
 record from an absent record.
+
+Both acceptance paths HMAC the submitted raw token before lookup, rate-limit by
+token bucket plus privacy-minimized client signal, and issue no token-state or
+recipient-specific response. A successful new-account path establishes a fresh
+session and CSRF secret; a successful existing-account path keeps the current
+session, rotates its CSRF secret and refreshes workspace membership state. The
+frontend holds the raw invite only in memory while it offers sign-in versus
+create-account; after either success or generic failure it removes the fragment
+with `history.replaceState`. A duplicate membership is never idempotently
+reported as success because that would make a leaked invitation reveal account
+membership; the owner can inspect membership only through authenticated
+household settings.
 
 The frontend API client must use `credentials: "same-origin"`, attach
 `X-CSRF-Token` only to unsafe methods, refresh/clear session state on `401`, and
@@ -283,8 +321,11 @@ transactional migration, not a seed on application startup.
    only where absent, assign every existing scoped root to it, derive child
    scope through parent joins, set legacy transaction author to bootstrap owner
    only when author is unknowable, validate zero null/mismatched workspace IDs,
-   then set `NOT NULL`, FKs and workspace-aware unique constraints. Never
-   infer a household or use Basic Auth username as the owner.
+   then install/validate the immutable personal-owner partial unique index and
+   deferred personal/household membership constraint triggers before setting
+   `NOT NULL`, FKs and workspace-aware unique constraints. Lock the bootstrap
+   user/workspace rows during this operation. Never infer a household or use
+   Basic Auth username as the owner.
 4. If the bootstrap configuration is absent or any validation fails, abort the
    transaction and leave the pre-migration schema/data usable. Do not start an
    auth-required app against partially scoped data.
@@ -309,12 +350,12 @@ silently collapsing multiple workspace records into one global dataset.
 |---|---|
 | Password/session | Argon2 verify/rehash behavior; generic login failure; rate limits; login rotation; idle/absolute expiry; logout/revocation; disabled user; cookie flags; no token in response body/log capture. |
 | CSRF | Unsafe request with no/wrong token fails; valid same-session token passes; safe GET does not require it; cross-origin origin check fails. |
-| Invitations | Owner-only create/revoke; hash-only persistence; expired/revoked/exhausted/malformed token all generic; atomic one-use race permits exactly one acceptance; no user enumeration; accepted invite creates personal workspace plus household membership atomically. |
-| Roles | Viewer cannot create/update/delete/import; editor cannot invite/manage members; owner can manage household; removing final owner/sole personal member fails; membership removal immediately removes access and sessions/context are revoked. |
+| Invitations | Owner-only create/revoke; recipient-bound hash-only persistence; expired/revoked/exhausted/malformed/mismatched/duplicate-membership token outcomes all generic; atomic one-use race permits exactly one acceptance; no user enumeration; new-account acceptance creates personal workspace plus household membership atomically; authenticated existing-account acceptance creates only the household membership; both paths enforce recipient match, lock/consume correctly and clear the browser fragment. |
+| Workspace invariants and roles | Direct SQL tests prove the bidirectional user/personal-workspace invariant, partial unique personal-owner index and deferred triggers reject an active user with no personal workspace, a second personal workspace, extra/revoked sole personal membership, mutable personal owner/kind and household final-owner removal. Concurrent owner-transfer/removal tests serialize through workspace/membership locks. Viewer cannot create/update/delete/import; editor cannot invite/manage members; owner can manage household; membership removal immediately removes access and sessions/context are revoked. |
 | Isolation | For every resource family, two users/two workspaces prove list/detail/update/delete/child/nested/deep-link/guessed-ID paths return no foreign data; foreign account/category/tag/transfer/import IDs fail; reports/dashboard/net-worth/budgets/envelopes cannot aggregate across scopes. |
 | Household behavior | Shared transaction is readable by household members, has immutable author and audit event, affects only household balance/budget; personal equivalent remains invisible and has no household budget effect; former member cannot read new/old records after removal. |
 | Migration | Empty installation; populated legacy installation; rollback/fail-before-commit; zero null scope count; counts/sums preserved within bootstrap workspace; all existing FK relationships remain same-workspace; no accidental global seeds. |
-| Frontend | Unauthenticated shell makes no finance queries; workspace change invalidates cache; session expiry clears it; CSRF header behavior; RU/EN strings; keyboard/mobile sign-in/invite/switcher at 320/375/430px. |
+| Public surface and frontend | With app auth required, anonymous `/api/docs`, `/api/redoc` and `/api/openapi.json` return 404 while `/api/health` remains public. Unauthenticated shell makes no finance queries; workspace change invalidates cache; session expiry clears it; CSRF header behavior; new/existing invite acceptance; RU/EN strings; keyboard/mobile sign-in/invite/switcher at 320/375/430px. |
 | Regression | Existing backend pytest and frontend Vitest/typecheck/build; migration upgrade test against a fixture at the published base; API contract tests for old routes under new auth/context dependency. |
 
 Security acceptance is blocked by any query that loads a scoped row without a
@@ -324,18 +365,20 @@ credential/capability, or any cross-workspace negative test failure.
 ## 10. Ordered implementation slices
 
 1. **Foundation and migration rehearsal.** Add model/registering infrastructure,
-   settings validation, migration lock/backfill fixture and verification command;
-   leave application authentication disabled. Acceptance: legacy fixture upgrades
-   atomically with counts/sums/relationships preserved and failure leaves no
-   partial scope.
+   database-enforced personal/household workspace invariants, settings
+   validation, migration lock/backfill fixture and verification command; leave
+   application authentication disabled. Acceptance: legacy fixture upgrades
+   atomically with counts/sums/relationships preserved; direct SQL/concurrency
+   tests prove the deferred triggers/locks; and failure leaves no partial scope.
 2. **Identity/session security.** Add user/session/rate-limit/audit primitives,
    Argon2id, secure cookie, CSRF dependency and public auth endpoints without
    open registration. Acceptance: session/CSRF/rate-limit/no-enumeration tests
    pass and Basic Auth remains an independent optional perimeter.
 3. **Workspace/membership/invitation management.** Add personal bootstrap,
-   household creation, roles and limited-use invitation acceptance. Acceptance:
-   atomic account/personal/household invite flow, role/invite race tests and
-   personal-workspace invariants pass.
+   household creation, roles and non-transferable recipient-bound limited-use
+   invitations with separate new-account and authenticated-existing-account
+   acceptance paths. Acceptance: atomic account/personal/household invite flow,
+   recipient-match/role/invite race tests and personal-workspace invariants pass.
 4. **Core financial scope.** Scope accounts, categories, tags, transactions,
    imports, settings, dashboard/reports/cash flow/budgets/goals/recurring and
    all shared query helpers. Acceptance: exhaustive negative cross-workspace
@@ -349,9 +392,11 @@ credential/capability, or any cross-workspace negative test failure.
    acceptance. Acceptance: browser tests prove no unauthenticated query or stale
    workspace render.
 7. **Rollout hardening.** Enable auth-required only after migration marker,
-   guard legacy backup endpoints, add operational runbook/alerts and perform
-   staged upgrade/recovery rehearsal. Acceptance: deployment fails closed on
-   invalid config/scoping and recovery drill succeeds without data mixing.
+   disable public FastAPI docs/OpenAPI, guard legacy backup endpoints, add
+   operational runbook/alerts and perform staged upgrade/recovery rehearsal.
+   Acceptance: deployment fails closed on invalid config/scoping, anonymous API
+   schema/documentation is unavailable, and recovery drill succeeds without data
+   mixing.
 
 No slice may begin before all acceptance criteria of its predecessor pass. A
 future contribution/allocation workflow is a separately approved feature after
@@ -362,11 +407,17 @@ this sequence; it must not be smuggled into any workspace-isolation slice.
 - Server-side opaque sessions, not JWTs or Basic Auth identities.
 - Argon2id and a single password-hashing library; no bespoke crypto.
 - Direct limited-use invitation links; no unselected email/reset provider.
+- Invitations are recipient-bound and non-transferable; both new and existing
+  accounts have separate atomic acceptance paths.
 - UUIDs for new identity/workspace/capability IDs; existing financial IDs can
   remain integers but become strictly workspace-scoped.
 - Private personal workspace is the default and immutable privacy boundary.
+- Personal workspace uniqueness, membership shape and household-owner minimum
+  are database-enforced with partial uniqueness and deferred constraint triggers.
 - Household sharing is workspace-only; author attribution is immutable and
   audit records are append-only.
+- When application auth is required, FastAPI documentation/OpenAPI routes are
+  disabled rather than anonymously exposing the API capability map.
 - Exchange-rate reference data remains global; all financial/application data is
   workspace scoped.
 - Existing backup/export/import/restore is guarded unavailable rather than

@@ -22,7 +22,7 @@ export function MonthSelector({ month, onChange }: MonthSelectorProps) {
             type="button"
             onClick={() => onChange(value)}
             className={cn(
-              "shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+              "min-h-11 shrink-0 rounded-full border px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
               active
                 ? "border-series-6 bg-series-6 text-white"
                 : "border-border bg-surface-1 text-text-secondary hover:bg-surface-2"

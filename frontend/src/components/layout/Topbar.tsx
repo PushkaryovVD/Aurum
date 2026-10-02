@@ -13,16 +13,16 @@ export function Topbar({ onOpenMobileNav }: TopbarProps) {
   const activeItem = NAV_ITEMS.find((item) => (item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to)));
 
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-surface-0/95 px-4 py-3.5 backdrop-blur sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 flex min-h-14 items-center gap-3 border-b border-border bg-surface-0/95 px-3 backdrop-blur sm:px-6 lg:px-8">
       <button
         type="button"
         onClick={onOpenMobileNav}
         aria-label={t("topbar.openMenu")}
-        className="rounded-md p-1.5 text-text-secondary hover:bg-surface-2 lg:hidden"
+        className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
       >
         <Menu size={20} />
       </button>
-      <h1 className="text-lg font-semibold text-text-primary">{activeItem ? t(activeItem.labelKey) : "Aurum"}</h1>
+      <span className="truncate text-lg font-semibold text-text-primary">{activeItem ? t(activeItem.labelKey) : "Aurum"}</span>
     </header>
   );
 }

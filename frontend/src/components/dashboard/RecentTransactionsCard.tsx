@@ -23,7 +23,7 @@ export function RecentTransactionsCard({ year, month }: RecentTransactionsCardPr
         <CardTitle>{t("dashboard.recentTransactionsTitle")}</CardTitle>
         <Link
           to={`/transactions?year=${year}&month=${month}`}
-          className="text-xs font-medium text-series-1 hover:underline"
+          className="inline-flex min-h-11 items-center rounded-md px-2 text-xs font-medium text-series-1 hover:bg-surface-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           {t("dashboard.allTransactionsLink")}
         </Link>

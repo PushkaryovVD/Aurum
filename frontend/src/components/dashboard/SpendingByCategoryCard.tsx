@@ -87,7 +87,7 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                           type="button"
                           aria-label={t("common.expand")}
                           onClick={() => setBreakdownItem(item)}
-                          className="rounded-md p-0.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"
+                          className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-muted hover:bg-surface-2 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                         >
                           <SquareDivide size={15} />
                         </button>

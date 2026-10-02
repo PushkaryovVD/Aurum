@@ -6,6 +6,7 @@ import { SpendingByCategoryCard } from "@/components/dashboard/SpendingByCategor
 import { TotalBalanceCard } from "@/components/dashboard/TotalBalanceCard";
 import { RecentTransactionsCard } from "@/components/dashboard/RecentTransactionsCard";
 import { AlertBanner } from "@/components/insights/AlertBanner";
+import { Page, PageHeader } from "@/components/ui/Page";
 import { useDashboardSummary } from "@/hooks/useDashboard";
 import { useTransactionYears } from "@/hooks/useTransactions";
 import { formatCurrency, formatSignedCurrency } from "@/lib/format";
@@ -33,15 +34,20 @@ export function DashboardPage() {
   const rate = data ? savingsRate(Number(data.real_income), Number(data.net)) : null;
 
   return (
-    <div className="space-y-5">
-      <AlertBanner excludeKeys={["risky_allocation_exceeded"]} />
+    <Page>
+      <PageHeader
+        title={t("nav.dashboard")}
+        actions={
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <div className="min-w-0 flex-1 sm:max-w-xl">
+              <MonthSelector month={month} onChange={setMonth} />
+            </div>
+            <YearSelector years={years ?? [now.getFullYear()]} year={year} onChange={setYear} />
+          </div>
+        }
+      />
 
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <MonthSelector month={month} onChange={setMonth} />
-        </div>
-        <YearSelector years={years ?? [now.getFullYear()]} year={year} onChange={setYear} />
-      </div>
+      <AlertBanner excludeKeys={["risky_allocation_exceeded"]} />
 
       {isError && (
         <p className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
@@ -51,7 +57,7 @@ export function DashboardPage() {
 
       <TotalBalanceCard balance={data?.balance} isLoading={isLoading} />
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[375px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatCard
           label={t("dashboard.statRealIncomeLabel")}
           value={isLoading ? "…" : formatCurrency(data?.real_income ?? 0)}
@@ -78,10 +84,10 @@ export function DashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <SpendingByCategoryCard items={data?.spending_by_category ?? []} />
         <RecentTransactionsCard year={year} month={month} />
       </div>
-    </div>
+    </Page>
   );
 }

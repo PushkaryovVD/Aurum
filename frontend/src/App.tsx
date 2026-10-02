@@ -40,7 +40,7 @@ export default function App() {
   }, [settings]);
 
   return (
-    <div className="flex min-h-screen bg-surface-0">
+    <div className="flex min-h-dvh w-full min-w-0 overflow-x-clip bg-surface-0">
       <Sidebar
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(!collapsed)}
@@ -54,7 +54,7 @@ export default function App() {
             fixed max-w here would leave that freed space as dead centered
             gutter instead of handing it to the page. Padding alone keeps
             content off the sidebar/viewport edges. */}
-        <main className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <main className="w-full min-w-0 px-page-inline py-page-block">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/net-worth" element={<NetWorthPage />} />

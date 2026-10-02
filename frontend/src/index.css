@@ -1,24 +1,43 @@
 @import "tailwindcss";
 
-/*
- * Semantic tokens, light values first. Dark values are re-declared for both
- * the OS-level `prefers-color-scheme` and the manual `[data-theme]` toggle
- * (Settings → Theme, see lib/theme.ts), per the dataviz skill's reference
- * palette (references/palette.md).
- */
+/* Aurum design tokens. Components consume semantic names so appearance can
+ * change without page-specific color, spacing, or elevation decisions. */
 :root {
   color-scheme: light;
   --surface-0: #f9f9f7; /* page plane */
   --surface-1: #fcfcfb; /* card surface */
   --surface-2: #f2f1ed; /* hover/active wash */
+  --surface-accent: #e9f2ff;
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
-  --text-muted: #898781;
+  --text-muted: #65635f;
   --border: rgba(11, 11, 11, 0.1);
   --gridline: #e1e0d9;
+  --focus: #1d4ed8;
+  --scrim: rgba(11, 11, 11, 0.56);
 
   --success: #006300;
   --danger: #c1302a;
+  --warning: #8a4b00;
+
+  --font-family-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-size-page-title: 1.5rem;
+  --line-height-page-title: 2rem;
+  --font-size-body: 0.875rem;
+  --line-height-body: 1.375rem;
+
+  --space-page-inline: 0.75rem;
+  --space-page-block: 1rem;
+  --space-section: 1.25rem;
+  --space-card: 1rem;
+
+  --radius-control: 0.5rem;
+  --radius-card: 0.875rem;
+  --radius-dialog: 1rem;
+  --shadow-card: 0 1px 2px rgba(11, 11, 11, 0.06), 0 1px 8px rgba(11, 11, 11, 0.03);
+  --shadow-elevation-lg: 0 18px 48px rgba(11, 11, 11, 0.2);
+  --icon-size-sm: 1rem;
+  --icon-size-md: 1.25rem;
 
   --series-1: #2a78d6; /* blue */
   --series-2: #eb6834; /* orange */
@@ -37,14 +56,18 @@
     --surface-0: #0d0d0d;
     --surface-1: #1a1a19;
     --surface-2: #232322;
+    --surface-accent: #14243b;
     --text-primary: #ffffff;
     --text-secondary: #c3c2b7;
-    --text-muted: #898781;
+    --text-muted: #aaa89f;
     --border: rgba(255, 255, 255, 0.1);
     --gridline: #2c2c2a;
+    --focus: #93c5fd;
+    --scrim: rgba(0, 0, 0, 0.72);
 
     --success: #0ca30c;
     --danger: #e66767;
+    --warning: #fbbf24;
 
     --series-1: #3987e5;
     --series-2: #d95926;
@@ -62,14 +85,18 @@
   --surface-0: #0d0d0d;
   --surface-1: #1a1a19;
   --surface-2: #232322;
+  --surface-accent: #14243b;
   --text-primary: #ffffff;
   --text-secondary: #c3c2b7;
-  --text-muted: #898781;
+  --text-muted: #aaa89f;
   --border: rgba(255, 255, 255, 0.1);
   --gridline: #2c2c2a;
+  --focus: #93c5fd;
+  --scrim: rgba(0, 0, 0, 0.72);
 
   --success: #0ca30c;
   --danger: #e66767;
+  --warning: #fbbf24;
 
   --series-1: #3987e5;
   --series-2: #d95926;
@@ -85,6 +112,7 @@
   --color-surface-0: var(--surface-0);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
+  --color-surface-accent: var(--surface-accent);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
@@ -92,6 +120,9 @@
   --color-gridline: var(--gridline);
   --color-success: var(--success);
   --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-focus: var(--focus);
+  --color-scrim: var(--scrim);
 
   --color-series-1: var(--series-1);
   --color-series-2: var(--series-2);
@@ -103,15 +134,57 @@
   --color-series-8: var(--series-8);
   --color-series-other: var(--series-other);
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: var(--font-family-sans);
+  --text-page-title: var(--font-size-page-title);
+  --text-page-title--line-height: var(--line-height-page-title);
+  --text-body: var(--font-size-body);
+  --text-body--line-height: var(--line-height-body);
+
+  --spacing-page-inline: var(--space-page-inline);
+  --spacing-page-block: var(--space-page-block);
+  --spacing-section: var(--space-section);
+  --spacing-card: var(--space-card);
+
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-dialog: var(--radius-dialog);
+  --shadow-card: var(--shadow-card);
+  --shadow-elevation-lg: var(--shadow-elevation-lg);
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --space-page-inline: 1.5rem;
+    --space-page-block: 1.5rem;
+    --space-card: 1.25rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --space-page-inline: 2rem;
+  }
 }
 
 body {
+  min-width: 20rem;
   background-color: var(--surface-0);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
 }
 
 * {
   border-color: var(--color-border);
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline-color: var(--focus);
+}
+
+img,
+svg,
+canvas {
+  max-width: 100%;
 }

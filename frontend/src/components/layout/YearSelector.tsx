@@ -40,7 +40,7 @@ function YearDropdown({ years, year, onChange }: YearDropdownProps) {
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-3 text-sm font-medium text-text-primary transition-colors hover:bg-surface-2"
+        className="flex min-h-11 items-center gap-1.5 rounded-lg border border-border bg-surface-1 px-3 text-sm font-medium text-text-primary transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
       >
         {year}
         <ChevronDown size={14} className={cn("text-text-muted transition-transform", open && "rotate-180")} />
@@ -64,7 +64,7 @@ function YearDropdown({ years, year, onChange }: YearDropdownProps) {
                     setOpen(false);
                   }}
                   className={cn(
-                    "block w-full px-3 py-1.5 text-left text-sm transition-colors",
+                    "block min-h-11 w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
                     active ? "bg-surface-2 font-semibold text-text-primary" : "text-text-secondary hover:bg-surface-2"
                   )}
                 >

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
@@ -25,7 +25,7 @@ function NavList({ collapsed, onNavigate }: NavListProps) {
               key={item.to}
               title={collapsed ? `${label} (${t("nav.comingSoon")})` : undefined}
               className={cn(
-                "flex cursor-not-allowed items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-text-muted",
+                "flex min-h-11 cursor-not-allowed items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-text-muted",
                 collapsed && "justify-center px-0"
               )}
             >
@@ -51,7 +51,7 @@ function NavList({ collapsed, onNavigate }: NavListProps) {
             title={collapsed ? label : undefined}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary",
+                "flex min-h-11 items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
                 collapsed && "justify-center px-0",
                 isActive && "bg-surface-2 text-text-primary"
               )
@@ -75,14 +75,39 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const { t } = useTranslation();
+  const mobileDialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!mobileOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = mobileDialogRef.current;
+    dialog?.querySelector<HTMLElement>("button, a[href]")?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCloseMobile();
+      if (event.key === "Escape") {
+        onCloseMobile();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>("button:not([disabled]), a[href]")];
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
   }, [mobileOpen, onCloseMobile]);
 
   return (
@@ -102,7 +127,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobil
             type="button"
             onClick={onToggleCollapsed}
             title={t("sidebar.expandMenu")}
-            className="flex items-center justify-center gap-2 px-0 py-4 hover:opacity-80"
+            className="flex min-h-11 items-center justify-center gap-2 px-0 py-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
           >
             <Logo size={24} />
           </button>
@@ -119,7 +144,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobil
             onClick={onToggleCollapsed}
             title={collapsed ? t("sidebar.expandMenu") : t("sidebar.collapseMenu")}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-text-muted hover:bg-surface-2 hover:text-text-primary",
+              "flex min-h-11 w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-text-muted hover:bg-surface-2 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
               collapsed && "justify-center px-0"
             )}
           >
@@ -132,8 +157,20 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobil
       {/* Mobile: off-canvas drawer over a backdrop. */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={onCloseMobile} />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-surface-1 shadow-xl">
+          <button
+            type="button"
+            aria-label={t("sidebar.closeMenu")}
+            tabIndex={-1}
+            className="absolute inset-0 cursor-default bg-scrim"
+            onClick={onCloseMobile}
+          />
+          <aside
+            ref={mobileDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("topbar.openMenu")}
+            className="absolute inset-y-0 left-0 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-surface-1 shadow-elevation-lg"
+          >
             <div className="flex items-center justify-between gap-2 px-4 py-4">
               <span className="flex items-center gap-2 text-lg font-semibold tracking-tight text-text-primary">
                 <Logo size={24} /> Aurum
@@ -142,7 +179,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobil
                 type="button"
                 onClick={onCloseMobile}
                 aria-label={t("sidebar.closeMenu")}
-                className="rounded-md p-1 text-text-muted hover:bg-surface-2"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
               >
                 <X size={18} />
               </button>

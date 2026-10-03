@@ -1,6 +1,27 @@
+name: aurum
+
+x-casaos:
+  architectures:
+    - amd64
+  author: Aurum
+  category: Finance
+  description:
+    en_US: Private, self-hosted personal finance workspace.
+  developer: Aurum
+  icon: https://raw.githubusercontent.com/PushkaryovVD/Aurum/develop/images/aurum-icon.svg
+  id: com.pushkaryovvd.aurum
+  index: /
+  main: web
+  port_map: "3000"
+  tagline:
+    en_US: Know where every dollar comes from and goes.
+  title:
+    en_US: Aurum
+
 services:
   db:
     image: postgres:16-alpine
+    container_name: aurum-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${AURUM_POSTGRES_USER:-aurum}
@@ -22,6 +43,10 @@ services:
       retries: 10
 
   backend:
+    # Keep an explicit tag even for source builds: CasaOS's service editor
+    # requires an image/tag and otherwise cannot save any environment change.
+    image: ${AURUM_BACKEND_IMAGE:-aurum-backend:local}
+    container_name: aurum-backend
     build: ./backend
     restart: unless-stopped
     # Nothing here ever needs to gain privileges (no setuid binaries, no sudo),
@@ -60,6 +85,9 @@ services:
         condition: service_healthy
 
   web:
+    # See backend: CasaOS needs an image reference in addition to build.
+    image: ${AURUM_WEB_IMAGE:-aurum-web:local}
+    container_name: aurum-web
     build: ./frontend
     restart: unless-stopped
     # nginx's master still needs root to bind :80 and to write the htpasswd

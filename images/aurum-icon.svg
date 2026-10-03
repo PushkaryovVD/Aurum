@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Aurum</title>
+  <desc id="desc">Gold coin with an ascending financial chart</desc>
+  <defs>
+    <linearGradient id="gold" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#FDE68A"/>
+      <stop offset="0.5" stop-color="#D4A72C"/>
+      <stop offset="1" stop-color="#8A5B00"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#111827"/>
+  <circle cx="128" cy="128" r="86" fill="url(#gold)"/>
+  <circle cx="128" cy="128" r="67" fill="none" stroke="#FFF4C2" stroke-width="7" opacity="0.7"/>
+  <path d="M77 160l32-33 24 18 45-53" fill="none" stroke="#111827" stroke-linecap="round" stroke-linejoin="round" stroke-width="15"/>
+  <path d="M156 92h22v22" fill="none" stroke="#111827" stroke-linecap="round" stroke-linejoin="round" stroke-width="15"/>
+</svg>

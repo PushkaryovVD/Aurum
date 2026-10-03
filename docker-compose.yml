@@ -44,9 +44,9 @@ services:
       retries: 10
 
   backend:
-    # Keep an explicit tag even for source builds: CasaOS's service editor
-    # requires an image/tag and otherwise cannot save any environment change.
-    image: ${AURUM_BACKEND_IMAGE:-aurum-backend:local}
+    # CasaOS requires a pullable image/tag even when local Docker Compose also
+    # has this source build context available.
+    image: ${AURUM_BACKEND_IMAGE:-ghcr.io/pushkaryovvd/aurum-backend:develop}
     container_name: aurum-backend
     build: ./backend
     restart: unless-stopped
@@ -86,8 +86,8 @@ services:
         condition: service_healthy
 
   web:
-    # See backend: CasaOS needs an image reference in addition to build.
-    image: ${AURUM_WEB_IMAGE:-aurum-web:local}
+    # See backend: CasaOS needs a pullable image reference in addition to build.
+    image: ${AURUM_WEB_IMAGE:-ghcr.io/pushkaryovvd/aurum-web:develop}
     container_name: aurum-web
     build: ./frontend
     restart: unless-stopped

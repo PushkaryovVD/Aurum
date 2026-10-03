@@ -42,7 +42,7 @@ class AuthSessionService:
     ) -> IssuedSession:
         issued_at = now or datetime.now(UTC)
         session_token = secrets.token_urlsafe(32)
-        csrf_token = secrets.token_urlsafe(32)
+        csrf_token = self.csrf_token_for_session(session_token)
         record = UserSession(
             user_id=user_id,
             token_hmac=capability_hmac(self._hmac_secret, session_token),
@@ -56,6 +56,10 @@ class AuthSessionService:
         session.add(record)
         await session.flush()
         return IssuedSession(record=record, session_token=session_token, csrf_token=csrf_token)
+
+    def csrf_token_for_session(self, session_token: str) -> str:
+        """Derive a stable token without storing a recoverable CSRF secret."""
+        return capability_hmac(self._hmac_secret, f"csrf\0{session_token}").hex()
 
     async def resolve(
         self,

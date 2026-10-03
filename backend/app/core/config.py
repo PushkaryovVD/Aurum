@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     auth_argon2_parallelism: int = Field(default=4, ge=1, le=16)
     auth_argon2_hash_length: int = Field(default=32, ge=16, le=64)
     auth_argon2_salt_length: int = Field(default=16, ge=16, le=64)
+    auth_login_max_attempts: int = Field(default=5, ge=1, le=100)
+    auth_login_window_seconds: int = Field(default=900, ge=60, le=86400)
+    auth_login_block_seconds: int = Field(default=900, ge=60, le=86400)
 
     @model_validator(mode="after")
     def validate_auth_security(self) -> "Settings":

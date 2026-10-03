@@ -17,6 +17,7 @@ x-casaos:
     en_US: Know where every dollar comes from and goes.
   title:
     en_US: Aurum
+  version: 1.1.8
 
 services:
   db:

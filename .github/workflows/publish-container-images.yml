@@ -20,6 +20,9 @@ concurrency:
 
 jobs:
   publish:
+    # workflow_dispatch can be launched from another ref in GitHub's UI.
+    # Never let that overwrite the mutable develop image tag.
+    if: github.ref == 'refs/heads/develop'
     name: Publish ${{ matrix.image }}
     runs-on: ubuntu-latest
     strategy:
@@ -32,7 +35,7 @@ jobs:
             context: frontend
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1

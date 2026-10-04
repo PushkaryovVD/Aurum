@@ -1,43 +1,66 @@
 # Backend tests
 
-Real integration tests against a real Postgres database — a dedicated
-`aurum_test` database created fresh, migrated, and dropped again on every
-run. They never touch the real `aurum` database or its data: the app's
-`lifespan` startup (which seeds against the real DB) is never triggered, and
-every route's DB dependency is overridden to point at `aurum_test` instead.
+Integration tests use real PostgreSQL, **not the application's server**. The
+shared fixture refuses to connect without explicit disposable-runtime metadata.
+It validates the endpoint and the live server's `data_directory`, creates a
+UUID-named `aurum_fixture_test_*` database with CREATE-only semantics, migrates
+it, and drops only the exact OID/owner it created. Cleanup runs even if migration
+setup fails; it never uses `FORCE` or terminates another process's connections.
+The app's `lifespan` is not run and route DB dependencies are overridden.
 
 ## Running
 
-The stack must already be up (`docker compose up -d`). Test dependencies
-aren't baked into the production image, so install them once per container
-lifetime, then run pytest inside the running `backend` container — it's the
-only place with network access to Postgres:
+Use a local, disposable PostgreSQL cluster owned by this test run. Do **not**
+run tests inside the application container or against a deployment database.
+Install `requirements-dev.txt` in a virtual environment and activate it first.
+PostgreSQL server tools (`initdb`, `pg_ctl`, `pg_config`) must be installed.
+From `backend/`:
 
 ```bash
-docker compose exec backend pip install --user -r requirements-dev.txt
-docker compose exec backend python -m pytest -v
+PG_BIN="$(pg_config --bindir)"
+RUNTIME="$(mktemp -d "${TMPDIR:-/tmp}/aurum-test-postgres-XXXXXX")"
+export RUNTIME
+export AURUM_POSTGRES_HOST=127.0.0.1 AURUM_POSTGRES_PORT=57613
+export AURUM_POSTGRES_USER=postgres AURUM_POSTGRES_PASSWORD=''
+export AURUM_DISPOSABLE_POSTGRES_RUNTIME="$RUNTIME/runtime.json"
+"$PG_BIN/initdb" -D "$RUNTIME/data" -U postgres -A trust
+"$PG_BIN/pg_ctl" -D "$RUNTIME/data" -l "$RUNTIME/server.log" \
+  -o "-h 127.0.0.1 -p $AURUM_POSTGRES_PORT -k $RUNTIME" -w start
+trap '"$PG_BIN/pg_ctl" -D "$RUNTIME/data" -m fast -w stop' EXIT
+python - <<'PY'
+import json, os
+from pathlib import Path
+workspace = Path(os.environ["RUNTIME"]).resolve()
+(workspace / "runtime.json").write_text(json.dumps({
+    "workspace": str(workspace), "data": str(workspace / "data"),
+    "disposable": True, "host": os.environ["AURUM_POSTGRES_HOST"],
+    "port": int(os.environ["AURUM_POSTGRES_PORT"]),
+    "user": os.environ["AURUM_POSTGRES_USER"],
+}))
+PY
+python -m pytest tests unit_tests -q -Werror -rs
 ```
 
-Re-run just the `python -m pytest -v` line for subsequent runs; the
-`pip install` only needs repeating after a container restart/rebuild.
+Trust authentication is only for this disposable loopback cluster on an
+isolated development/CI host. Pick another free port if needed; metadata and
+`AURUM_POSTGRES_PORT` must agree. A preexisting database is never removed to
+resolve a name collision. Metadata is an explicit opt-in, not a replacement
+for provisioning a genuinely disposable cluster. Never point its `data` field
+at application data. CI provisions the same local ownership contract and stops
+its cluster in an `always()` cleanup step.
 
-Two details that both come from the container running as an unprivileged user
-(`aurum`, uid 10001 — see backend/Dockerfile) rather than root:
+To run only fake-backed lifecycle safety checks (no PostgreSQL needed):
 
-- `--user` on the install: site-packages belongs to root and isn't writable.
-  The packages land in `/home/aurum/.local`, which isn't on `PATH`, hence
-  `python -m pytest` instead of a bare `pytest`.
-- pytest prints a `PytestCacheWarning` about not being able to write
-  `/app/.pytest_cache`. Expected — the source tree is read-only to the app
-  user by design. Tests still pass; add `-p no:cacheprovider` to silence it.
+```bash
+python -m pytest unit_tests/test_test_database_lifecycle.py -q -Werror
+```
 
 ## Adding a test
 
-- Use the `client` fixture (an `httpx.AsyncClient` wired to the app) to hit
-  the API the same way the frontend does — prefer this over reaching into
-  services/models directly, so tests keep verifying the actual contract.
-- `account_id` and `categories` fixtures give you the same default
-  account/categories a real fresh install seeds.
-- Every table is truncated and reseeded before each test (see
-  `conftest.py::_clean_database`), so tests don't need to worry about
-  leftover state or guess at IDs from a previous test.
+- Use `client` (an `httpx.AsyncClient` wired to the app) to hit the API — prefer
+  this over reaching into services/models directly to verify the contract.
+- `account_id` and `categories` provide the fresh-install defaults.
+- Every table is truncated and reseeded before each integration test (see
+  `conftest.py::_clean_database`), so tests do not inherit earlier rows or IDs.
+- Unit tests for refused destructive paths must use fakes, never real remote
+  endpoints. Keep runtime metadata outside the repository.

@@ -18,6 +18,7 @@ class AuthRateLimiter:
         max_attempts: int,
         window: timedelta,
         block_for: timedelta,
+        purpose: str = "login",
     ) -> None:
         if max_attempts < 1 or window <= timedelta(0) or block_for <= timedelta(0):
             raise ValueError("rate-limit settings must be positive")
@@ -25,11 +26,12 @@ class AuthRateLimiter:
         self._max_attempts = max_attempts
         self._window = window
         self._block_for = block_for
+        self._purpose = purpose
 
     def bucket_hmac(self, *, identifier: str, client_signal: str) -> bytes:
         return capability_hmac(
             self._hmac_secret,
-            f"login\0{identifier}\0{client_signal}",
+            f"{self._purpose}\0{identifier}\0{client_signal}",
         )
 
     async def lock_and_get(
@@ -43,7 +45,7 @@ class AuthRateLimiter:
         lock_key = int.from_bytes(bucket_hmac[:8], "big", signed=True)
         await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
         statement = select(AuthRateLimit).where(
-            AuthRateLimit.purpose == "login",
+            AuthRateLimit.purpose == self._purpose,
             AuthRateLimit.bucket_hmac == bucket_hmac,
         )
         return (await session.execute(statement)).scalar_one_or_none()
@@ -78,7 +80,7 @@ class AuthRateLimiter:
         failed_at = now or datetime.now(UTC)
         if record is None:
             record = AuthRateLimit(
-                purpose="login",
+                purpose=self._purpose,
                 bucket_hmac=bucket_hmac,
                 window_started_at=failed_at,
                 attempt_count=0,

@@ -25,7 +25,7 @@ export function Topbar({ mobileNavOpen, onOpenMobileNav }: TopbarProps) {
       >
         <Menu size={20} />
       </button>
-      <span className="truncate text-lg font-semibold text-text-primary">{activeItem ? t(activeItem.labelKey) : "Aurum"}</span>
+      <span className="truncate text-sm font-medium text-text-secondary">{activeItem ? t(activeItem.labelKey) : "Aurum"}</span>
     </header>
   );
 }

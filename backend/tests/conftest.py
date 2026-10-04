@@ -1,8 +1,8 @@
 """Test harness wiring.
 
-Everything here talks to a dedicated ``aurum_test`` Postgres database on the
-same server the app already uses — created fresh, migrated with the real
-Alembic chain, and dropped again at the end of the run. The app's own
+Everything here talks only to an explicitly opted-in, verified disposable
+loopback Postgres runtime — a unique database is created fresh, migrated
+with the real Alembic chain, and safely dropped at the end of the run. The app's own
 ``AsyncSessionLocal``/``lifespan`` (which would touch the real ``aurum``
 database with the user's actual financial history) is never invoked: the
 ASGI app is exercised directly over httpx without running startup events,
@@ -10,9 +10,6 @@ and the ``get_session`` dependency is overridden per-test to point at the
 test database instead. See tests/README.md for how to run this.
 """
 import asyncio
-import os
-import subprocess
-import sys
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
@@ -23,66 +20,33 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.deps import get_session
-from app.core.config import get_settings
+from test_support.disposable_postgres import DisposablePostgres
 from app.db.base import Base
 from app.db.seed import seed_default_account, seed_default_app_settings, seed_default_categories
 from app.main import app
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-TEST_DB_NAME = "aurum_test"
-
-_base_settings = get_settings()
-
-
-def _url(db_name: str) -> str:
-    return (
-        f"postgresql+asyncpg://{_base_settings.postgres_user}:{_base_settings.postgres_password}"
-        f"@{_base_settings.postgres_host}:{_base_settings.postgres_port}/{db_name}"
-    )
-
-
-async def _drop_and_create_test_database() -> None:
-    engine = create_async_engine(_url("postgres"), isolation_level="AUTOCOMMIT")
-    async with engine.connect() as conn:
-        await conn.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB_NAME}" WITH (FORCE)'))
-        await conn.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
-    await engine.dispose()
-
-
-async def _drop_test_database() -> None:
-    engine = create_async_engine(_url("postgres"), isolation_level="AUTOCOMMIT")
-    async with engine.connect() as conn:
-        await conn.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB_NAME}" WITH (FORCE)'))
-    await engine.dispose()
 
 
 @pytest.fixture(scope="session")
-def _test_database() -> Generator[None, None, None]:
-    """Create aurum_test from scratch and run every Alembic migration
-    against it. Connects to Postgres' always-present `postgres` maintenance
-    database to issue CREATE/DROP DATABASE — the real `aurum` database is
-    never opened by this fixture.
+def _test_database() -> Generator[tuple[DisposablePostgres, str], None, None]:
+    """Create a unique database only on the verified disposable runtime.
 
     Deliberately a *sync* fixture that drives asyncio.run() itself rather
     than an async one: session-scoped async fixtures need to share a loop
     with function-scoped async tests, which pytest-asyncio doesn't do by
     default and led to "attached to a different loop" errors here. A plain
     sync fixture sidesteps the whole question — asyncio.run() opens and
-    cleanly closes its own throwaway loop for each of the two calls below.
+    cleanly closes its own throwaway loop for each lifecycle call below.
     """
-    asyncio.run(_drop_and_create_test_database())
-
-    env = {**os.environ, "AURUM_POSTGRES_DB": TEST_DB_NAME}
-    subprocess.run(
-        [str(Path(sys.executable).with_name("alembic")), "upgrade", "head"],
-        cwd=BACKEND_DIR,
-        env=env,
-        check=True,
-    )
-
-    yield
-
-    asyncio.run(_drop_test_database())
+    runtime = DisposablePostgres()
+    database = asyncio.run(runtime.create())
+    try:
+        runtime.migrate(database, BACKEND_DIR)
+        yield runtime, database
+    finally:
+        # Also runs when Alembic fails before the fixture reaches yield.
+        asyncio.run(runtime.drop(database))
 
 
 @pytest_asyncio.fixture
@@ -92,9 +56,12 @@ async def test_sessionmaker(_test_database) -> AsyncGenerator[async_sessionmaker
     # one loop can't be reused from another ("attached to a different
     # loop"). Recreating the engine per test keeps it bound to whichever
     # loop is actually running.
-    engine = create_async_engine(_url(TEST_DB_NAME), pool_pre_ping=True)
-    yield async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
-    await engine.dispose()
+    runtime, database = _test_database
+    engine = create_async_engine(runtime.url(database), pool_pre_ping=True)
+    try:
+        yield async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+    finally:
+        await engine.dispose()
 
 
 @pytest_asyncio.fixture(autouse=True)

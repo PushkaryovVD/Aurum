@@ -1,7 +1,9 @@
 """A single money movement: income, expense, or a transfer between accounts."""
 from datetime import date as date_
+from uuid import UUID as PythonUUID
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Date, Enum, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,9 +14,21 @@ from app.models.tag import transaction_tags
 
 class Transaction(Base, TimestampMixin):
     __tablename__ = "transactions"
-    __table_args__ = (UniqueConstraint("account_id", "external_id", name="uq_transaction_account_external_id"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "account_id", "external_id", name="uq_transaction_workspace_account_external_id"),
+        Index("ix_transactions_workspace_id_id", "workspace_id", "id"),
+        Index("uq_transactions_unscoped_account_external_id", "account_id", "external_id",
+              unique=True, postgresql_where=text("workspace_id IS NULL")),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
+    author_user_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     # Destination account for TRANSFER-type rows only.
@@ -84,6 +98,10 @@ class TransactionSplit(Base):
     __tablename__ = "transaction_splits"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)

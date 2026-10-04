@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import RequestWorkspace, get_request_workspace, get_session
 from app.models.budget import Budget
 from app.schemas.budget import BudgetCreate, BudgetRead, BudgetStatusResponse, BudgetUpdate
 from app.services.budget_service import create_budget, delete_budget, get_budget_status, list_budgets, update_budget
@@ -23,8 +23,11 @@ def _to_read(budget: Budget) -> BudgetRead:
 
 
 @router.get("", response_model=list[BudgetRead])
-async def read_budgets(session: AsyncSession = Depends(get_session)) -> list[BudgetRead]:
-    return [_to_read(budget) for budget in await list_budgets(session)]
+async def read_budgets(
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[BudgetRead]:
+    return [_to_read(budget) for budget in await list_budgets(session, context.workspace_id)]
 
 
 @router.get("/status", response_model=BudgetStatusResponse)
@@ -32,22 +35,33 @@ async def read_budget_status(
     year: int = Query(default_factory=lambda: date.today().year, ge=2000, le=2100),
     month: int = Query(default_factory=lambda: date.today().month, ge=1, le=12),
     session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> BudgetStatusResponse:
-    return await get_budget_status(session, year, month)
+    return await get_budget_status(session, year, month, context.workspace_id)
 
 
 @router.post("", response_model=BudgetRead, status_code=201)
-async def create_budget_route(payload: BudgetCreate, session: AsyncSession = Depends(get_session)) -> BudgetRead:
-    return _to_read(await create_budget(session, payload))
+async def create_budget_route(
+    payload: BudgetCreate, session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> BudgetRead:
+    context.require_mutation()
+    return _to_read(await create_budget(session, payload, context.workspace_id))
 
 
 @router.patch("/{budget_id}", response_model=BudgetRead)
 async def update_budget_route(
-    budget_id: int, payload: BudgetUpdate, session: AsyncSession = Depends(get_session)
+    budget_id: int, payload: BudgetUpdate, session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> BudgetRead:
-    return _to_read(await update_budget(session, budget_id, payload))
+    context.require_mutation()
+    return _to_read(await update_budget(session, budget_id, payload, context.workspace_id))
 
 
 @router.delete("/{budget_id}", status_code=204)
-async def delete_budget_route(budget_id: int, session: AsyncSession = Depends(get_session)) -> None:
-    await delete_budget(session, budget_id)
+async def delete_budget_route(
+    budget_id: int, session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> None:
+    context.require_mutation()
+    await delete_budget(session, budget_id, context.workspace_id)

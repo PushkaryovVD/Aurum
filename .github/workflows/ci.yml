@@ -17,29 +17,13 @@ permissions:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
-    services:
-      # A real Postgres, not sqlite — tests/conftest.py creates/migrates/
-      # drops a dedicated aurum_test database against it, same as the local
-      # `docker compose exec backend pytest` workflow in tests/README.md.
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: aurum
-          POSTGRES_PASSWORD: aurum
-          POSTGRES_DB: aurum
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aurum"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # A job-owned local data directory is required: container services cannot
+    # provide the host-side ownership proof enforced by the test harness.
     env:
-      AURUM_POSTGRES_USER: aurum
-      AURUM_POSTGRES_PASSWORD: aurum
-      AURUM_POSTGRES_DB: aurum
-      AURUM_POSTGRES_HOST: localhost
-      AURUM_POSTGRES_PORT: 5432
+      AURUM_POSTGRES_USER: postgres
+      AURUM_POSTGRES_PASSWORD: ""
+      AURUM_POSTGRES_HOST: 127.0.0.1
+      AURUM_POSTGRES_PORT: 57613
     defaults:
       run:
         working-directory: backend
@@ -51,7 +35,39 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - run: pytest -v
+      - name: Provision owned disposable loopback PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql libpq-dev
+          PG_BIN="$(pg_config --bindir)"
+          RUNTIME="$(mktemp -d "$RUNNER_TEMP/aurum-test-postgres-XXXXXX")"
+          # Publish cleanup ownership before any partial initialization or start.
+          printf 'AURUM_TEST_PG_WORKSPACE=%s\n' "$RUNTIME" >> "$GITHUB_ENV"
+          printf 'AURUM_TEST_PG_BIN=%s\n' "$PG_BIN" >> "$GITHUB_ENV"
+          "$PG_BIN/initdb" -D "$RUNTIME/data" -U postgres -A trust
+          "$PG_BIN/pg_ctl" -D "$RUNTIME/data" -l "$RUNTIME/server.log" \
+            -o "-h 127.0.0.1 -p $AURUM_POSTGRES_PORT -k $RUNTIME" -w start
+          export RUNTIME
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          workspace = Path(os.environ["RUNTIME"]).resolve()
+          metadata = {"workspace": str(workspace), "data": str(workspace / "data"),
+                      "disposable": True, "host": os.environ["AURUM_POSTGRES_HOST"],
+                      "port": int(os.environ["AURUM_POSTGRES_PORT"]),
+                      "user": os.environ["AURUM_POSTGRES_USER"]}
+          (workspace / "runtime.json").write_text(json.dumps(metadata))
+          PY
+          printf 'AURUM_DISPOSABLE_POSTGRES_RUNTIME=%s/runtime.json\n' "$RUNTIME" >> "$GITHUB_ENV"
+      - run: python -m pytest tests unit_tests -q -Werror -rs
+      - name: Stop disposable PostgreSQL
+        if: always()
+        run: |
+          # runtime.json may not exist if provisioning failed after starting.
+          if [ -n "${AURUM_TEST_PG_WORKSPACE:-}" ] && \
+             [ -f "$AURUM_TEST_PG_WORKSPACE/data/postmaster.pid" ]; then
+            "$AURUM_TEST_PG_BIN/pg_ctl" -D "$AURUM_TEST_PG_WORKSPACE/data" -m fast -w stop
+          fi
 
   frontend-build:
     runs-on: ubuntu-latest

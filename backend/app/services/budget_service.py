@@ -6,6 +6,7 @@ import calendar
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -28,13 +29,19 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return date(year, month, 1), date(year, month, last_day)
 
 
-async def list_budgets(session: AsyncSession) -> list[Budget]:
-    result = await session.execute(select(Budget).options(*_EAGER).join(Category).order_by(Category.sort_order))
+async def list_budgets(session: AsyncSession, workspace_id: UUID | None = None) -> list[Budget]:
+    stmt = select(Budget).options(*_EAGER).join(Category).order_by(Category.sort_order)
+    if workspace_id is not None:
+        stmt = stmt.where(Budget.workspace_id == workspace_id, Category.workspace_id == workspace_id)
+    result = await session.execute(stmt)
     return list(result.scalars().all())
 
 
-async def create_budget(session: AsyncSession, payload: BudgetCreate) -> Budget:
-    category = await session.get(Category, payload.category_id)
+async def create_budget(session: AsyncSession, payload: BudgetCreate, workspace_id: UUID | None = None) -> Budget:
+    stmt = select(Category).where(Category.id == payload.category_id)
+    if workspace_id is not None:
+        stmt = stmt.where(Category.workspace_id == workspace_id)
+    category = (await session.execute(stmt)).scalar_one_or_none()
     if category is None:
         raise HTTPException(status_code=400, detail="Category not found")
     if category.kind != CategoryKind.EXPENSE:
@@ -44,15 +51,15 @@ async def create_budget(session: AsyncSession, payload: BudgetCreate) -> Budget:
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=400, detail=f"'{category.name}' already has a budget")
 
-    budget = Budget(category_id=payload.category_id, monthly_limit=payload.monthly_limit)
+    budget = Budget(category_id=payload.category_id, monthly_limit=payload.monthly_limit, workspace_id=category.workspace_id)
     session.add(budget)
     await session.commit()
     refreshed = await session.execute(select(Budget).options(*_EAGER).where(Budget.id == budget.id))
     return refreshed.scalar_one()
 
 
-async def update_budget(session: AsyncSession, budget_id: int, payload: BudgetUpdate) -> Budget:
-    budget = await session.get(Budget, budget_id)
+async def update_budget(session: AsyncSession, budget_id: int, payload: BudgetUpdate, workspace_id: UUID | None = None) -> Budget:
+    budget = await _get_budget(session, budget_id, workspace_id)
     if budget is None:
         raise HTTPException(status_code=404, detail="Budget not found")
     budget.monthly_limit = payload.monthly_limit
@@ -61,18 +68,25 @@ async def update_budget(session: AsyncSession, budget_id: int, payload: BudgetUp
     return refreshed.scalar_one()
 
 
-async def delete_budget(session: AsyncSession, budget_id: int) -> None:
-    budget = await session.get(Budget, budget_id)
+async def _get_budget(session: AsyncSession, budget_id: int, workspace_id: UUID | None) -> Budget | None:
+    stmt = select(Budget).where(Budget.id == budget_id)
+    if workspace_id is not None:
+        stmt = stmt.where(Budget.workspace_id == workspace_id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def delete_budget(session: AsyncSession, budget_id: int, workspace_id: UUID | None = None) -> None:
+    budget = await _get_budget(session, budget_id, workspace_id)
     if budget is None:
         raise HTTPException(status_code=404, detail="Budget not found")
     await session.delete(budget)
     await session.commit()
 
 
-async def get_budget_status(session: AsyncSession, year: int, month: int) -> BudgetStatusResponse:
+async def get_budget_status(session: AsyncSession, year: int, month: int, workspace_id: UUID | None = None) -> BudgetStatusResponse:
     start, end = _month_bounds(year, month)
 
-    budgets = await list_budgets(session)
+    budgets = await list_budgets(session, workspace_id)
     if not budgets:
         return BudgetStatusResponse(year=year, month=month, items=[])
 
@@ -85,9 +99,10 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
     # each against its own limit.
     budget_category_ids = [b.category_id for b in budgets]
     children_by_parent: dict[int, list[int]] = defaultdict(list)
-    child_rows = await session.execute(
-        select(Category.id, Category.parent_id).where(Category.parent_id.in_(budget_category_ids))
-    )
+    child_stmt = select(Category.id, Category.parent_id).where(Category.parent_id.in_(budget_category_ids))
+    if workspace_id is not None:
+        child_stmt = child_stmt.where(Category.workspace_id == workspace_id)
+    child_rows = await session.execute(child_stmt)
     for child_id, parent_id in child_rows.all():
         children_by_parent[parent_id].append(child_id)
 
@@ -121,6 +136,12 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
         )
         .group_by(TransactionSplit.category_id)
     )
+    if workspace_id is not None:
+        # Category IDs alone are not a privacy boundary: every source row
+        # and its account must belong to the server-authorized workspace.
+        source_scope = (Transaction.workspace_id == workspace_id, Account.workspace_id == workspace_id)
+        plain_stmt = plain_stmt.where(*source_scope)
+        split_stmt = split_stmt.where(*source_scope, TransactionSplit.workspace_id == workspace_id)
     spent_by_category: dict[int, Decimal] = defaultdict(Decimal)
     for category_id, amount in (await session.execute(plain_stmt)).all():
         spent_by_category[category_id] += amount

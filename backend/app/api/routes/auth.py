@@ -1,11 +1,11 @@
 """Application session login, logout, and current-user endpoints."""
 from datetime import timedelta
 from functools import lru_cache
-import unicodedata
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -19,19 +19,18 @@ from app.api.deps import (
     require_authenticated_session,
 )
 from app.core.config import Settings
+from app.core.identity import normalize_identifier
 from app.models.auth import SecurityAuditEvent
 from app.models.workspace import User, UserStatus, Workspace, WorkspaceMembership
 from app.schemas.auth import AuthSessionResponse, AuthenticatedUser, LoginRequest, WorkspaceSummary
+from app.schemas.workspace import NewAccountInvitationAccept
 from app.security.auth import PasswordService
 from app.services.auth_rate_limit_service import AuthRateLimiter
+from app.services.workspace_service import InvitationUnavailable, bootstrap_invited_user
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 GENERIC_LOGIN_ERROR = "Unable to sign in"
 ACTIVE_WORKSPACE_HEADER = "X-Aurum-Workspace"
-
-
-def normalize_identifier(identifier: str) -> str:
-    return unicodedata.normalize("NFKC", identifier).strip().casefold()
 
 
 @lru_cache(maxsize=16)
@@ -68,6 +67,16 @@ def rate_limiter(settings: Settings) -> AuthRateLimiter:
         max_attempts=settings.auth_login_max_attempts,
         window=timedelta(seconds=settings.auth_login_window_seconds),
         block_for=timedelta(seconds=settings.auth_login_block_seconds),
+    )
+
+
+def invitation_rate_limiter(settings: Settings) -> AuthRateLimiter:
+    return AuthRateLimiter(
+        hmac_secret=settings.auth_hmac_secret.get_secret_value(),
+        max_attempts=settings.auth_invitation_max_attempts,
+        window=timedelta(seconds=settings.auth_invitation_window_seconds),
+        block_for=timedelta(seconds=settings.auth_invitation_block_seconds),
+        purpose="invitation",
     )
 
 
@@ -203,6 +212,79 @@ async def create_session(
         user=user,
         csrf_token=issued.csrf_token,
         requested_workspace=request.headers.get(ACTIVE_WORKSPACE_HEADER),
+    )
+    await session.commit()
+    _set_session_cookie(response, request, settings, issued.session_token)
+    return result
+
+
+@router.post("/invitations/accept", response_model=AuthSessionResponse)
+async def accept_new_account_invitation(
+    payload: NewAccountInvitationAccept,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> AuthSessionResponse:
+    """Consume an invitation only as part of its explicit account-creation flow."""
+    if not settings.app_auth_required:
+        raise HTTPException(status_code=503, detail="Application authentication is not enabled")
+
+    identifier = normalize_identifier(payload.identifier)
+    limiter = invitation_rate_limiter(settings)
+    bucket_hmac = limiter.bucket_hmac(
+        identifier=f"{identifier}\0{payload.token}",
+        client_signal=client_signal(request),
+    )
+    allowed, limit_record = await limiter.is_allowed(session, bucket_hmac=bucket_hmac)
+    if not allowed:
+        await session.commit()
+        raise HTTPException(status_code=429, detail="Invitation is not available")
+
+    password_service, _ = password_context(settings)
+    try:
+        user, invitation = await bootstrap_invited_user(
+            session,
+            raw_token=payload.token,
+            identifier=identifier,
+            display_name=payload.display_name,
+            password_hash=password_service.hash(payload.password),
+            hmac_secret=settings.auth_hmac_secret.get_secret_value(),
+            default_currency=settings.default_currency,
+        )
+    except (InvitationUnavailable, IntegrityError) as exc:
+        # Separate invitations for one recipient can race account creation.
+        # The user uniqueness constraint decides the winner; rollback keeps the
+        # losing invitation unconsumed and preserves the generic response.
+        if isinstance(exc, IntegrityError):
+            await session.rollback()
+            _, limit_record = await limiter.is_allowed(session, bucket_hmac=bucket_hmac)
+        limiter.record_failure(session, record=limit_record, bucket_hmac=bucket_hmac)
+        await session.commit()
+        raise HTTPException(status_code=404, detail="Invitation is not available") from exc
+
+    issued = await auth_session_service(settings).issue(
+        session,
+        user_id=user.id,
+        client_ip=client_signal(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    await limiter.reset(session, record=limit_record)
+    session.add(
+        SecurityAuditEvent(
+            actor_user_id=user.id,
+            workspace_id=invitation.workspace_id,
+            event_type="invitation_accepted",
+            outcome="success",
+            target_type="invitation",
+            target_id=str(invitation.id),
+        )
+    )
+    result = await _session_response(
+        session,
+        user=user,
+        csrf_token=issued.csrf_token,
+        requested_workspace=None,
     )
     await session.commit()
     _set_session_cookie(response, request, settings, issued.session_token)

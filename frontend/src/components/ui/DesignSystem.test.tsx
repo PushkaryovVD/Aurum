@@ -8,6 +8,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { StatCard } from "@/components/dashboard/StatCard";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Page, PageHeader } from "@/components/ui/Page";
@@ -28,6 +29,16 @@ function render(node: React.ReactNode) {
 }
 
 describe("design system primitives", () => {
+  it("keeps long financial values visible instead of truncating them", () => {
+    const amount = "123 456 789 012,34 ₸";
+    const view = render(<StatCard label="Income" value={amount} caption="This month" />);
+    const value = view.container.querySelectorAll("p")[1];
+    expect(value.textContent).toBe(amount);
+    expect(value.className).not.toContain("truncate");
+    expect(value.className).toContain("[overflow-wrap:anywhere]");
+    view.unmount();
+  });
+
   it("defines semantic layout, type, radius, elevation, and focus tokens for both appearances", () => {
     const designSystemCss = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
 

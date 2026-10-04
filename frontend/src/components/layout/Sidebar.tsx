@@ -53,7 +53,7 @@ function NavList({ collapsed, onNavigate }: NavListProps) {
               cn(
                 "flex min-h-11 items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
                 collapsed && "justify-center px-0",
-                isActive && "bg-surface-2 text-text-primary"
+                isActive && "bg-surface-accent text-text-primary ring-1 ring-inset ring-border"
               )
             }
           >

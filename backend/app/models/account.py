@@ -1,5 +1,8 @@
 """An account is any place money lives: bank account, card, cash, wallet."""
-from sqlalchemy import Boolean, Enum, String
+from uuid import UUID as PythonUUID
+
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -9,8 +12,13 @@ from app.models.mixins import TimestampMixin
 
 class Account(Base, TimestampMixin):
     __tablename__ = "accounts"
+    __table_args__ = (Index("ix_accounts_workspace_id_id", "workspace_id", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     type: Mapped[AccountType] = mapped_column(
         Enum(AccountType, name="account_type", native_enum=False, length=20),

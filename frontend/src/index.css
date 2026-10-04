@@ -4,15 +4,15 @@
  * change without page-specific color, spacing, or elevation decisions. */
 :root {
   color-scheme: light;
-  --surface-0: #f9f9f7; /* page plane */
-  --surface-1: #fcfcfb; /* card surface */
-  --surface-2: #f2f1ed; /* hover/active wash */
-  --surface-accent: #e9f2ff;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #65635f;
-  --border: rgba(11, 11, 11, 0.1);
-  --gridline: #e1e0d9;
+  --surface-0: #f5f6f8; /* page plane */
+  --surface-1: #ffffff; /* card surface */
+  --surface-2: #eceef2; /* hover/active wash */
+  --surface-accent: #e8edf7;
+  --text-primary: #202733;
+  --text-secondary: #505b6b;
+  --text-muted: #636d7c;
+  --border: rgba(32, 39, 51, 0.1);
+  --gridline: #e2e6ed;
   --focus: #1d4ed8;
   --scrim: rgba(11, 11, 11, 0.56);
 
@@ -28,13 +28,13 @@
 
   --space-page-inline: 0.75rem;
   --space-page-block: 1rem;
-  --space-section: 1.25rem;
+  --space-section: 1.5rem;
   --space-card: 1rem;
 
   --radius-control: 0.5rem;
-  --radius-card: 0.875rem;
+  --radius-card: 0.75rem;
   --radius-dialog: 1rem;
-  --shadow-card: 0 1px 2px rgba(11, 11, 11, 0.06), 0 1px 8px rgba(11, 11, 11, 0.03);
+  --shadow-card: 0 1px 2px rgba(32, 39, 51, 0.025);
   --shadow-elevation-lg: 0 18px 48px rgba(11, 11, 11, 0.2);
   --icon-size-sm: 1rem;
   --icon-size-md: 1.25rem;
@@ -53,15 +53,15 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --surface-0: #0d0d0d;
-    --surface-1: #1a1a19;
-    --surface-2: #232322;
-    --surface-accent: #14243b;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #aaa89f;
+    --surface-0: #141820;
+    --surface-1: #1c222c;
+    --surface-2: #272f3c;
+    --surface-accent: #28344b;
+    --text-primary: #f1f3f7;
+    --text-secondary: #bdc6d4;
+    --text-muted: #9ca9ba;
     --border: rgba(255, 255, 255, 0.1);
-    --gridline: #2c2c2a;
+    --gridline: #343e4e;
     --focus: #93c5fd;
     --scrim: rgba(0, 0, 0, 0.72);
 
@@ -82,15 +82,15 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --surface-0: #0d0d0d;
-  --surface-1: #1a1a19;
-  --surface-2: #232322;
-  --surface-accent: #14243b;
-  --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --text-muted: #aaa89f;
+  --surface-0: #141820;
+  --surface-1: #1c222c;
+  --surface-2: #272f3c;
+  --surface-accent: #28344b;
+  --text-primary: #f1f3f7;
+  --text-secondary: #bdc6d4;
+  --text-muted: #9ca9ba;
   --border: rgba(255, 255, 255, 0.1);
-  --gridline: #2c2c2a;
+  --gridline: #343e4e;
   --focus: #93c5fd;
   --scrim: rgba(0, 0, 0, 0.72);
 

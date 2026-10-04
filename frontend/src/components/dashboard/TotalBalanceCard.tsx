@@ -23,19 +23,19 @@ export function TotalBalanceCard({ balance, isLoading }: TotalBalanceCardProps) 
   const convertedAny = foreign.some((item) => item.amount_reporting !== null);
 
   return (
-    <Card className="p-4 sm:p-5">
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">{t("dashboard.balanceTitle")}</p>
-      <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
+    <Card className="p-card sm:py-7">
+      <p className="text-sm font-medium text-text-secondary">{t("dashboard.balanceTitle")}</p>
+      <p className="mt-3 break-words text-3xl font-semibold leading-tight tracking-tight tabular-nums text-text-primary [overflow-wrap:anywhere] sm:text-4xl">
         {isLoading ? "…" : formatCurrency(balance?.total ?? 0, reporting)}
       </p>
-      <p className="mt-1 text-xs text-text-muted">{t("dashboard.balanceCaption", { currency: reporting })}</p>
+      <p className="mt-2 text-xs leading-5 text-text-muted">{t("dashboard.balanceCaption", { currency: reporting })}</p>
 
       {foreign.length > 0 && (
         <ul className="mt-3 space-y-1.5 border-t border-gridline pt-3">
           {foreign.map((item) => (
-            <li key={item.currency} className="flex items-baseline justify-between gap-3 text-xs">
+            <li key={item.currency} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs">
               <span className="font-medium text-text-secondary">{item.currency}</span>
-              <span className="text-right tabular-nums text-text-muted">
+              <span className="min-w-0 break-words text-right tabular-nums text-text-muted [overflow-wrap:anywhere]">
                 {formatCurrency(item.amount, item.currency)}
                 {item.amount_reporting !== null ? (
                   <span className="ml-2 text-text-secondary">≈ {formatCurrency(item.amount_reporting, reporting)}</span>

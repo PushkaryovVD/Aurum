@@ -22,6 +22,23 @@ deleted, so each one is still reviewable on its own.
 
 ### Verified state
 
+Current publication checkpoint (2026-10-04): independently reviewed household
+invitations, core account/category/tag/transaction isolation, category-budget
+isolation, and safe disposable PostgreSQL test lifecycle are locally integrated.
+The integrated checkout passes **421 backend tests** and **103 frontend tests**;
+TypeScript and the frontend production build pass. The design changes currently
+cover the shared shell/dashboard only, not the whole redesign. This is an
+intermediate checkpoint, not completion of the delivery sequence below.
+
+Application authentication must remain disabled until all remaining financial
+families and initial-account bootstrap/onboarding are verified. Workspace
+switching is not enabled. The migration chain intentionally fails closed on
+unexpectedly populated legacy financial tables; no ownership backfill or data
+deletion is performed. Dependency remediation and final technical/financial
+reviews remain pending. Generated graph artifacts are excluded from publication.
+
+Historical verification (before this checkpoint):
+
 - Published `develop` head: `e36ad945c1bcc5a58aff8b4cb7e7a7fe0286a4d8`.
 - `pytest`: **280 passed**; `vitest`: **79 passed**; TypeScript and the production
   frontend build pass; the production npm audit reports zero vulnerabilities.
@@ -45,6 +62,32 @@ deleted, so each one is still reviewable on its own.
    guessed without a real, redacted statement version.
 
 ### Next, in order
+
+#### Current repository-only delivery sequence
+
+This sequence supersedes the historical queue below. Deployment is performed
+by the user through published-image pull after development; agents must not
+connect to the server or CasaOS. Backup/restore automation is out of scope.
+Use one implementation worker at a time and independently review each candidate
+before integrating it. Existing local design changes must be preserved.
+
+1. Household membership and recipient-bound invitations (`t_8b21f75e`).
+2. Backend authorization and database workspace scope for every financial
+   resource, including legacy-owner migration/bootstrap (`t_6587a72b`). Do not
+   expose shared-workspace switching before isolation is verified.
+3. Mobile-first account, invitation and workspace interface (`t_79659070`).
+4. Progressive page redesign and honest loading/error/stale-data states
+   (`t_25c84f6a`), continuing the approved restrained financial-minimalist theme.
+5. Reviewed release-candidate integration and pull-only Compose/runbook delivery
+   (`t_7457b658`), then independent technical QA (`t_452489c9`).
+6. **Last:** financial-domain product assessment (`t_0d2eca4f`) on the verified
+   candidate. Review accounting semantics, double counting, FX/rounding,
+   cash flow versus wealth, budgets, investments, shared/private attribution,
+   reconciliation and decision usefulness. Deliver evidence-backed findings
+   and severity-ranked recommendations, not personalized investment advice.
+
+Halyk and broker trades imports remain fixture-blocked; their absence must be
+explicit in the release and final assessment, not labelled as completed.
 
 1. Contextual help and examples across Aurum (`t_0a8482a8` → QA `t_ca2a37e4`).
 2. Responsive source-document preview during statement review
@@ -178,7 +221,7 @@ deleted, so each one is still reviewable on its own.
 - [ ] `feature/financial-precision` — end-to-end Decimal and rounding audit
 - [ ] `feature/design-system-renewal` — accessible responsive visual system and progressive screen migration
 - [ ] `feature/private-user-accounts` — individual accounts, authentication and workspace-level data isolation
-- [ ] `feature/backup-automation` — scheduled encrypted PostgreSQL backups
+
 - [ ] `feature/observability` — worker health, metrics and failure notifications
 - [ ] `feature/arcane-deployment` — Arcane-ready Compose profiles and runbook
 

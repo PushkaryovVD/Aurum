@@ -309,6 +309,23 @@ EN dictionaries in the same slice.
 This is an upgrade of sensitive existing data and must be a rehearsed,
 transactional migration, not a seed on application startup.
 
+### Supported boundary for the bounded core-isolation slice
+
+The first accounts/categories/tags/transactions ownership migration supports
+**fresh installations only**. It acquires exclusive locks and proceeds only
+when all six core tables (`accounts`, `categories`, `tags`, `transactions`,
+`transaction_splits`, and `transaction_tags`) are empty. It adds nullable
+workspace/author columns for staged auth-disabled compatibility and never
+creates a user, password, session, workspace, membership, or other credential.
+
+A populated legacy installation is an **unsupported upgrade in this slice**.
+The migration raises an actionable exception listing populated tables, and
+PostgreSQL rolls the migration back transactionally. Operators must restore the
+pre-upgrade database and wait for a separately rehearsed explicit owner/backfill
+migration; they must not enable application authentication or manually assign
+ownership. The broader backfill design below remains the future target, not a
+claim that this bounded release performs it.
+
 1. Add only additive auth/workspace tables, configuration validation and
    application feature flag `AURUM_APP_AUTH_REQUIRED=false`; do not route
    financial traffic through the new model yet.

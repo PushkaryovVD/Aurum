@@ -17,11 +17,11 @@ const TONE_CLASSES: Record<NonNullable<StatCardProps["tone"]>, string> = {
 export function StatCard({ label, value, caption, tone = "default" }: StatCardProps) {
   return (
     <Card className="overflow-hidden p-card">
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</p>
-      <p className={cn("mt-1.5 truncate text-xl font-semibold tabular-nums sm:text-[28px]", TONE_CLASSES[tone])}>
+      <p className="text-sm font-medium text-text-secondary">{label}</p>
+      <p className={cn("mt-3 break-words text-xl font-semibold leading-tight tracking-tight tabular-nums [overflow-wrap:anywhere] sm:text-[28px]", TONE_CLASSES[tone])}>
         {value}
       </p>
-      <p className="mt-1 text-xs text-text-muted">{caption}</p>
+      <p className="mt-2 text-xs leading-5 text-text-muted">{caption}</p>
     </Card>
   );
 }

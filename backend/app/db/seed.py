@@ -5,6 +5,8 @@ The expense categories are assigned hues from the dataviz skill's validated
 reordered/cycled) so the dashboard donut chart is colorblind-safe out of the
 box. See CLAUDE.md-adjacent design notes in UPDATES.md for the source.
 """
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +39,34 @@ DEFAULT_INCOME_CATEGORIES = [
     ("Item Sales", "tag", "#e34948"),
     ("Other Income", "plus-circle", "#898781"),
 ]
+
+
+def add_workspace_defaults(session: AsyncSession, workspace_id: UUID, default_currency: str) -> None:
+    """Stage personal-workspace defaults in the caller's bootstrap transaction."""
+    order = 0
+    for name, icon, color in [*DEFAULT_EXPENSE_CATEGORIES, *DEFAULT_INCOME_CATEGORIES]:
+        kind = CategoryKind.EXPENSE if order < len(DEFAULT_EXPENSE_CATEGORIES) else CategoryKind.INCOME
+        session.add(
+            Category(
+                workspace_id=workspace_id,
+                name=name,
+                kind=kind,
+                icon=icon,
+                color=color,
+                sort_order=order,
+                is_default=True,
+            )
+        )
+        order += 1
+    session.add(
+        Account(
+            workspace_id=workspace_id,
+            name="Main Account",
+            type=AccountType.CHECKING,
+            currency=default_currency,
+            color="#2a78d6",
+        )
+    )
 
 
 async def seed_default_categories(session: AsyncSession) -> None:

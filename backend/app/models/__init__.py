@@ -19,7 +19,7 @@ from app.models.recurring import RecurringTransaction
 from app.models.settings import AppSettings
 from app.models.tag import Tag
 from app.models.transaction import Transaction, TransactionSplit
-from app.models.workspace import User, Workspace, WorkspaceMembership
+from app.models.workspace import User, Workspace, WorkspaceInvitation, WorkspaceMembership
 
 __all__ = [
     "Account",
@@ -49,5 +49,6 @@ __all__ = [
     "User",
     "UserSession",
     "Workspace",
+    "WorkspaceInvitation",
     "WorkspaceMembership",
 ]

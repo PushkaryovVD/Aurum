@@ -1,5 +1,6 @@
 from datetime import date as date_
 from decimal import Decimal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -224,6 +225,7 @@ class TransactionRead(TransactionFields):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    author_user_id: UUID | None = None
     account: AccountRead
     # Stored NOT NULL, so a read never has to show them as optional.
     currency: str

@@ -5,7 +5,18 @@ import enum
 from datetime import datetime
 from uuid import UUID as PythonUUID, uuid4
 
-from sqlalchemy import CheckConstraint, Enum, ForeignKey, Index, String, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -174,3 +185,49 @@ class WorkspaceMembership(Base, TimestampMixin):
     )
     joined_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class WorkspaceInvitation(Base, TimestampMixin):
+    __tablename__ = "workspace_invitations"
+    __table_args__ = (
+        UniqueConstraint("token_hmac", name="uq_workspace_invitations_token_hmac"),
+        CheckConstraint("role IN ('editor', 'viewer')", name="ck_workspace_invitations_role"),
+        CheckConstraint("max_uses = 1", name="ck_workspace_invitations_single_use"),
+        CheckConstraint("uses >= 0 AND uses <= max_uses", name="ck_workspace_invitations_uses"),
+        Index("ix_workspace_invitations_workspace_id", "workspace_id"),
+    )
+
+    id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    workspace_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", name="fk_workspace_invitations_workspace_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    recipient_normalized: Mapped[str] = mapped_column(String(320), nullable=False)
+    role: Mapped[WorkspaceRole] = mapped_column(
+        Enum(
+            WorkspaceRole,
+            name="workspace_invitation_role",
+            native_enum=False,
+            length=10,
+            create_constraint=False,
+            values_callable=_enum_values,
+        ),
+        nullable=False,
+    )
+    token_hmac: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    max_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_workspace_invitations_created_by_user_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    accepted_by_user_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_workspace_invitations_accepted_by_user_id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

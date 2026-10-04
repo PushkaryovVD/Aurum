@@ -27,6 +27,7 @@ from app.api.routes import (
     statement_imports,
     tags,
     transactions,
+    workspaces,
 )
 from app.api.deps import require_app_session
 from app.core.config import APP_VERSION, Settings, get_settings
@@ -35,9 +36,14 @@ from app.db.session import AsyncSessionLocal
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Authenticated installs seed only while atomically creating a personal
+    # workspace. Global startup seeds would create ownerless financial rows.
     async with AsyncSessionLocal() as session:
-        await seed_default_categories(session)
-        await seed_default_account(session)
+        if not app.state.settings.app_auth_required:
+            await seed_default_categories(session)
+            await seed_default_account(session)
+        # App settings remain a deployment-wide singleton in this bounded
+        # slice; unlike accounts/categories they are not financial ownership.
         await seed_default_app_settings(session)
     yield
 
@@ -78,6 +84,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         )
 
     configured_app.include_router(auth.router, prefix="/api")
+    configured_app.include_router(workspaces.router, prefix="/api")
     protected = [Depends(require_app_session)]
     for route in (
         dashboard,

@@ -1,5 +1,8 @@
 """A spending/income category, colored so it maps 1:1 to a dashboard chart slot."""
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String
+from uuid import UUID as PythonUUID
+
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -8,8 +11,13 @@ from app.models.enums import CategoryKind
 
 class Category(Base):
     __tablename__ = "categories"
+    __table_args__ = (Index("ix_categories_workspace_id_id", "workspace_id", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[CategoryKind] = mapped_column(
         Enum(CategoryKind, name="category_kind", native_enum=False, length=10), nullable=False

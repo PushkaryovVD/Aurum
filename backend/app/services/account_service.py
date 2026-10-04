@@ -11,27 +11,31 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RequestWorkspace
 from app.models.account import Account
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate, AccountWithBalance
 
 
-async def account_balances(session: AsyncSession) -> tuple[dict[int, Decimal], dict[int, int]]:
+async def account_balances(
+    session: AsyncSession, context: RequestWorkspace | None = None
+) -> tuple[dict[int, Decimal], dict[int, int]]:
     """Every account's live balance and how many transactions it holds, in one
     pass. The balance feeds the Accounts page and the Dashboard's totals; the
     count is what tells the UI whether an account's currency can still be
     changed (see update_account).
     """
-    result = await session.execute(
-        select(
-            Transaction.type,
-            Transaction.amount,
-            Transaction.transfer_amount,
-            Transaction.account_id,
-            Transaction.transfer_account_id,
-        )
+    statement = select(
+        Transaction.type,
+        Transaction.amount,
+        Transaction.transfer_amount,
+        Transaction.account_id,
+        Transaction.transfer_account_id,
     )
+    if context is not None and context.workspace_id is not None:
+        statement = statement.where(Transaction.workspace_id == context.workspace_id)
+    result = await session.execute(statement)
     balances: dict[int, Decimal] = defaultdict(Decimal)
     counts: dict[int, int] = defaultdict(int)
     for tx_type, amount, transfer_amount, account_id, transfer_account_id in result.all():
@@ -62,20 +66,27 @@ def _to_read(account: Account, balance: Decimal, transaction_count: int) -> Acco
     )
 
 
-async def list_accounts(session: AsyncSession, include_archived: bool) -> list[AccountWithBalance]:
+async def list_accounts(
+    session: AsyncSession, include_archived: bool, context: RequestWorkspace
+) -> list[AccountWithBalance]:
     stmt = select(Account).order_by(Account.name)
+    if context.workspace_id is not None:
+        stmt = stmt.where(Account.workspace_id == context.workspace_id)
     if not include_archived:
         stmt = stmt.where(Account.is_archived.is_(False))
     accounts = (await session.execute(stmt)).scalars().all()
-    balances, counts = await account_balances(session)
+    balances, counts = await account_balances(session, context)
     return [
         _to_read(account, balances.get(account.id, Decimal("0")), counts.get(account.id, 0))
         for account in accounts
     ]
 
 
-async def create_account(session: AsyncSession, payload: AccountCreate) -> AccountWithBalance:
-    account = Account(**payload.model_dump())
+async def create_account(
+    session: AsyncSession, payload: AccountCreate, context: RequestWorkspace
+) -> AccountWithBalance:
+    context.require_mutation()
+    account = Account(**payload.model_dump(), workspace_id=context.workspace_id)
     session.add(account)
     await session.commit()
     await session.refresh(account)
@@ -83,8 +94,14 @@ async def create_account(session: AsyncSession, payload: AccountCreate) -> Accou
     return _to_read(account, Decimal("0"), 0)
 
 
-async def update_account(session: AsyncSession, account_id: int, payload: AccountUpdate) -> AccountWithBalance:
-    account = await session.get(Account, account_id)
+async def update_account(
+    session: AsyncSession, account_id: int, payload: AccountUpdate, context: RequestWorkspace
+) -> AccountWithBalance:
+    context.require_mutation()
+    statement = select(Account).where(Account.id == account_id)
+    if context.workspace_id is not None:
+        statement = statement.where(Account.workspace_id == context.workspace_id)
+    account = (await session.execute(statement)).scalar_one_or_none()
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
     updates = payload.model_dump(exclude_unset=True)
@@ -97,7 +114,7 @@ async def update_account(session: AsyncSession, account_id: int, payload: Accoun
         # silently reinterpret that history (a 100 KZT balance becoming 100
         # USD), so the change is refused outright rather than converted — a
         # clear error beats a wrong number.
-        _, counts = await account_balances(session)
+        _, counts = await account_balances(session, context)
         if counts.get(account_id, 0) > 0:
             raise HTTPException(
                 status_code=422,
@@ -111,12 +128,16 @@ async def update_account(session: AsyncSession, account_id: int, payload: Accoun
         setattr(account, field, value)
     await session.commit()
     await session.refresh(account)
-    balances, counts = await account_balances(session)
+    balances, counts = await account_balances(session, context)
     return _to_read(account, balances.get(account.id, Decimal("0")), counts.get(account.id, 0))
 
 
-async def delete_account(session: AsyncSession, account_id: int) -> None:
-    account = await session.get(Account, account_id)
+async def delete_account(session: AsyncSession, account_id: int, context: RequestWorkspace) -> None:
+    context.require_mutation()
+    statement = select(Account).where(Account.id == account_id)
+    if context.workspace_id is not None:
+        statement = statement.where(Account.workspace_id == context.workspace_id)
+    account = (await session.execute(statement)).scalar_one_or_none()
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
     await session.delete(account)

@@ -33,6 +33,20 @@ GENERIC_LOGIN_ERROR = "Unable to sign in"
 ACTIVE_WORKSPACE_HEADER = "X-Aurum-Workspace"
 
 
+@router.get("/status")
+async def read_auth_status(
+    response: Response,
+    settings: Settings = Depends(get_app_settings),
+) -> dict[str, bool | str]:
+    """Public mode only; financial isolation and operator bootstrap are incomplete."""
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "app_auth_required": settings.app_auth_required,
+        "finance_access_ready": False,
+        "session_transport": "https" if settings.environment == "production" else "https_or_loopback",
+    }
+
+
 @lru_cache(maxsize=16)
 def _password_context(
     memory_cost: int,

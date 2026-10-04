@@ -31,6 +31,55 @@ multi-user isolation. Keep `AURUM_APP_AUTH_REQUIRED` disabled: remaining financi
 families and initial-account bootstrap/onboarding are not yet complete. Existing
 outer-perimeter authentication is a separate configuration and is not changed.
 
+### Login/access surface (bounded frontend slice)
+
+The `/login` page is discoverable from the application. This is a new access
+surface, not a redesign of every financial page and not an authentication
+activation procedure. With application authentication disabled, the form is
+disabled and never sends credentials; the existing single-installation finance
+UI remains available after the explicit backend mode check. Basic Auth still
+uses the browser's prompt and remains an independent outer perimeter.
+
+The frontend first reads `GET /api/auth/status` (`Cache-Control: no-store`). A
+missing, failed, or malformed response blocks the UI rather than assuming a
+legacy permissive mode. Backend and frontend must therefore be upgraded as a
+matched pair. The endpoint exposes only mode/transport metadata and always
+returns `finance_access_ready: false`; it does not reveal account existence,
+secrets, or database readiness.
+
+For an already explicitly enabled backend with an already provisioned account,
+the entry page can establish and revoke an identity session using the existing
+`POST /api/auth/session`, `GET /api/auth/me`, and `DELETE /api/auth/session`
+contract. There are no `/api/auth/login` or `/api/auth/logout` routes in this
+version. The UI verifies session mutations by reading `/me` afterwards, retains
+CSRF only in memory, and clears query cache on identity changes/logout. It does
+not persist passwords, session capabilities, or CSRF in browser storage.
+
+HTTPS is required for production session cookies. Non-production entry allows
+plain HTTP only on exact loopback hosts (`localhost`, `127.0.0.1`, `[::1]`), not
+on a LAN address. Configure TLS and the trusted reverse proxy separately; an
+HTTPS frontend does not by itself prove the operator's proxy configuration is
+correct. A missing/invalid cookie remains a failed session check, not success.
+
+When `app_auth_required` is true, **all financial UI, settings queries, and
+financial routes remain unmounted**, including after successful sign-in. The
+screen explains that financial isolation and initial administrator account
+bootstrap are incomplete. There is no public registration, reset, bootstrap,
+or workspace picker in this slice. This frontend gate is not a substitute for
+complete server-side authorization: do not enable application authentication
+for normal financial use or claim complete multi-user security.
+
+Before a future activation: finish and verify workspace isolation across every
+financial family (including global insights), provide a reviewed administrator
+bootstrap/onboarding procedure, verify production TLS/cookie/CSRF behavior,
+and separately review finance-readiness activation in both backend and client.
+No deployment defaults, Compose files, environment templates, or migrations
+are changed by this login/access slice. An image-only Compose artifact may be
+derived from the canonical definition for operator delivery; do not maintain
+a second hand-edited canonical configuration.
+
+### Migration and installation safeguards
+
 The new workspace migrations support an empty financial installation and reject
 unexpectedly populated legacy financial tables transactionally. They do not
 assign an invented owner, backfill ownership, or delete existing records. If an

@@ -1,10 +1,16 @@
 # Technical improvement backlog
 
-## Restrict the shared backend database test harness to owned disposable databases
+## Avoid iOS focus zoom in authentication fields
 
-- **Problem:** `backend/tests/conftest.py` derives its server from application settings and uses a fixed `aurum_test` name with `DROP DATABASE ... WITH (FORCE)`, without verifying cluster ownership.
-- **Why it matters:** an accidentally inherited remote/application configuration can destroy an unrelated test database or terminate another process's connections.
-- **Suggested direction:** reuse the runtime/data-directory verification and create-only UUID/OID ownership checks from `unit_tests/test_core_workspace_migration.py`; cleanup without FORCE. The category-budget implementation was exercised through a scratch-only safe runner, not the unsafe default lifecycle.
+- **Problem:** credential inputs inherit the labels' small text size, which may cause iOS Safari to zoom when a field receives focus.
+- **Why it matters:** unexpected zoom can disrupt the mobile sign-in layout and make controls harder to reach.
+- **Suggested direction:** apply explicit 16px-or-larger input text without conflicting shared utilities, and verify focus behavior on a real iOS browser.
+
+## Exercise aborted and late authentication requests explicitly
+
+- **Problem:** auth tests cover pending-request finance gating, but do not explicitly simulate unmount during status, session login/readback, and logout requests.
+- **Why it matters:** a late response must not update an obsolete identity view or retain sensitive cached data.
+- **Suggested direction:** add focused deferred-fetch tests asserting abort signals and suppression of late responses after unmount; keep network/session material memory-only.
 
 ## Complete privacy gates before enabling application authentication
 

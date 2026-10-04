@@ -26,8 +26,14 @@ import { RoiPage } from "@/pages/RoiPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { StatementImportPage } from "@/pages/StatementImportPage";
 import { TransactionsPage } from "@/pages/TransactionsPage";
+import { AppAccessGate } from "@/components/auth/AppAccessGate";
 
 export default function App() {
+  // Financial hooks live strictly below the public mode/identity entry boundary.
+  return <AppAccessGate><FinancialShell /></AppAccessGate>;
+}
+
+function FinancialShell() {
   const [collapsed, setCollapsed] = useLocalStorageState("aurum:sidebar-collapsed", false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 

@@ -1,0 +1,14 @@
+# Overlay for the supplied CasaOS export, not a standalone deployment file.
+# Preserve the declared physical volume; never create an empty replacement DB.
+# Apply only after confirming that this is the current PostgreSQL data volume.
+services:
+  db:
+    volumes:
+      - type: volume
+        source: aurum_pgdata
+        target: /var/lib/postgresql/data
+        volume: {}
+volumes:
+  aurum_pgdata:
+    external: true
+    name: aurum_aurum_pgdata

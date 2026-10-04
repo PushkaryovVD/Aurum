@@ -80,11 +80,27 @@ a second hand-edited canonical configuration.
 
 ### Migration and installation safeguards
 
-The new workspace migrations support an empty financial installation and reject
-unexpectedly populated legacy financial tables transactionally. They do not
-assign an invented owner, backfill ownership, or delete existing records. If an
-upgrade reports populated legacy tables, stop and retain the database rather
-than clearing it or retrying with altered ownership constraints.
+The workspace migrations support both empty and populated pre-workspace
+installations. Core financial rows and category budgets keep their original
+values and relationships in the legacy `NULL` workspace namespace. They do not
+assign an invented owner, create users, backfill ownership, or delete records.
+Existing uniqueness constraints remain effective in that namespace. Repeating
+`upgrade head` and the normal startup seeds does not replace existing rows.
+
+Revisions `d2f6a8c1e940` and `e3b7c9d2a105` are corrected in place, with their
+revision IDs and schema shape retained: a later revision cannot execute past
+the old populated-table guards. Databases already at head need no new schema
+revision for this compatibility correction. The category-budget migration
+still locks both tables and rejects an existing legacy budget referencing an
+already scoped category **before ALTER**, transactionally. On that error,
+retain the database and investigate the relationship; do not clear tables,
+invent an owner, disable guards, or transfer ownership to force an upgrade.
+
+This is upgrade compatibility, not auth activation or application-wide
+isolation. This repair does not change the installation's auth setting:
+`finance_access_ready` remains false, and required-auth mode continues to block
+financial access even after login. Do not disable required authentication on a
+LAN-exposed instance without an appropriate perimeter just to bypass that block.
 
 Before applying the first corrected Compose definition, confirm the project name, container names, database major version, and the actual PostgreSQL volume used by the current installation. Keeping the volume declaration text unchanged does not prove that a renamed Compose project will use the same physical volume. Do not delete/reinstall the CasaOS app as an automatic recovery step.
 

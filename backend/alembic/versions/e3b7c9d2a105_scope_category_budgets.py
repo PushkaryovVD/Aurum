@@ -14,13 +14,16 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Never guess a legacy budget's owner. Lock before checking to prevent
-    # concurrent writes between the fail-closed check and schema changes.
+    # Never guess a legacy budget's owner: existing budgets become NULL-scoped.
+    # Lock before checking category compatibility to prevent concurrent writes
+    # between the fail-closed check and schema changes. Correct this blocking
+    # revision in place; a later migration cannot repair a failed upgrade here.
     op.execute('LOCK TABLE categories, budgets IN ACCESS EXCLUSIVE MODE')
     op.execute("""
         DO $$ BEGIN
-          IF EXISTS (SELECT 1 FROM budgets) THEN
-            RAISE EXCEPTION 'budget workspace isolation requires empty budgets';
+          IF EXISTS (SELECT 1 FROM budgets b JOIN categories c ON c.id = b.category_id
+                     WHERE c.workspace_id IS NOT NULL) THEN
+            RAISE EXCEPTION 'budget category workspace mismatch' USING ERRCODE = '23514';
           END IF;
         END $$;
     """)

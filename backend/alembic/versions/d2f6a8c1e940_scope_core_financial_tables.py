@@ -25,32 +25,11 @@ _CORE_TABLES = (
 
 
 def upgrade() -> None:
-    # This release intentionally supports only a fresh financial installation.
-    # Lock before checking so a concurrent legacy write cannot slip between the
-    # emptiness check and the additive schema changes.
+    # Populated legacy rows remain in the NULL namespace; never invent owners.
+    # Lock before the additive changes so concurrent legacy writes cannot race
+    # index/constraint replacement. This earlier revision must be corrected:
+    # a later repair cannot run when an upgrade is blocked here.
     op.execute("LOCK TABLE accounts, categories, tags, transactions, transaction_splits, transaction_tags IN ACCESS EXCLUSIVE MODE")
-    op.execute(
-        """
-        DO $$
-        DECLARE populated text;
-        BEGIN
-          SELECT string_agg(table_name, ', ' ORDER BY table_name) INTO populated
-          FROM (
-            SELECT 'accounts' AS table_name WHERE EXISTS (SELECT 1 FROM accounts)
-            UNION ALL SELECT 'categories' WHERE EXISTS (SELECT 1 FROM categories)
-            UNION ALL SELECT 'tags' WHERE EXISTS (SELECT 1 FROM tags)
-            UNION ALL SELECT 'transactions' WHERE EXISTS (SELECT 1 FROM transactions)
-            UNION ALL SELECT 'transaction_splits' WHERE EXISTS (SELECT 1 FROM transaction_splits)
-            UNION ALL SELECT 'transaction_tags' WHERE EXISTS (SELECT 1 FROM transaction_tags)
-          ) AS populated_tables;
-          IF populated IS NOT NULL THEN
-            RAISE EXCEPTION USING
-              MESSAGE = 'core workspace isolation requires empty financial tables; populated: ' || populated,
-              HINT = 'Restore the pre-upgrade database and use a future explicit backfill migration; this release never creates users or credentials.';
-          END IF;
-        END $$;
-        """
-    )
 
     workspace_type = postgresql.UUID(as_uuid=True)
     for table in ("accounts", "categories", "tags", "transactions", "transaction_splits", "transaction_tags"):
@@ -123,7 +102,7 @@ def upgrade() -> None:
         FOR EACH ROW EXECUTE FUNCTION enforce_transaction_tag_scope();
     """)
 
-    # This fresh-install release has no ownership-transfer/backfill path.
+    # This compatibility release has no ownership-transfer/backfill path.
     # Immutable parent scope closes UPDATE races at every isolation level,
     # including snapshots that cannot see a concurrently committed link.
     op.execute("""

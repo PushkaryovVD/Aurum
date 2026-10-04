@@ -4,7 +4,9 @@ import subprocess
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from test_support.disposable_postgres import DisposablePostgres
@@ -78,7 +80,7 @@ def _workspace_column_count(database: str) -> int:
     return int(values[0])
 
 
-def test_core_workspace_migration_roundtrip_and_populated_fail_closed() -> None:
+def test_core_workspace_migration_roundtrip_and_populated_compatibility() -> None:
     roundtrip_db = "aurum_core_test_" + uuid4().hex
     populated_db = "aurum_core_test_" + uuid4().hex
     try:
@@ -110,16 +112,21 @@ def test_core_workspace_migration_roundtrip_and_populated_fail_closed() -> None:
                 "VALUES ('Legacy account', 'CHECKING', 'KZT', false)",
             )
         )
-        failed = _alembic(populated_db, "upgrade", "d2f6a8c1e940", check=False)
-        assert failed.returncode != 0
-        assert "core workspace isolation requires empty financial tables; populated: accounts" in (
-            failed.stdout + failed.stderr
-        )
+        upgraded = _alembic(populated_db, "upgrade", "d2f6a8c1e940", check=False)
+        assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
         assert asyncio.run(_fetch_values(populated_db, "SELECT version_num FROM alembic_version")) == [
-            "9c4e2b7d1a60"
+            "d2f6a8c1e940"
         ]
-        assert asyncio.run(_fetch_values(populated_db, "SELECT count(*) FROM accounts")) == [1]
-        assert _workspace_column_count(populated_db) == 0
+        assert asyncio.run(_fetch_values(populated_db, "SELECT count(*) FROM accounts WHERE workspace_id IS NULL")) == [1]
+        assert asyncio.run(_fetch_values(populated_db, "SELECT count(*) FROM users")) == [0]
+        assert asyncio.run(_fetch_values(populated_db, "SELECT count(*) FROM workspaces")) == [0]
+        assert _workspace_column_count(populated_db) == len(CORE_TABLES)
+        asyncio.run(_execute(populated_db, "INSERT INTO tags (name) VALUES ('fixture-unique')"))
+        with pytest.raises(IntegrityError, match='uq_tags_unscoped_name'):
+            asyncio.run(_execute(populated_db, "INSERT INTO tags (name) VALUES ('fixture-unique')"))
+        assert asyncio.run(_fetch_values(populated_db, "SELECT name FROM tags")) == ['fixture-unique']
+        _alembic(populated_db, "upgrade", "d2f6a8c1e940")
+        assert asyncio.run(_fetch_values(populated_db, "SELECT name FROM tags WHERE workspace_id IS NULL")) == ['fixture-unique']
     finally:
         for database in (roundtrip_db, populated_db):
             if database in _owned_databases:

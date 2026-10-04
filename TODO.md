@@ -12,6 +12,17 @@
 - **Why it matters:** a late response must not update an obsolete identity view or retain sensitive cached data.
 - **Suggested direction:** add focused deferred-fetch tests asserting abort signals and suppression of late responses after unmount; keep network/session material memory-only.
 
+## Explicit legacy ownership migration remains a separate deliverable
+
+- **Current boundary:** populated legacy upgrades preserve financial rows in the `NULL` workspace namespace; they do not create an initial owner or transfer records. Compatibility tests cover repeated upgrades/startup seeds and transactional rejection of an already scoped budget category.
+- **Remaining work:** design and independently review explicit administrator bootstrap and ownership backfill across every financial family, with invalid relationships failing closed. Do not infer ownership from existing categories or enable auth/readiness as part of this repair.
+
+## Extend populated upgrade and downgrade regression coverage
+
+- **Problem:** populated fixtures exercise core finances, budgets, settings, goals and assets, but recurring, crypto, investment, categorization-rule and envelope tables are empty. An installation already at head under the previous migration files is checked statically, and downgrade roundtrips use empty databases.
+- **Why it matters:** broader linked fixtures will detect unintended changes in future migrations; scoped installations cannot treat downgrade as a general rollback because restoring global uniqueness may reject scoped duplicates.
+- **Suggested direction:** add representative linked records for untouched families, an old-head no-op upgrade fixture, and populated NULL-only downgrade preservation tests. Keep these separate from auth activation and ownership backfill.
+
 ## Complete privacy gates before enabling application authentication
 
 - **Problem:** this slice scopes category-budget routes/status only. Other financial families and installation-wide callers of `get_budget_status` (for example insights/alerts) remain outside this bounded implementation.

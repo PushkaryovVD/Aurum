@@ -136,6 +136,8 @@ docker compose up -d --build
 
 This builds the backend and frontend images, starts Postgres, waits for it to report healthy, then starts the backend (which runs every database migration automatically — nothing to do by hand) and finally the frontend. First run takes a minute or two; after that, images are cached and it's seconds.
 
+Existing populated pre-workspace databases can upgrade without clearing financial records: core rows and category budgets retain the legacy `NULL` workspace namespace, original values, and links. No user, owner, or ownership transfer is invented. A legacy budget linked to an already workspace-scoped category is rejected transactionally; retain the database and investigate the relationship rather than resetting it. This compatibility repair does not enable application authentication or make financial access ready; see [migration safeguards](docs/deployment-pull.md#migration-and-installation-safeguards).
+
 ### 5. Open it
 
 Visit **http://localhost:3000** (or whatever port you set via `AURUM_WEB_PORT` in `.env`). A default account and the standard expense/income categories are seeded automatically — there's nothing to configure before you can add your first transaction.

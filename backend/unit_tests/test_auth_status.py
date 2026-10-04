@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from app.api.routes.auth import router
 
@@ -14,11 +14,13 @@ from app.api.routes.auth import router
     (True, "production", "https"),
     (True, "test", "https_or_loopback"),
 ])
-def test_status_is_public_nonsecret_and_never_finance_ready(required, environment, transport):
+@pytest.mark.asyncio
+async def test_status_is_public_nonsecret_and_never_finance_ready(required, environment, transport):
     app = FastAPI()
     app.state.settings = SimpleNamespace(app_auth_required=required, environment=environment)
     app.include_router(router, prefix="/api")
-    response = TestClient(app).get("/api/auth/status")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/auth/status")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.json() == {

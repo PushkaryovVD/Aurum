@@ -38,13 +38,25 @@ services:
       - caddy_config:/config
     depends_on:
       - web
+    networks:
+      aurum_tls:
+        ipv4_address: 172.31.255.2
 
   web:
     # Reachable only through Caddy now. The "!reset" is what actually removes
     # the base file's published port instead of adding to it — a plain empty
     # list would be merged, not substituted, and the port would stay open.
     ports: !reset []
+    networks:
+      aurum_tls:
+        ipv4_address: 172.31.255.3
 
 volumes:
   caddy_data:
   caddy_config:
+
+networks:
+  aurum_tls:
+    ipam:
+      config:
+        - subnet: 172.31.255.0/29

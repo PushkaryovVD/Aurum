@@ -124,7 +124,7 @@ At minimum, change these two before going any further:
 | Variable | What it does |
 |---|---|
 | `AURUM_POSTGRES_PASSWORD` | Password for Aurum's own Postgres container. The template ships with `change-me` on purpose — replace it with something real. |
-| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | Protect the entire site and API with the browser's standard HTTP Basic Auth prompt. The new `/login` entry does not replace this perimeter: individual auth remains disabled by default and authenticated finance rollout is incomplete. Leave these blank only for a private loopback installation. See [Security & Self-Hosting](#-security--self-hosting) below. |
+| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | Protect the entire site and API with the browser's standard HTTP Basic Auth prompt. The invite-only `/login` and first-owner flow do not replace this perimeter; required-auth finance remains closed pending its separate rollout. Leave these blank only for a private loopback installation. See [Security & Self-Hosting](#-security--self-hosting) below. |
 
 Everything else in `.env` (currency, CORS, the port Aurum listens on) has a sensible default and can be left alone for a first run.
 
@@ -136,11 +136,22 @@ docker compose up -d --build
 
 This builds the backend and frontend images, starts Postgres, waits for it to report healthy, then starts the backend (which runs every database migration automatically — nothing to do by hand) and finally the frontend. First run takes a minute or two; after that, images are cached and it's seconds.
 
-Existing populated pre-workspace databases can upgrade without clearing financial records: core rows and category budgets retain the legacy `NULL` workspace namespace, original values, and links. No user, owner, or ownership transfer is invented. A legacy budget linked to an already workspace-scoped category is rejected transactionally; retain the database and investigate the relationship rather than resetting it. This compatibility repair does not enable application authentication or make financial access ready; see [migration safeguards](docs/deployment-pull.md#migration-and-installation-safeguards).
+Existing populated pre-workspace databases can upgrade without clearing financial records: core rows and category budgets retain the legacy `NULL` workspace namespace, original values, and links. No user, owner, or ownership transfer is invented. A legacy budget linked to an already workspace-scoped category is rejected transactionally; retain the database and investigate the relationship rather than resetting it. The migration itself does not activate or reassign finance; the separate required-auth deployment default still keeps financial APIs closed. See [migration safeguards](docs/deployment-pull.md#migration-and-installation-safeguards).
 
 ### 5. Open it
 
-Visit **http://localhost:3000** (or whatever port you set via `AURUM_WEB_PORT` in `.env`). A default account and the standard expense/income categories are seeded automatically — there's nothing to configure before you can add your first transaction.
+Read the one-time first-owner code from the backend startup log:
+
+```bash
+docker compose logs backend
+```
+
+Then visit **http://localhost:3000/login** (or the port set by
+`AURUM_WEB_PORT`) and enter that code, your login, display name, and a password
+of at least 12 characters. Aurum creates the first owner and a private personal
+workspace. This checkpoint intentionally keeps every financial screen/API
+closed after sign-in until the separate finance-readiness rollout; existing
+legacy financial rows remain preserved in their original `NULL` namespace.
 
 ### 6. Check it's healthy (optional)
 
@@ -168,16 +179,18 @@ Your data lives in a Docker named volume (`aurum_pgdata`), not in the repo folde
 
 ## 🔌 API
 
-Everything Aurum's UI can do — adding transactions, managing accounts and budgets, importing a CSV,
-tracking assets, exporting a backup — is also available as a plain JSON REST API at `/api`, so you
-can script Aurum or connect it to other programs. See **[DOCS.md](DOCS.md)** for the full reference,
-or open `/api/docs` on your running instance for interactive Swagger docs.
+Aurum's financial features have a JSON REST API documented in
+**[DOCS.md](DOCS.md)**. In this first-owner release the default required-auth
+deployment deliberately returns `503` for financial routes, and suppresses
+Swagger/ReDoc/OpenAPI. The API and interactive `/api/docs` are available only
+when an operator explicitly selects legacy auth-disabled mode; do not use that
+mode on a network-exposed instance without an appropriate perimeter.
 
 ## 🔒 Security & Self-Hosting
 
-**Aurum's `/login` entry is an identity-session surface, not a completed multi-user financial security rollout.** Application authentication remains disabled by default; keep it disabled for normal financial use until isolation and administrator bootstrap are complete. Required mode blocks every financial screen even after sign-in. See [the deployment limitations](docs/deployment-pull.md#loginaccess-surface-bounded-frontend-slice). The supported default remains one private, self-hosted installation, which means:
+**Aurum's `/login` entry is an identity-session surface, not a completed multi-user financial security rollout.** Develop/test Compose enables it and the first-owner ceremony by default, while required mode blocks every financial screen and API route even after sign-in. Legacy auth-disabled mode remains available for the existing single-installation finance UI. See [the deployment limitations](docs/deployment-pull.md#loginaccess-surface-bounded-frontend-slice).
 
-- If you leave `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` unset in `.env`, **anyone who can reach the container can read, edit, and delete all of it — no password prompt at all.** The app itself now says so on first load, with a warning you have to dismiss. This is fine if Aurum is only reachable from `localhost`.
+- If you explicitly disable application authentication for legacy finance access and leave `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` unset, **anyone who can reach the container can read, edit, and delete all financial data.** Keep that combination restricted to loopback.
 - Set both variables before exposing your instance beyond your own machine (a VPS, a subdomain, a Tailscale/VPN endpoint someone else might share). This turns on the browser's standard HTTP Basic Auth prompt in front of the entire app, static assets and API alike. Aurum never stores or injects the credentials in JavaScript.
 
 ### Two settings that decide who can reach you

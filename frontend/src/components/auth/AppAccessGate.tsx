@@ -3,6 +3,7 @@ import { Link, matchPath, useLocation } from "react-router-dom";
 import { useTranslation } from "@/lib/i18n";
 import { readAuthStatus, type AppAuthStatus } from "@/lib/appAuth";
 import { AppReturnLink, EntryFrame, entryButton, entryControl } from "./EntryFrame";
+import { InitialOwnerBootstrap } from "./InitialOwnerBootstrap";
 import { SessionEntry } from "./SessionEntry";
 
 export function AppAccessGate({ children }: { children: ReactNode }) {
@@ -25,6 +26,9 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
       <p role={failed ? "alert" : "status"}>{t(failed ? "entry.error" : "entry.checking")}</p>
       {failed && <button type="button" className={`${entryButton} mt-5`} onClick={() => setAttempt(attempt + 1)}>{t("entry.retry")}</button>}
     </EntryFrame>
+  );
+  if (status.initial_owner_bootstrap_required) return (
+    <EntryFrame><InitialOwnerBootstrap status={status} onComplete={() => setAttempt((value) => value + 1)} /></EntryFrame>
   );
   if (status.app_auth_required) return <EntryFrame><SessionEntry status={status} /></EntryFrame>;
   if (!matchPath("/login", location.pathname)) return (

@@ -2,15 +2,11 @@
 # Runs automatically before nginx starts (official nginx image convention:
 # every executable script in /docker-entrypoint.d/ is sourced on boot).
 #
-# Aurum's backend has no login system by design (see backend/app/main.py) —
-# it's built for one person self-hosting their own instance, not a
-# multi-tenant service. That means whoever can reach this container can
-# read, edit, and delete all financial data with no password at all. This
-# script is the only gate in front of that: if AURUM_BASIC_AUTH_USER and
-# AURUM_BASIC_AUTH_PASSWORD are set, it turns on HTTP Basic Auth for the
-# whole app (UI + API) at the nginx layer, in front of everything except
-# the health check endpoint (which must stay reachable for Docker's own
-# HEALTHCHECK and external uptime monitors).
+# Aurum has an invite-only application identity/session layer. HTTP Basic Auth
+# is a separate optional perimeter in front of the whole installation; it does
+# not replace Aurum users, sessions or workspace authorization. This script
+# enables that outer nginx gate for the UI and API, except the health endpoint
+# required by Docker and external uptime monitors.
 set -eu
 
 AUTH_FRAGMENT=/etc/nginx/basic-auth.conf
@@ -28,8 +24,8 @@ EOF
 else
   : > "$AUTH_FRAGMENT"
   printf '{"enabled":false}\n' > "$AUTH_STATUS"
-  echo "[aurum] WARNING: AURUM_BASIC_AUTH_USER / AURUM_BASIC_AUTH_PASSWORD are not set." >&2
-  echo "[aurum] This instance has NO authentication — anyone who can reach it can read," >&2
-  echo "[aurum] edit, and delete all financial data. Fine for 'localhost only'. Before" >&2
-  echo "[aurum] exposing this beyond your own machine, set both variables in .env." >&2
+  echo "[aurum] Basic Auth perimeter is disabled." >&2
+  echo "[aurum] Aurum application authentication remains independent. Required-auth mode" >&2
+  echo "[aurum] keeps finance closed; explicit legacy auth-disabled mode exposes finance" >&2
+  echo "[aurum] to every network client unless another perimeter protects the instance." >&2
 fi

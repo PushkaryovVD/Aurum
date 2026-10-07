@@ -26,6 +26,7 @@ from app.models import (  # noqa: F401 — registers metadata
     EnvelopeTemplateItem,
     Goal,
     GoalContribution,
+    InitialOwnerBootstrap,
     RecurringTransaction,
     SecurityAuditEvent,
     Tag,

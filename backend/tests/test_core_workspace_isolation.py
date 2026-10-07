@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import get_session, require_finance_access
 from app.core.config import Settings
 from app.main import create_app
 from app.models.transaction import Transaction
@@ -41,7 +41,11 @@ async def workspace_client(test_sessionmaker, workspace_auth_settings) -> AsyncG
         async with test_sessionmaker() as session:
             yield session
 
+    async def allow_finance_for_isolation_tests() -> None:
+        """Exercise scoped route logic independently from the release readiness gate."""
+
     scoped_app.dependency_overrides[get_session] = override_get_session
+    scoped_app.dependency_overrides[require_finance_access] = allow_finance_for_isolation_tests
     async with AsyncClient(
         transport=ASGITransport(app=scoped_app), base_url="https://test/api"
     ) as client:
@@ -88,7 +92,11 @@ async def _bootstrap_user(test_sessionmaker, login: str) -> tuple[UUID, UUID]:
 
 
 async def _login(client: AsyncClient, login: str) -> str:
-    response = await client.post("/auth/session", json={"identifier": login, "password": PASSWORD})
+    response = await client.post(
+        "/auth/session",
+        json={"identifier": login, "password": PASSWORD},
+        headers={"Origin": "https://test"},
+    )
     assert response.status_code == 200, response.text
     return response.json()["csrf_token"]
 

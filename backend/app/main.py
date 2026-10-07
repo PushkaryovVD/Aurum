@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+from datetime import timedelta
+import logging
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,22 +31,40 @@ from app.api.routes import (
     transactions,
     workspaces,
 )
-from app.api.deps import require_app_session
+from app.api.deps import require_finance_access
 from app.core.config import APP_VERSION, Settings, get_settings
 from app.db.seed import seed_default_account, seed_default_app_settings, seed_default_categories
 from app.db.session import AsyncSessionLocal
+from app.services.workspace_service import issue_initial_owner_bootstrap_code
+
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Authenticated installs seed only while atomically creating a personal
     # workspace. Global startup seeds would create ownerless financial rows.
     async with AsyncSessionLocal() as session:
+        initial_owner_code = None
         if not app.state.settings.app_auth_required:
             await seed_default_categories(session)
             await seed_default_account(session)
+        else:
+            initial_owner_code = await issue_initial_owner_bootstrap_code(
+                session,
+                hmac_secret=app.state.settings.auth_hmac_secret.get_secret_value(),
+                expires_in=timedelta(seconds=app.state.settings.initial_owner_bootstrap_ttl_seconds),
+            )
         # App settings remain a deployment-wide singleton in this bounded
         # slice; unlike accounts/categories they are not financial ownership.
         await seed_default_app_settings(session)
+        await session.commit()
+        if initial_owner_code is not None:
+            logger.warning(
+                "Aurum initial-owner setup code (single use; expires in %s seconds): %s",
+                app.state.settings.initial_owner_bootstrap_ttl_seconds,
+                initial_owner_code,
+            )
     yield
 
 
@@ -85,7 +105,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     configured_app.include_router(auth.router, prefix="/api")
     configured_app.include_router(workspaces.router, prefix="/api")
-    protected = [Depends(require_app_session)]
+    protected = [Depends(require_finance_access)]
     for route in (
         dashboard,
         accounts,

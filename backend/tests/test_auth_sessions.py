@@ -1,10 +1,12 @@
 """PostgreSQL tests for opaque server-side authentication sessions."""
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import select, text
 
 from app.models.auth import AuthRateLimit, SecurityAuditEvent, UserSession
+from app.services.auth_rate_limit_service import AuthRateLimiter
 from app.services.auth_session_service import AuthSessionService
 
 
@@ -59,6 +61,125 @@ async def test_auth_schema_is_registered_and_privacy_minimized():
     assert AuthRateLimit.__table__.c.bucket_hmac.type.length == 32
     assert SecurityAuditEvent.__table__.c.event_type.nullable is False
     assert "password_hash" in UserSession.metadata.tables["users"].c
+
+
+async def test_scoped_rate_limiter_prunes_stale_buckets_and_bounds_rotating_credentials(
+    test_sessionmaker,
+):
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    limiter = AuthRateLimiter(
+        hmac_secret=HMAC_SECRET,
+        max_attempts=2,
+        window=timedelta(minutes=15),
+        block_for=timedelta(minutes=15),
+    )
+    async with test_sessionmaker() as session:
+        for attempt in range(8):
+            allowed, state = await limiter.check_scoped(
+                session,
+                credential=f"rotating-{attempt}",
+                client_signal="198.51.100.1",
+                now=now,
+            )
+            assert allowed is True
+            limiter.record_scoped_failure(session, state=state, now=now)
+            await session.commit()
+        allowed, _state = await limiter.check_scoped(
+            session,
+            credential="rotating-blocked",
+            client_signal="198.51.100.1",
+            now=now,
+        )
+        assert allowed is False
+        assert len((await session.execute(select(AuthRateLimit))).scalars().all()) == 10
+
+        allowed, state = await limiter.check_scoped(
+            session,
+            credential="fresh",
+            client_signal="198.51.100.2",
+            now=now + timedelta(minutes=31),
+        )
+        assert allowed is True
+        limiter.record_scoped_failure(
+            session,
+            state=state,
+            now=now + timedelta(minutes=31),
+        )
+        await session.commit()
+        assert len((await session.execute(select(AuthRateLimit))).scalars().all()) == 3
+
+
+async def test_global_rate_bucket_bounds_rows_across_rotating_clients_and_credentials(
+    test_sessionmaker,
+):
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    limiter = AuthRateLimiter(
+        hmac_secret=HMAC_SECRET,
+        max_attempts=2,
+        window=timedelta(minutes=15),
+        block_for=timedelta(minutes=15),
+    )
+    async with test_sessionmaker() as session:
+        for attempt in range(40):
+            allowed, state = await limiter.check_scoped(
+                session,
+                credential=f"credential-{attempt}",
+                client_signal=f"198.51.100.{attempt}",
+                now=now,
+            )
+            assert allowed is True
+            limiter.record_scoped_failure(session, state=state, now=now)
+            await session.commit()
+        allowed, _state = await limiter.check_scoped(
+            session,
+            credential="credential-blocked",
+            client_signal="203.0.113.1",
+            now=now,
+        )
+        assert allowed is False
+        assert len((await session.execute(select(AuthRateLimit))).scalars().all()) == 81
+
+
+async def test_stale_rate_limit_pruning_is_serialized_with_concurrent_updates(
+    test_sessionmaker,
+):
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    limiter = AuthRateLimiter(
+        hmac_secret=HMAC_SECRET,
+        max_attempts=2,
+        window=timedelta(minutes=15),
+        block_for=timedelta(minutes=15),
+    )
+    async with test_sessionmaker() as session:
+        allowed, state = await limiter.check_scoped(
+            session,
+            credential="stale",
+            client_signal="198.51.100.1",
+            now=now,
+        )
+        assert allowed is True
+        limiter.record_scoped_failure(session, state=state, now=now)
+        await session.commit()
+
+    async def refresh(attempt: int) -> None:
+        async with test_sessionmaker() as session:
+            allowed, state = await limiter.check_scoped(
+                session,
+                credential=f"fresh-{attempt}",
+                client_signal=f"203.0.113.{attempt}",
+                now=now + timedelta(minutes=31),
+            )
+            assert allowed is True
+            limiter.record_scoped_failure(
+                session,
+                state=state,
+                now=now + timedelta(minutes=31),
+            )
+            await session.commit()
+
+    await asyncio.gather(refresh(1), refresh(2))
+    async with test_sessionmaker() as session:
+        assert len((await session.execute(select(AuthRateLimit))).scalars().all()) == 5
 
 
 async def test_session_persists_only_hmac_and_honors_idle_and_absolute_expiry(test_sessionmaker):

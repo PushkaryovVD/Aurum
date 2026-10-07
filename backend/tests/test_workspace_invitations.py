@@ -3,6 +3,7 @@ import asyncio
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from http.cookies import SimpleCookie
+import json
 from uuid import UUID
 
 import pytest
@@ -14,8 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_session
 from app.core.config import Settings
 from app.main import create_app
-from app.models.workspace import WorkspaceInvitation, WorkspaceMembership, WorkspaceRole
+from app.models.auth import AuthRateLimit, SecurityAuditEvent
+from app.models.workspace import User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceRole
 from app.security.auth import capability_hmac
+from app.services.workspace_service import (
+    InvitationUnavailable,
+    create_invitation,
+    lock_available_invitation,
+)
 from tests.test_auth_api import HMAC_SECRET, PASSWORD, _bootstrap_user
 
 
@@ -59,6 +66,7 @@ async def _login(client: AsyncClient, identifier: str) -> tuple[str, str]:
     response = await client.post(
         "/auth/session",
         json={"identifier": identifier, "password": PASSWORD},
+        headers=ORIGIN_HEADERS,
     )
     assert response.status_code == 200, response.text
     cookie = SimpleCookie()
@@ -129,6 +137,122 @@ async def test_owner_household_and_invitation_persist_only_recipient_and_token_h
         assert invitation["token"].encode() not in bytes(record.token_hmac)
         assert record.max_uses == 1
         assert record.uses == 0
+
+
+@pytest.mark.parametrize("recipient", ["member\x00@example.com", "\ufb03" * 107])
+async def test_invitation_creation_rejects_postgres_incompatible_recipient(
+    invitation_client,
+    test_sessionmaker,
+    recipient,
+):
+    await _bootstrap_user(test_sessionmaker)
+    csrf_token, _ = await _login(invitation_client, "owner@example.com")
+    household_id = await _create_household(invitation_client, csrf_token)
+    response = await invitation_client.post(
+        f"/workspaces/{household_id}/invitations",
+        json={"recipient": recipient, "role": "viewer", "expires_in_seconds": 3600},
+        headers={**ORIGIN_HEADERS, "X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 409
+    async with test_sessionmaker() as session:
+        assert not (await session.execute(select(WorkspaceInvitation))).scalars().all()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"recipient": 1, "role": "viewer"},
+        {"recipient": "member@example.com", "role": "owner"},
+        {"recipient": "member@example.com", "role": "viewer", "expires_in_seconds": True},
+    ],
+)
+async def test_invitation_creation_schema_failures_are_audited(
+    invitation_client, test_sessionmaker, payload
+):
+    await _bootstrap_user(test_sessionmaker)
+    csrf_token, _ = await _login(invitation_client, "owner@example.com")
+    household_id = await _create_household(invitation_client, csrf_token)
+    response = await invitation_client.post(
+        f"/workspaces/{household_id}/invitations",
+        json=payload,
+        headers={**ORIGIN_HEADERS, "X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 422
+    async with test_sessionmaker() as session:
+        audit = (
+            await session.execute(
+                select(SecurityAuditEvent).where(
+                    SecurityAuditEvent.event_type == "invitation_issued"
+                )
+            )
+        ).scalar_one()
+        assert audit.outcome == "failure"
+        assert not (await session.execute(select(WorkspaceInvitation))).scalars().all()
+
+
+async def test_invitation_service_enforces_expiry_and_token_bounds(
+    invitation_client,
+    test_sessionmaker,
+):
+    owner_id, _personal_id, _ = await _bootstrap_user(test_sessionmaker)
+    csrf_token, _ = await _login(invitation_client, "owner@example.com")
+    household_id = await _create_household(invitation_client, csrf_token)
+    async with test_sessionmaker() as session:
+        with pytest.raises(ValueError, match="expiry"):
+            await create_invitation(
+                session,
+                workspace_id=household_id,
+                creator_id=owner_id,
+                recipient="member@example.com",
+                role=WorkspaceRole.VIEWER,
+                expires_in_seconds=299,
+                hmac_secret=HMAC_SECRET,
+            )
+        for token in ("token\x00value", "x" * 1025, "\ud800"):
+            with pytest.raises(InvitationUnavailable):
+                await lock_available_invitation(
+                    session,
+                    raw_token=token,
+                    recipient="member@example.com",
+                    hmac_secret=HMAC_SECRET,
+                )
+
+
+async def test_authenticated_acceptance_rejects_non_utf8_token_generically_and_audits(
+    invitation_client,
+    test_sessionmaker,
+):
+    await _bootstrap_user(test_sessionmaker)
+    await _bootstrap_user(test_sessionmaker, identifier="member@example.com", display_name="Member")
+    owner_csrf, _ = await _login(invitation_client, "owner@example.com")
+    household_id = await _create_household(invitation_client, owner_csrf)
+    await _create_invitation(invitation_client, owner_csrf, household_id, "member@example.com")
+    member_csrf, _ = await _login(invitation_client, "member@example.com")
+    response = await invitation_client.post(
+        "/workspaces/invitations/accept",
+        content=b'{"token":"\\ud800"}',
+        headers={
+            "Content-Type": "application/json",
+            "Origin": "https://test",
+            "X-CSRF-Token": member_csrf,
+        },
+    )
+    assert response.status_code == 404
+    assert response.json() == GENERIC_INVITATION_ERROR
+    async with test_sessionmaker() as session:
+        invitation = (await session.execute(select(WorkspaceInvitation))).scalar_one()
+        assert invitation.uses == 0
+        audits = (
+            await session.execute(
+                select(SecurityAuditEvent).where(
+                    SecurityAuditEvent.event_type == "invitation_accepted",
+                    SecurityAuditEvent.outcome == "failure",
+                )
+            )
+        ).scalars().all()
+        assert len(audits) == 1
+        assert len((await session.execute(select(AuthRateLimit))).scalars().all()) == 3
 
 
 async def test_membership_admin_is_owner_only_and_personal_or_owner_membership_is_immutable(
@@ -266,6 +390,47 @@ async def test_existing_acceptance_requires_csrf_and_malformed_token_is_generic(
     assert malformed.status_code == 404
     assert malformed.json() == GENERIC_INVITATION_ERROR
 
+    async with test_sessionmaker() as session:
+        audits = (
+            await session.execute(
+                select(SecurityAuditEvent).where(
+                    SecurityAuditEvent.event_type == "invitation_accepted",
+                    SecurityAuditEvent.outcome == "failure",
+                )
+            )
+        ).scalars().all()
+        assert len(audits) == 2
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-32"])
+async def test_authenticated_acceptance_rejects_non_utf8_json_encoding_and_audits(
+    invitation_client, test_sessionmaker, encoding
+):
+    await _bootstrap_user(test_sessionmaker)
+    await _bootstrap_user(test_sessionmaker, identifier="member@example.com", display_name="Member")
+    csrf_token, _ = await _login(invitation_client, "member@example.com")
+    body = json.dumps({"token": "unknown-token"}).encode(encoding)
+    response = await invitation_client.post(
+        "/workspaces/invitations/accept",
+        content=body,
+        headers={
+            **ORIGIN_HEADERS,
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrf_token,
+        },
+    )
+    assert response.status_code == 404
+    assert response.json() == GENERIC_INVITATION_ERROR
+    async with test_sessionmaker() as session:
+        audit = (
+            await session.execute(
+                select(SecurityAuditEvent).where(
+                    SecurityAuditEvent.event_type == "invitation_accepted"
+                )
+            )
+        ).scalar_one()
+        assert audit.outcome == "failure"
+
 
 async def test_distinct_existing_account_invitations_race_to_one_membership(
     invitation_client,
@@ -314,8 +479,16 @@ async def test_distinct_existing_account_invitations_race_to_one_membership(
             )
         ).scalars().all()
         records = (await session.execute(select(WorkspaceInvitation))).scalars().all()
+        audits = (
+            await session.execute(
+                select(SecurityAuditEvent.outcome).where(
+                    SecurityAuditEvent.event_type == "invitation_accepted"
+                )
+            )
+        ).scalars().all()
         assert len(memberships) == 1
         assert sorted(record.uses for record in records) == [0, 1]
+        assert sorted(audits) == ["failure", "success"]
 
 
 async def test_public_acceptance_atomically_bootstraps_new_account_and_only_one_racer_wins(
@@ -341,8 +514,8 @@ async def test_public_acceptance_atomically_bootstraps_new_account_and_only_one_
     }
 
     first, second = await asyncio.gather(
-        invitation_client.post("/auth/invitations/accept", json=payload),
-        invitation_client.post("/auth/invitations/accept", json=payload),
+        invitation_client.post("/auth/invitations/accept", json=payload, headers=ORIGIN_HEADERS),
+        invitation_client.post("/auth/invitations/accept", json=payload, headers=ORIGIN_HEADERS),
     )
     assert sorted([first.status_code, second.status_code]) == [200, 404]
     failed = first if first.status_code == 404 else second
@@ -365,6 +538,168 @@ async def test_public_acceptance_atomically_bootstraps_new_account_and_only_one_
         record = (await session.execute(select(WorkspaceInvitation))).scalar_one()
         assert record.uses == 1
         assert record.accepted_at is not None
+
+
+async def test_public_acceptance_rejects_cross_origin_text_plain_without_consuming_invitation(
+    invitation_client,
+    test_sessionmaker,
+):
+    await _bootstrap_user(test_sessionmaker)
+    owner_csrf, _ = await _login(invitation_client, "owner@example.com")
+    household_id = await _create_household(invitation_client, owner_csrf)
+    invitation = await _create_invitation(
+        invitation_client,
+        owner_csrf,
+        household_id,
+        "new@example.com",
+        "viewer",
+    )
+    invitation_client.cookies.clear()
+    body = json.dumps(
+        {
+            "token": invitation["token"],
+            "identifier": "new@example.com",
+            "display_name": "New Member",
+            "password": PASSWORD,
+        }
+    )
+    rejected = await invitation_client.post(
+        "/auth/invitations/accept",
+        content=body,
+        headers={"Content-Type": "text/plain", "Origin": "https://evil.example"},
+    )
+    assert rejected.status_code == 404
+    async with test_sessionmaker() as session:
+        assert (await session.execute(select(WorkspaceInvitation))).scalar_one().uses == 0
+        assert not (await session.execute(select(User).where(User.normalized_login == "new@example.com"))).scalars().all()
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-32"])
+async def test_public_acceptance_rejects_non_utf8_json_encoding_without_consuming_invitation(
+    invitation_client, test_sessionmaker, encoding
+):
+    await _bootstrap_user(test_sessionmaker)
+    owner_csrf, _ = await _login(invitation_client, "owner@example.com")
+    household_id = await _create_household(invitation_client, owner_csrf)
+    invitation = await _create_invitation(
+        invitation_client,
+        owner_csrf,
+        household_id,
+        "new@example.com",
+        "viewer",
+    )
+    invitation_client.cookies.clear()
+    body = json.dumps(
+        {
+            "token": invitation["token"],
+            "identifier": "new@example.com",
+            "display_name": "New Member",
+            "password": PASSWORD,
+        }
+    ).encode(encoding)
+    rejected = await invitation_client.post(
+        "/auth/invitations/accept",
+        content=body,
+        headers={"Content-Type": "application/json", **ORIGIN_HEADERS},
+    )
+    assert rejected.status_code == 404
+    assert rejected.json() == GENERIC_INVITATION_ERROR
+    async with test_sessionmaker() as session:
+        assert (await session.execute(select(WorkspaceInvitation))).scalar_one().uses == 0
+        assert not (
+            await session.execute(select(User).where(User.normalized_login == "new@example.com"))
+        ).scalars().all()
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"identifier": "new\x00@example.com"},
+        {"display_name": "New\x00Member"},
+        {"token": "valid\x00token"},
+        {"password": "valid-password\x00suffix"},
+        {"token": "\ud800"},
+        {"token": "\udfff"},
+        {"identifier": "new\ud800@example.com"},
+        {"identifier": "new\udfff@example.com"},
+        {"display_name": "New\ud800Member"},
+        {"display_name": "New\udfffMember"},
+        {"password": "valid-password\ud800"},
+        {"password": "valid-password\udfff"},
+    ],
+)
+async def test_public_acceptance_rejects_non_utf8_text_without_consuming_invitation(
+    invitation_client,
+    test_sessionmaker,
+    override,
+):
+    await _bootstrap_user(test_sessionmaker)
+    owner_csrf, _ = await _login(invitation_client, "owner@example.com")
+    household_id = await _create_household(invitation_client, owner_csrf)
+    invitation = await _create_invitation(
+        invitation_client,
+        owner_csrf,
+        household_id,
+        "new@example.com",
+        "viewer",
+    )
+    invitation_client.cookies.clear()
+
+    failed = await invitation_client.post(
+        "/auth/invitations/accept",
+        content=json.dumps(
+            {
+                "token": invitation["token"],
+                "identifier": "new@example.com",
+                "display_name": "New Member",
+                "password": PASSWORD,
+                **override,
+            },
+            ensure_ascii=True,
+        ).encode("ascii"),
+        headers={"Content-Type": "application/json", **ORIGIN_HEADERS},
+    )
+
+    assert failed.status_code == 404
+    assert failed.json() == GENERIC_INVITATION_ERROR
+    async with test_sessionmaker() as session:
+        record = (await session.execute(select(WorkspaceInvitation))).scalar_one()
+        assert record.uses == 0
+        assert not (
+            await session.execute(select(User).where(User.normalized_login == "new@example.com"))
+        ).scalars().all()
+        audit = (
+            await session.execute(
+                select(SecurityAuditEvent).where(
+                    SecurityAuditEvent.event_type == "invitation_accepted",
+                    SecurityAuditEvent.outcome == "failure",
+                )
+            )
+        ).scalar_one()
+        assert audit.actor_user_id is None
+
+    succeeded = await invitation_client.post(
+        "/auth/invitations/accept",
+        json={
+            "token": invitation["token"],
+            "identifier": "new@example.com",
+            "display_name": "N" * 100,
+            "password": PASSWORD,
+        },
+        headers=ORIGIN_HEADERS,
+    )
+    assert succeeded.status_code == 200, succeeded.text
+    async with test_sessionmaker() as session:
+        user = (
+            await session.execute(select(User).where(User.normalized_login == "new@example.com"))
+        ).scalar_one()
+        workspace = (
+            await session.execute(
+                select(Workspace).where(Workspace.personal_owner_user_id == user.id)
+            )
+        ).scalar_one()
+        assert len(user.display_name) == 100
+        assert len(workspace.display_name) <= 100
 
 
 @pytest.mark.parametrize("state", ["expired", "revoked", "used"])

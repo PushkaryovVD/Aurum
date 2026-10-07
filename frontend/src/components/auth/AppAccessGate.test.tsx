@@ -14,8 +14,9 @@ const finance = vi.fn();
 let root: Root;
 let container: HTMLDivElement;
 let client: QueryClient;
-const disabled = { app_auth_required: false, finance_access_ready: false, session_transport: "https_or_loopback" };
-const required = { ...disabled, app_auth_required: true };
+const disabled = { app_auth_required: false, finance_access_ready: true, session_transport: "https_or_loopback", initial_owner_bootstrap_required: false, initial_owner_bootstrap_available: false };
+const required = { ...disabled, app_auth_required: true, finance_access_ready: false };
+const initialOwnerRequired = { ...required, initial_owner_bootstrap_required: true, initial_owner_bootstrap_available: true };
 const session = { user: { id: "test-user", identifier: "test-only", display_name: "Test user" }, csrf_token: "test-only-csrf", workspaces: [], active_workspace: {} };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 function Finance() { useEffect(() => { finance(); }, []); return <div>FINANCE</div>; }
@@ -53,7 +54,7 @@ it("disabled login never submits credentials or mounts finance", async () => {
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(finance).not.toHaveBeenCalled();
 });
-it.each([null, {}, { ...disabled, app_auth_required: "false" }, { ...disabled, finance_access_ready: true }])("fails closed for malformed mode %j", async (body) => {
+it.each([null, {}, { ...disabled, app_auth_required: "false" }, { ...disabled, finance_access_ready: false }])("fails closed for malformed mode %j", async (body) => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply(body)));
   await render();
   expect(finance).not.toHaveBeenCalled();
@@ -75,6 +76,44 @@ it("required mode resolves identity and never mounts finance on any protected ro
   expect(container.textContent).toContain("Financial space is not open yet");
   expect(container.querySelector('a[href="/"]')).toBeNull();
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual(["/api/auth/status", "/api/auth/me"]);
+});
+it("initial-owner setup refreshes status, verifies its server session, and never opens finance", async () => {
+  const persist = vi.spyOn(Storage.prototype, "setItem");
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(reply(initialOwnerRequired))
+    .mockResolvedValueOnce(reply(session))
+    .mockResolvedValueOnce(reply(required))
+    .mockResolvedValueOnce(reply(session));
+  vi.stubGlobal("fetch", fetcher);
+  await render("/login");
+  expect(container.textContent).toContain("Initial owner setup");
+  expect(container.textContent).toContain("backend startup logs");
+  const form = container.querySelector("form")!;
+  form.querySelector<HTMLInputElement>('[name="bootstrap_code"]')!.value = "one-time-test-code";
+  form.querySelector<HTMLInputElement>('[name="display_name"]')!.value = "Test owner";
+  form.querySelector<HTMLInputElement>('[name="identifier"]')!.value = "owner@example.com";
+  form.querySelector<HTMLInputElement>('[name="password"]')!.value = "correct horse battery staple";
+  await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  expect(fetcher.mock.calls[1][0]).toBe("/api/auth/bootstrap/initial-owner");
+  expect(fetcher.mock.calls[1][1]).toMatchObject({ method: "POST", credentials: "same-origin", cache: "no-store" });
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+    bootstrap_code: "one-time-test-code",
+    display_name: "Test owner",
+    identifier: "owner@example.com",
+    password: "correct horse battery staple",
+  });
+  expect(fetcher.mock.calls.slice(2).map(([path]) => path)).toEqual(["/api/auth/status", "/api/auth/me"]);
+  expect(container.textContent).toContain("Session confirmed");
+  expect(container.querySelector<HTMLInputElement>('[name="bootstrap_code"]')).toBeNull();
+  expect(finance).not.toHaveBeenCalled();
+  expect(persist).not.toHaveBeenCalled();
+});
+it("expired initial-owner setup stays fail-closed and tells the operator to restart backend", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply({ ...initialOwnerRequired, initial_owner_bootstrap_available: false })));
+  await render("/login");
+  expect(container.textContent).toContain("The setup code has expired");
+  expect(container.querySelector<HTMLInputElement>('[name="bootstrap_code"]')?.disabled).toBe(true);
+  expect(finance).not.toHaveBeenCalled();
 });
 it.each([403, 503])("session check HTTP %s disables credential submission", async (status) => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(required)).mockResolvedValueOnce(reply({}, status)));

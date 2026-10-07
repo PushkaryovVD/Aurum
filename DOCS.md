@@ -1,17 +1,18 @@
 # Aurum API Documentation
 
-Aurum exposes the same REST API its own frontend uses. Every action available in the UI — adding a
-transaction, creating an account, tagging an expense, importing a CSV statement, tracking an asset,
-setting a budget — can be done directly over HTTP. This makes it possible to script Aurum, feed it
-from another program (a bank-sync job, a bot, a shortcut on your phone), or pull your data into your
-own tools.
+This file is the reference for Aurum's financial REST API. The default
+first-owner deployment enables required application authentication and keeps
+these financial routes readiness-blocked with `503`; it does not yet expose a
+usable authenticated financial API. The endpoints below are available only in
+explicit legacy auth-disabled mode.
 
 There is no SDK — it's a plain JSON REST API, callable with `curl`, any HTTP client library, or tools
 like Postman/Insomnia.
 
-> Interactive, always-up-to-date docs are also built into the backend itself: once your instance is
-> running, open `http://<host>:<port>/api/docs` (Swagger UI) or `http://<host>:<port>/api/redoc`
-> (ReDoc) for a live, "try it out" version of everything below.
+> Swagger UI, ReDoc and OpenAPI are suppressed whenever required application
+> authentication is enabled. In explicit legacy auth-disabled mode, when
+> `AURUM_ENABLE_DOCS=true`, they are available at `/api/docs`, `/api/redoc` and
+> `/api/openapi.json` respectively.
 
 ## Table of Contents
 
@@ -52,12 +53,14 @@ this base URL — e.g. `GET /transactions` means `GET http://localhost:3000/api/
 
 ### Auth
 
-Aurum has no built-in login system or API keys — it's designed for one person to self-host one
-private instance. Access control is whatever you put in front of it:
+Aurum has an invite-only application identity/session layer and a one-time
+first-owner ceremony. This release still blocks financial routes whenever that
+application authentication is required. For compatibility, an operator may
+explicitly select legacy auth-disabled mode; only then do the financial API
+examples below apply:
 
-- **Nothing set:** if `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` are empty in `.env`
-  (the default), the API is completely open to anyone who can reach the host — no credentials
-  needed. Fine for `localhost`-only or a private network; **not** fine on the public internet.
+- **Legacy auth-disabled without Basic Auth:** the financial API is open to
+  anyone who can reach the host. Keep this combination loopback-only.
 - **HTTP Basic Auth:** set both `AURUM_BASIC_AUTH_USER` and `AURUM_BASIC_AUTH_PASSWORD` in `.env`; nginx protects the entire site and the browser shows its native login prompt
   and restart (`docker compose up -d`). Every request — UI and API alike — then requires an
   `Authorization: Basic <base64(user:password)>` header, or the equivalent `-u user:password` flag
@@ -74,8 +77,9 @@ curl -u myuser:mypassword http://localhost:3000/api/accounts
 `GET /api/health` is always open (no auth), even with Basic Auth configured — it exists for Docker
 healthchecks and uptime monitors.
 
-There's no per-endpoint permission model beyond this: whoever can authenticate can read, create,
-update, and delete everything.
+Basic Auth is only an outer perimeter and does not identify an Aurum user. In
+legacy auth-disabled mode, anyone through that perimeter can use all financial
+routes; required-auth mode returns `503` for them regardless of Basic Auth.
 
 ## Conventions
 
@@ -295,8 +299,10 @@ the same document into a *different* account still works.
 
 Categories classify transactions as income or expense, with one optional level of subcategories
 (a subcategory's `parent_id` points at a top-level category of the *same* kind — no deeper nesting).
-A handful of default categories are seeded on first run and can't be deleted (`is_default: true`),
-though they can be renamed, recolored, and reordered.
+In legacy auth-disabled mode, a handful of default categories are seeded on first
+run and can't be deleted (`is_default: true`), though they can be renamed,
+recolored, and reordered. Required-auth first-owner setup instead creates defaults
+only inside the new private workspace, while financial routes remain readiness-blocked.
 
 **`CategoryKind`:** `income` · `expense`
 

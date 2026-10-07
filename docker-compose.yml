@@ -20,6 +20,26 @@ x-casaos:
   version: 1.1.8
 
 services:
+  auth-key-init:
+    image: alpine:3.22
+    restart: "no"
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        if [ ! -s /run/aurum-secrets/auth_hmac_secret ]; then
+          head -c 48 /dev/urandom | base64 | tr -d '\n' > /run/aurum-secrets/auth_hmac_secret
+        fi
+        chown 10001:10001 /run/aurum-secrets/auth_hmac_secret
+        chmod 0400 /run/aurum-secrets/auth_hmac_secret
+    volumes:
+      - aurum_auth_secrets:/run/aurum-secrets
+    networks:
+      aurum_internal:
+        ipv4_address: 172.31.254.6
+
   db:
     image: postgres:16-alpine
     container_name: aurum-db
@@ -42,6 +62,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      aurum_internal:
+        ipv4_address: 172.31.254.2
 
   backend:
     # CasaOS requires a pullable image/tag even when local Docker Compose also
@@ -70,9 +93,14 @@ services:
       # tab's price sync 400s with a clear message until this is set.
       AURUM_COINGECKO_API_KEY: ${AURUM_COINGECKO_API_KEY:-}
       AURUM_ENABLE_DOCS: ${AURUM_ENABLE_DOCS:-true}
-      AURUM_APP_AUTH_REQUIRED: ${AURUM_APP_AUTH_REQUIRED:-false}
+      # The develop/test deployment must expose the first-owner ceremony
+      # without asking the operator to edit CasaOS environment fields.
+      AURUM_APP_AUTH_REQUIRED: ${AURUM_APP_AUTH_REQUIRED:-true}
       AURUM_ENVIRONMENT: ${AURUM_ENVIRONMENT:-development}
       AURUM_AUTH_HMAC_SECRET: ${AURUM_AUTH_HMAC_SECRET:-}
+      AURUM_AUTH_HMAC_SECRET_FILE: /run/aurum-secrets/auth_hmac_secret
+      AURUM_AUTH_TRUSTED_PROXY_CIDRS: 172.31.254.3/32
+      AURUM_AUTH_LOOPBACK_CLIENT_CIDRS: 127.0.0.0/8,::1/128,172.31.254.1/32
       AURUM_AUTH_SESSION_IDLE_SECONDS: ${AURUM_AUTH_SESSION_IDLE_SECONDS:-1800}
       AURUM_AUTH_SESSION_ABSOLUTE_SECONDS: ${AURUM_AUTH_SESSION_ABSOLUTE_SECONDS:-604800}
       AURUM_AUTH_ARGON2_MEMORY_KIB: ${AURUM_AUTH_ARGON2_MEMORY_KIB:-65536}
@@ -81,9 +109,17 @@ services:
       AURUM_AUTH_LOGIN_MAX_ATTEMPTS: ${AURUM_AUTH_LOGIN_MAX_ATTEMPTS:-5}
       AURUM_AUTH_LOGIN_WINDOW_SECONDS: ${AURUM_AUTH_LOGIN_WINDOW_SECONDS:-900}
       AURUM_AUTH_LOGIN_BLOCK_SECONDS: ${AURUM_AUTH_LOGIN_BLOCK_SECONDS:-900}
+      AURUM_INITIAL_OWNER_BOOTSTRAP_TTL_SECONDS: ${AURUM_INITIAL_OWNER_BOOTSTRAP_TTL_SECONDS:-900}
+    volumes:
+      - aurum_auth_secrets:/run/aurum-secrets:ro
     depends_on:
+      auth-key-init:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
+    networks:
+      aurum_internal:
+        ipv4_address: 172.31.254.4
 
   web:
     # See backend: CasaOS needs a pullable image reference in addition to build.
@@ -98,14 +134,14 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      # Bound to loopback by default: published as "3000:80" the app answers
-      # on every interface, so anyone on the same Wi-Fi reaches it — and by
-      # default there is no password on it at all (see 20-basic-auth.sh).
+      # Bound to loopback by default. Application identity remains enabled by
+      # default; Basic Auth is an optional additional deployment perimeter.
       # Set AURUM_BIND_ADDRESS=0.0.0.0 to reach it from other devices, but
       # set AURUM_BASIC_AUTH_USER/PASSWORD before you do.
       - "${AURUM_BIND_ADDRESS:-127.0.0.1}:${AURUM_WEB_PORT:-3000}:80"
     environment:
-      # Both unset = no login screen at all. See frontend/docker-entrypoint.d/20-basic-auth.sh.
+      # Both unset = no browser-native Basic Auth perimeter. Aurum's /login and
+      # first-owner flow remain controlled independently by the backend.
       AURUM_BASIC_AUTH_USER: ${AURUM_BASIC_AUTH_USER:-}
       AURUM_BASIC_AUTH_PASSWORD: ${AURUM_BASIC_AUTH_PASSWORD:-}
       # Hostnames this instance answers to — anything else gets a 421.
@@ -113,6 +149,17 @@ services:
       AURUM_ALLOWED_HOSTS: ${AURUM_ALLOWED_HOSTS:-localhost 127.0.0.1}
     depends_on:
       - backend
+    networks:
+      aurum_internal:
+        ipv4_address: 172.31.254.3
 
 volumes:
   aurum_pgdata:
+  aurum_auth_secrets:
+
+networks:
+  aurum_internal:
+    ipam:
+      config:
+        - subnet: 172.31.254.0/29
+          gateway: 172.31.254.1

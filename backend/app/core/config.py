@@ -1,6 +1,7 @@
 """Application configuration, sourced from environment variables (.env)."""
 from datetime import timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
@@ -39,12 +40,9 @@ class Settings(BaseSettings):
     # rather than silently hitting CoinGecko's much stingier keyless tier.
     coingecko_api_key: str = ""
 
-    # Swagger/ReDoc/openapi.json at /api/docs. On by default because the API
-    # is a documented feature of this app (see DOCS.md), and because when
-    # basic auth is configured these sit behind it like everything else under
-    # /api/. Turn it off on an instance that's reachable from the internet
-    # *without* basic auth: an open /api/openapi.json is a complete,
-    # machine-readable map of every endpoint and payload shape.
+    # Swagger/ReDoc/openapi.json opt-in for legacy auth-disabled mode. The
+    # docs_enabled property below always suppresses them when application auth
+    # is required, regardless of this compatibility default.
     enable_docs: bool = True
 
     # Authentication remains opt-in so this bounded slice cannot unexpectedly
@@ -53,6 +51,18 @@ class Settings(BaseSettings):
 
     environment: Literal["development", "test", "production"] = "development"
     auth_hmac_secret: SecretStr = SecretStr("")
+    # Compose provisions this installation-owned file automatically in a
+    # private named volume. It lets first-owner setup work without asking an
+    # operator to edit an environment file, while keeping the key outside the
+    # database and application logs.
+    auth_hmac_secret_file: str = ""
+    # Forwarded transport/client headers are accepted only from the exact
+    # static address assigned to the shipped nginx proxy. Other containers
+    # and direct LAN clients cannot declare their own request secure.
+    auth_trusted_proxy_cidrs: str = "172.31.254.3/32"
+    # Host-originated traffic reaches nginx through the fixed bridge gateway;
+    # these are the only client addresses treated as loopback HTTP.
+    auth_loopback_client_cidrs: str = "127.0.0.0/8,::1/128,172.31.254.1/32"
     auth_session_idle_seconds: int = Field(default=1800, ge=60, le=86400)
     auth_session_absolute_seconds: int = Field(default=604800, ge=300, le=2592000)
     auth_argon2_memory_kib: int = Field(default=65536, ge=8192, le=1048576)
@@ -66,9 +76,16 @@ class Settings(BaseSettings):
     auth_invitation_max_attempts: int = Field(default=10, ge=1, le=100)
     auth_invitation_window_seconds: int = Field(default=900, ge=60, le=86400)
     auth_invitation_block_seconds: int = Field(default=900, ge=60, le=86400)
+    initial_owner_bootstrap_ttl_seconds: int = Field(default=900, ge=60, le=86400)
 
     @model_validator(mode="after")
     def validate_auth_security(self) -> "Settings":
+        if not self.auth_hmac_secret.get_secret_value() and self.auth_hmac_secret_file:
+            try:
+                secret = Path(self.auth_hmac_secret_file).read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise ValueError("authentication HMAC secret file is unavailable") from exc
+            self.auth_hmac_secret = SecretStr(secret)
         if self.auth_session_idle_seconds > self.auth_session_absolute_seconds:
             raise ValueError("session idle lifetime must not exceed absolute lifetime")
 
@@ -105,6 +122,14 @@ class Settings(BaseSettings):
         if self.cors_origins == "*":
             return ["*"]
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def auth_trusted_proxy_cidrs_list(self) -> list[str]:
+        return [cidr.strip() for cidr in self.auth_trusted_proxy_cidrs.split(",") if cidr.strip()]
+
+    @property
+    def auth_loopback_client_cidrs_list(self) -> list[str]:
+        return [cidr.strip() for cidr in self.auth_loopback_client_cidrs.split(",") if cidr.strip()]
 
     @property
     def auth_session_idle_lifetime(self) -> timedelta:

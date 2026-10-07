@@ -19,5 +19,7 @@
 	# plain-HTTP installs too, and lock them out of their own instance.
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
-	reverse_proxy web:80
+	reverse_proxy web:8080 {
+		header_up X-Real-IP {remote_host}
+	}
 }

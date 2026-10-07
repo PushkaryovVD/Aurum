@@ -24,11 +24,11 @@ For reproducible rollout, set `AURUM_BACKEND_IMAGE` and `AURUM_WEB_IMAGE` to the
 
 ## Existing-installation safety
 
-### Intermediate publication checkpoint — 2026-10-04
+### First-owner authentication checkpoint — 2026-10-06
 
-This checkpoint does not activate application authentication or provide complete
-multi-user isolation. Keep `AURUM_APP_AUTH_REQUIRED` disabled: remaining financial
-families and initial-account bootstrap/onboarding are not yet complete. Existing
+Develop/test Compose activates application authentication and the first-owner
+ceremony without an operator environment edit. This checkpoint still does not
+activate financial access or claim complete multi-user isolation. Existing
 outer-perimeter authentication is a separate configuration and is not changed.
 
 ### Login/access surface (bounded frontend slice)
@@ -43,12 +43,20 @@ uses the browser's prompt and remains an independent outer perimeter.
 The frontend first reads `GET /api/auth/status` (`Cache-Control: no-store`). A
 missing, failed, or malformed response blocks the UI rather than assuming a
 legacy permissive mode. Backend and frontend must therefore be upgraded as a
-matched pair. The endpoint exposes only mode/transport metadata and always
-returns `finance_access_ready: false`; it does not reveal account existence,
-secrets, or database readiness.
+matched pair. The endpoint reports finance ready only for legacy auth-disabled
+mode; required-auth mode remains false. Its initial-owner flags intentionally
+reveal whether the one-time setup ceremony is required/available, but never a
+code, identifier, secret, or financial database state.
 
-For an already explicitly enabled backend with an already provisioned account,
-the entry page can establish and revoke an identity session using the existing
+The develop/test Compose enables application authentication by default. On an
+installation with no users, backend startup creates a single expiring setup
+capability, persists only its HMAC, and emits the raw one-time code once in the
+backend startup log after commit. The `/login` entry page consumes that code to
+create the first owner, personal workspace, scoped defaults and opaque session.
+No environment-supplied bootstrap secret is required.
+
+After bootstrap, the entry page can establish and revoke an identity session
+using the existing
 `POST /api/auth/session`, `GET /api/auth/me`, and `DELETE /api/auth/session`
 contract. There are no `/api/auth/login` or `/api/auth/logout` routes in this
 version. The UI verifies session mutations by reading `/me` afterwards, retains
@@ -56,27 +64,26 @@ CSRF only in memory, and clears query cache on identity changes/logout. It does
 not persist passwords, session capabilities, or CSRF in browser storage.
 
 HTTPS is required for production session cookies. Non-production entry allows
-plain HTTP only on exact loopback hosts (`localhost`, `127.0.0.1`, `[::1]`), not
-on a LAN address. Configure TLS and the trusted reverse proxy separately; an
-HTTPS frontend does not by itself prove the operator's proxy configuration is
-correct. A missing/invalid cookie remains a failed session check, not success.
+plain HTTP only when the actual network peer is loopback, not merely when a
+client-controlled `Host` header names localhost. The shipped TLS overlay sends
+trusted transport metadata through nginx's un-published internal port; the
+public HTTP port ignores browser-supplied forwarding headers. A missing/invalid
+cookie remains a failed session check, not success.
 
-When `app_auth_required` is true, **all financial UI, settings queries, and
-financial routes remain unmounted**, including after successful sign-in. The
-screen explains that financial isolation and initial administrator account
-bootstrap are incomplete. There is no public registration, reset, bootstrap,
-or workspace picker in this slice. This frontend gate is not a substitute for
-complete server-side authorization: do not enable application authentication
-for normal financial use or claim complete multi-user security.
+When `app_auth_required` is true, **all financial UI and API routes remain
+server-side unavailable**, including after successful sign-in. The routers stay
+registered for stable URL contracts, but a global backend readiness dependency
+returns `503 Financial access is not ready` before route logic or mutations run.
+There is no public registration or password reset; first-owner bootstrap is a
+one-time operator-controlled ceremony only. Do not claim complete multi-user
+financial security until the separate finance-readiness review is complete.
 
-Before a future activation: finish and verify workspace isolation across every
-financial family (including global insights), provide a reviewed administrator
-bootstrap/onboarding procedure, verify production TLS/cookie/CSRF behavior,
+Before a future finance activation: verify production TLS/cookie/CSRF behavior
 and separately review finance-readiness activation in both backend and client.
-No deployment defaults, Compose files, environment templates, or migrations
-are changed by this login/access slice. An image-only Compose artifact may be
-derived from the canonical definition for operator delivery; do not maintain
-a second hand-edited canonical configuration.
+The disposable PostgreSQL runtime used by integration tests is never a
+deployment setting and is absent from Compose and `.env.example`. An image-only
+Compose artifact may be derived from the canonical definition for operator
+delivery; do not maintain a second hand-edited canonical configuration.
 
 ### Migration and installation safeguards
 
@@ -97,16 +104,21 @@ retain the database and investigate the relationship; do not clear tables,
 invent an owner, disable guards, or transfer ownership to force an upgrade.
 
 This is upgrade compatibility, not auth activation or application-wide
-isolation. This repair does not change the installation's auth setting:
-`finance_access_ready` remains false, and required-auth mode continues to block
-financial access even after login. Do not disable required authentication on a
-LAN-exposed instance without an appropriate perimeter just to bypass that block.
+isolation. This repair does not change the installation's auth setting. In
+required-auth mode, `finance_access_ready` remains false and financial access
+stays blocked even after login; legacy auth-disabled mode reports readiness true.
+Do not disable required authentication on a LAN-exposed instance without an
+appropriate perimeter just to bypass that block.
 
 Before applying the first corrected Compose definition, confirm the project name, container names, database major version, and the actual PostgreSQL volume used by the current installation. Keeping the volume declaration text unchanged does not prove that a renamed Compose project will use the same physical volume. Do not delete/reinstall the CasaOS app as an automatic recovery step.
 
 Never run `docker compose down -v` for an update. Do not switch an existing PostgreSQL data directory to another major version without a separate migration plan.
 
-The default port bind is loopback. LAN/mobile exposure requires deliberate allowed-host and authentication configuration; do not silently broaden the bind address. Authentication is not enabled by this image-deployment procedure. Enabling application authentication is a separate rollout requiring a provisioned account, session secret, and usable login flow.
+The default port bind is loopback. LAN/mobile exposure requires deliberate
+allowed-host, TLS and perimeter-authentication configuration; do not silently
+broaden the bind address. Develop/test Compose enables application authentication,
+provisions its HMAC material and presents the first-owner flow automatically.
+Financial APIs remain backend-blocked in that required-auth mode.
 
 ## CasaOS import
 

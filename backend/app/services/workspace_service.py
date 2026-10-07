@@ -1,13 +1,19 @@
 """Transactional household workspace and invitation operations."""
 from datetime import UTC, datetime, timedelta
+import hmac
 import secrets
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.identity import normalize_identifier
+from app.core.identity import (
+    is_safe_text,
+    valid_display_name,
+    valid_normalized_identifier,
+)
 from app.db.seed import add_workspace_defaults
+from app.models.auth import InitialOwnerBootstrap
 from app.models.workspace import (
     User,
     Workspace,
@@ -21,6 +27,66 @@ from app.security.auth import capability_hmac
 
 class InvitationUnavailable(Exception):
     """Non-disclosing invitation failure used by both acceptance paths."""
+
+
+class FirstOwnerBootstrapUnavailable(Exception):
+    """The one-time first-owner setup code cannot be consumed."""
+
+
+PRIVATE_WORKSPACE_SUFFIX = "'s private workspace"
+MAX_WORKSPACE_DISPLAY_NAME_LENGTH = 100
+
+
+def private_workspace_display_name(owner_display_name: str) -> str:
+    """Derive a personal-workspace label within the database bound."""
+    prefix_length = MAX_WORKSPACE_DISPLAY_NAME_LENGTH - len(PRIVATE_WORKSPACE_SUFFIX)
+    return f"{owner_display_name[:prefix_length]}{PRIVATE_WORKSPACE_SUFFIX}"
+
+
+def initial_owner_code_hmac(hmac_secret: str, raw_code: str) -> bytes:
+    """Bind the generated setup capability to the installation's HMAC key."""
+    return capability_hmac(hmac_secret, raw_code)
+
+
+async def issue_initial_owner_bootstrap_code(
+    session: AsyncSession, *, hmac_secret: str, expires_in: timedelta
+) -> str | None:
+    """Create a pending expiring code while no user exists, without revealing it later."""
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext('aurum:first-owner-bootstrap:v1'))"))
+    if (await session.execute(select(User.id).limit(1))).scalar_one_or_none() is not None:
+        return None
+    record = await session.get(InitialOwnerBootstrap, 1, with_for_update=True)
+    if record is not None:
+        if record.expires_at > datetime.now(UTC):
+            return None
+        await session.delete(record)
+        await session.flush()
+    raw_code = secrets.token_urlsafe(32)
+    session.add(
+        InitialOwnerBootstrap(
+            id=1,
+            code_hmac=initial_owner_code_hmac(hmac_secret, raw_code),
+            expires_at=datetime.now(UTC) + expires_in,
+        )
+    )
+    await session.flush()
+    return raw_code
+
+
+async def initial_owner_bootstrap_required(session: AsyncSession, *, app_auth_required: bool) -> bool:
+    if not app_auth_required:
+        return False
+    if (await session.execute(select(User.id).limit(1))).scalar_one_or_none() is not None:
+        return False
+    return True
+
+
+async def initial_owner_bootstrap_available(session: AsyncSession, *, app_auth_required: bool) -> bool:
+    """Report whether a non-expired setup capability currently exists."""
+    if not await initial_owner_bootstrap_required(session, app_auth_required=app_auth_required):
+        return False
+    record = await session.get(InitialOwnerBootstrap, 1)
+    return record is not None and record.expires_at > datetime.now(UTC)
 
 
 async def require_household_owner(
@@ -99,9 +165,11 @@ async def create_invitation(
     )
     if role not in {WorkspaceRole.EDITOR, WorkspaceRole.VIEWER}:
         raise ValueError("invitation role must be editor or viewer")
-    normalized_recipient = normalize_identifier(recipient)
-    if not normalized_recipient:
-        raise ValueError("invitation recipient must not be blank")
+    if not 300 <= expires_in_seconds <= 2_592_000:
+        raise ValueError("invitation expiry is invalid")
+    normalized_recipient = valid_normalized_identifier(recipient)
+    if normalized_recipient is None:
+        raise ValueError("invitation recipient is invalid")
     raw_token = secrets.token_urlsafe(32)
     record = WorkspaceInvitation(
         workspace_id=workspace_id,
@@ -123,6 +191,12 @@ async def lock_available_invitation(
     recipient: str,
     hmac_secret: str,
 ) -> WorkspaceInvitation:
+    normalized_recipient = valid_normalized_identifier(recipient)
+    if (
+        not is_safe_text(raw_token, min_length=1, max_length=1024)
+        or normalized_recipient is None
+    ):
+        raise InvitationUnavailable
     record = (
         await session.execute(
             select(WorkspaceInvitation)
@@ -133,7 +207,7 @@ async def lock_available_invitation(
     now = datetime.now(UTC)
     if (
         record is None
-        or record.recipient_normalized != normalize_identifier(recipient)
+        or record.recipient_normalized != normalized_recipient
         or record.revoked_at is not None
         or record.expires_at <= now
         or record.uses >= record.max_uses
@@ -193,7 +267,12 @@ async def bootstrap_invited_user(
     hmac_secret: str,
     default_currency: str = "KZT",
 ) -> tuple[User, WorkspaceInvitation]:
-    normalized = normalize_identifier(identifier)
+    if not is_safe_text(raw_token, min_length=1, max_length=1024):
+        raise InvitationUnavailable
+    normalized = valid_normalized_identifier(identifier)
+    safe_display_name = valid_display_name(display_name)
+    if normalized is None or safe_display_name is None:
+        raise InvitationUnavailable
     invitation = await lock_available_invitation(
         session,
         raw_token=raw_token,
@@ -205,14 +284,14 @@ async def bootstrap_invited_user(
 
     user = User(
         normalized_login=normalized,
-        display_name=display_name.strip(),
+        display_name=safe_display_name,
         password_hash=password_hash,
     )
     session.add(user)
     await session.flush()
     personal = Workspace(
         kind=WorkspaceKind.PERSONAL,
-        display_name=f"{user.display_name}'s private workspace",
+        display_name=private_workspace_display_name(user.display_name),
         created_by_user_id=user.id,
         personal_owner_user_id=user.id,
     )
@@ -239,3 +318,50 @@ async def bootstrap_invited_user(
     invitation.accepted_at = datetime.now(UTC)
     await session.flush()
     return user, invitation
+
+
+async def bootstrap_first_owner(
+    session: AsyncSession,
+    *,
+    raw_code: str,
+    identifier: str,
+    display_name: str,
+    password_hash: str,
+    default_currency: str,
+    hmac_secret: str,
+) -> User:
+    """Atomically consume the setup code without touching legacy NULL data."""
+    if not is_safe_text(raw_code, min_length=1, max_length=1024):
+        raise FirstOwnerBootstrapUnavailable
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext('aurum:first-owner-bootstrap:v1'))"))
+    record = await session.get(InitialOwnerBootstrap, 1, with_for_update=True)
+    if (
+        record is None
+        or not hmac.compare_digest(bytes(record.code_hmac), initial_owner_code_hmac(hmac_secret, raw_code))
+        or record.expires_at <= datetime.now(UTC)
+        or (await session.execute(select(User.id).limit(1))).scalar_one_or_none() is not None
+    ):
+        raise FirstOwnerBootstrapUnavailable
+
+    normalized = valid_normalized_identifier(identifier)
+    safe_display_name = valid_display_name(display_name)
+    if normalized is None or safe_display_name is None:
+        raise FirstOwnerBootstrapUnavailable
+
+    user = User(normalized_login=normalized, display_name=safe_display_name, password_hash=password_hash)
+    session.add(user)
+    await session.flush()
+    workspace = Workspace(
+        kind=WorkspaceKind.PERSONAL,
+        display_name=private_workspace_display_name(user.display_name),
+        created_by_user_id=user.id,
+        personal_owner_user_id=user.id,
+    )
+    session.add(workspace)
+    await session.flush()
+    session.add(WorkspaceMembership(workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.OWNER))
+    user.personal_workspace_id = workspace.id
+    add_workspace_defaults(session, workspace.id, default_currency)
+    await session.delete(record)
+    await session.flush()
+    return user

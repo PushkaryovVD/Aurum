@@ -51,6 +51,7 @@ dist/
 .idea/
 .vscode/
 .claude/
+graphify-out/
 
 # Postgres local volume (if bind-mounted during development)
 pgdata/

@@ -52,3 +52,9 @@
 - **Problem:** the successful GHCR image workflow emitted GitHub's October 3, 2026 warning that the pinned Docker login, metadata, and build-push actions still target deprecated Node.js 20 and are currently forced onto Node.js 24 runners.
 - **Why it matters:** the workflow succeeds today, but an eventual removal of the compatibility shim could block image publishing and therefore CasaOS recovery/updates.
 - **Suggested direction:** periodically review trusted immutable releases of the three Docker actions that natively support the current GitHub Actions runtime, update all pins together, and re-run the independent workflow review.
+
+## Reconcile historical Alembic metadata drift
+
+- **Problem:** `alembic check` reports pre-existing differences between ORM metadata and migrated PostgreSQL schemas for several historical indexes and the timezone metadata of workspace-membership timestamps. The same differences reproduce at published baseline `d0370c0`; the first-owner migration adds no new drift.
+- **Why it matters:** persistent autogenerate noise can hide a future migration omission and prevents using `alembic check` as a clean release gate.
+- **Suggested direction:** reconcile model indexes and timestamp types with the established schema in a dedicated migration-maintenance change, then verify populated upgrade compatibility and a clean autogenerate check without altering existing data.

@@ -1,4 +1,5 @@
 """Authenticated household workspace, membership, and invitation APIs."""
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -14,16 +15,20 @@ from app.api.deps import (
     get_app_settings,
     get_session,
     require_authenticated_session,
+    resolve_authenticated_session,
 )
-from app.api.routes.auth import _session_response, _set_session_cookie
+from app.api.routes.auth import (
+    _session_response,
+    _set_session_cookie,
+    parse_invitation_token,
+    read_auth_json,
+)
 from app.core.config import Settings
 from app.models.auth import SecurityAuditEvent, UserSession
 from app.models.workspace import User, WorkspaceMembership, WorkspaceRole
 from app.schemas.auth import AuthSessionResponse
 from app.schemas.workspace import (
     HouseholdCreate,
-    InvitationAccept,
-    InvitationCreate,
     InvitationCreated,
     MembershipResponse,
     MembershipRoleUpdate,
@@ -58,6 +63,30 @@ def invitation_limiter(settings: Settings) -> AuthRateLimiter:
         block_for=timedelta(seconds=settings.auth_invitation_block_seconds),
         purpose="invitation",
     )
+
+
+def parse_invitation_create(
+    raw_payload: Mapping[str, object] | None,
+) -> tuple[str, WorkspaceRole, int] | None:
+    if raw_payload is None:
+        return None
+    recipient = raw_payload.get("recipient")
+    role = raw_payload.get("role")
+    expires = raw_payload.get("expires_in_seconds", 604800)
+    if (
+        not isinstance(recipient, str)
+        or not isinstance(role, str)
+        or not isinstance(expires, int)
+        or isinstance(expires, bool)
+    ):
+        return None
+    try:
+        parsed_role = WorkspaceRole(role)
+    except ValueError:
+        return None
+    if parsed_role not in {WorkspaceRole.EDITOR, WorkspaceRole.VIEWER}:
+        return None
+    return recipient, parsed_role, expires
 
 
 @router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
@@ -217,23 +246,57 @@ async def remove_member(
 )
 async def issue_invitation(
     workspace_id: UUID,
-    payload: InvitationCreate,
+    request: Request,
     authenticated: AuthenticatedSession = Depends(require_authenticated_session),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> InvitationCreated:
+    parsed = parse_invitation_create(await read_auth_json(request))
+    if parsed is None:
+        session.add(
+            SecurityAuditEvent(
+                actor_user_id=authenticated.user.id,
+                event_type="invitation_issued",
+                outcome="failure",
+                target_type="workspace",
+                target_id=str(workspace_id),
+            )
+        )
+        await session.commit()
+        raise HTTPException(status_code=422, detail="Invalid invitation request")
+    recipient, role, expires_in_seconds = parsed
     try:
         record, raw_token = await create_invitation(
             session,
             workspace_id=workspace_id,
             creator_id=authenticated.user.id,
-            recipient=payload.recipient,
-            role=payload.role,
-            expires_in_seconds=payload.expires_in_seconds,
+            recipient=recipient,
+            role=role,
+            expires_in_seconds=expires_in_seconds,
             hmac_secret=settings.auth_hmac_secret.get_secret_value(),
         )
     except (LookupError, PermissionError, ValueError) as exc:
+        session.add(
+            SecurityAuditEvent(
+                actor_user_id=authenticated.user.id,
+                event_type="invitation_issued",
+                outcome="failure",
+                target_type="workspace",
+                target_id=str(workspace_id),
+            )
+        )
+        await session.commit()
         _raise_owner_error(exc)
+    session.add(
+        SecurityAuditEvent(
+            actor_user_id=authenticated.user.id,
+            workspace_id=workspace_id,
+            event_type="invitation_issued",
+            outcome="success",
+            target_type="invitation",
+            target_id=str(record.id),
+        )
+    )
     await session.commit()
     return InvitationCreated(
         id=record.id,
@@ -255,6 +318,16 @@ async def revoke_invitation(
     try:
         await require_household_owner(session, workspace_id=workspace_id, user_id=authenticated.user.id)
     except (LookupError, PermissionError, ValueError) as exc:
+        session.add(
+            SecurityAuditEvent(
+                actor_user_id=authenticated.user.id,
+                event_type="invitation_revoked",
+                outcome="failure",
+                target_type="invitation",
+                target_id=str(invitation_id),
+            )
+        )
+        await session.commit()
         _raise_owner_error(exc)
     from app.models.workspace import WorkspaceInvitation
 
@@ -271,30 +344,95 @@ async def revoke_invitation(
         )
     ).scalar_one_or_none()
     if record is None:
+        session.add(
+            SecurityAuditEvent(
+                actor_user_id=authenticated.user.id,
+                workspace_id=workspace_id,
+                event_type="invitation_revoked",
+                outcome="failure",
+                target_type="invitation",
+                target_id=str(invitation_id),
+            )
+        )
+        await session.commit()
         raise HTTPException(status_code=404, detail=GENERIC_INVITATION_ERROR)
     record.revoked_at = datetime.now(UTC)
+    session.add(
+        SecurityAuditEvent(
+            actor_user_id=authenticated.user.id,
+            workspace_id=workspace_id,
+            event_type="invitation_revoked",
+            outcome="success",
+            target_type="invitation",
+            target_id=str(invitation_id),
+        )
+    )
     await session.commit()
 
 
 @router.post("/invitations/accept", response_model=AuthSessionResponse)
 async def accept_invitation(
-    payload: InvitationAccept,
     request: Request,
     response: Response,
-    authenticated: AuthenticatedSession = Depends(require_authenticated_session),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> AuthSessionResponse:
     limiter = invitation_limiter(settings)
-    bucket = limiter.bucket_hmac(identifier=payload.token, client_signal=client_signal(request))
-    allowed, limit_record = await limiter.is_allowed(session, bucket_hmac=bucket)
+    signal = client_signal(request, settings)
+    raw_payload = await read_auth_json(request)
+    token = parse_invitation_token(raw_payload) if raw_payload is not None else None
+    raw_token = raw_payload.get("token") if raw_payload is not None else None
+    credential = raw_token if isinstance(raw_token, str) else ""
+    try:
+        authenticated = await resolve_authenticated_session(request, session, settings)
+    except HTTPException as exc:
+        await session.rollback()
+        allowed, limit_state = await limiter.check_scoped(
+            session,
+            credential=credential,
+            client_signal=signal,
+        )
+        if allowed:
+            limiter.record_scoped_failure(session, state=limit_state)
+        session.add(
+            SecurityAuditEvent(
+                event_type="invitation_accepted",
+                outcome="failure" if allowed else "rate_limited",
+            )
+        )
+        await session.commit()
+        status_code = exc.status_code if allowed else 429
+        raise HTTPException(status_code=status_code, detail=GENERIC_INVITATION_ERROR) from exc
+    allowed, limit_state = await limiter.check_scoped(
+        session,
+        credential=credential,
+        client_signal=signal,
+    )
     if not allowed:
+        session.add(
+            SecurityAuditEvent(
+                event_type="invitation_accepted",
+                outcome="rate_limited",
+            )
+        )
         await session.commit()
         raise HTTPException(status_code=429, detail=GENERIC_INVITATION_ERROR)
+    if token is None:
+        limiter.record_scoped_failure(session, state=limit_state)
+        session.add(
+            SecurityAuditEvent(
+                actor_user_id=authenticated.user.id,
+                event_type="invitation_accepted",
+                outcome="failure",
+            )
+        )
+        await session.commit()
+        raise HTTPException(status_code=404, detail=GENERIC_INVITATION_ERROR)
+    actor_user_id = authenticated.user.id
     try:
         invitation = await accept_for_existing_user(
             session,
-            raw_token=payload.token,
+            raw_token=token,
             user=authenticated.user,
             hmac_secret=settings.auth_hmac_secret.get_secret_value(),
         )
@@ -303,8 +441,19 @@ async def accept_invitation(
         # creation. The active-membership unique index decides the winner.
         if isinstance(exc, IntegrityError):
             await session.rollback()
-            _, limit_record = await limiter.is_allowed(session, bucket_hmac=bucket)
-        limiter.record_failure(session, record=limit_record, bucket_hmac=bucket)
+            _, limit_state = await limiter.check_scoped(
+                session,
+                credential=token,
+                client_signal=signal,
+            )
+        limiter.record_scoped_failure(session, state=limit_state)
+        session.add(
+            SecurityAuditEvent(
+                actor_user_id=actor_user_id,
+                event_type="invitation_accepted",
+                outcome="failure",
+            )
+        )
         await session.commit()
         raise HTTPException(status_code=404, detail=GENERIC_INVITATION_ERROR) from exc
 
@@ -312,10 +461,10 @@ async def accept_invitation(
         session,
         current=authenticated.record,
         user_id=authenticated.user.id,
-        client_ip=client_signal(request),
+        client_ip=client_signal(request, settings),
         user_agent=request.headers.get("user-agent"),
     )
-    await limiter.reset(session, record=limit_record)
+    await limiter.reset_scoped(session, state=limit_state)
     session.add(
         SecurityAuditEvent(
             actor_user_id=authenticated.user.id,

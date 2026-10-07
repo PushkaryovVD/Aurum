@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_session
 from app.core.config import Settings
 from app.main import create_app
-from app.models.auth import AuthRateLimit, UserSession
+from app.models.auth import AuthRateLimit, SecurityAuditEvent, UserSession
 from app.security.auth import PasswordService
 
 
@@ -114,6 +114,7 @@ async def _login(client: AsyncClient, identifier: str = "owner@example.com", pas
     return await client.post(
         "/auth/session",
         json={"identifier": identifier, "password": password},
+        headers={"Origin": "https://test"},
     )
 
 
@@ -159,34 +160,267 @@ async def test_login_is_generic_rehashes_and_emits_only_secure_session_contract(
         assert body["csrf_token"].encode() not in bytes(stored.csrf_secret)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"{",
+        b"[]",
+        b'{"identifier":1,"password":"wrong"}',
+        b'{"identifier":"","password":"wrong"}',
+        b'{"identifier":"owner\\ud800@example.com","password":"wrong"}',
+        b'{"identifier":"owner@example.com","password":"wrong\\udfff"}',
+        b'{"identifier":"owner@example.com","password":"wrong\\u0000password"}',
+        b'{"identifier":"owner@example.com","password":"' + b"x" * 17000 + b'"}',
+        b'{"identifier":' + b"1" * 5000 + b',"password":"wrong"}',
+        '{"identifier":"owner@example.com","password":"correct horse battery staple"}'.encode(
+            "utf-16"
+        ),
+        '{"identifier":"owner@example.com","password":"correct horse battery staple"}'.encode(
+            "utf-32"
+        ),
+    ],
+)
+async def test_malformed_login_is_generic_audited_and_rate_limited(
+    auth_client,
+    test_sessionmaker,
+    body,
+):
+    response = await auth_client.post(
+        "/auth/session",
+        content=body,
+        headers={"Content-Type": "application/json", "Origin": "https://test"},
+    )
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unable to sign in"}
+    async with test_sessionmaker() as session:
+        audit = (await session.execute(select(SecurityAuditEvent))).scalar_one()
+        assert audit.event_type == "login"
+        assert audit.outcome == "failure"
+        limits = (await session.execute(select(AuthRateLimit))).scalars().all()
+        assert len(limits) == 3
+
+
+async def test_login_rejects_cross_origin_and_non_json_requests_before_authentication(
+    auth_client,
+    test_sessionmaker,
+):
+    await _bootstrap_user(test_sessionmaker)
+    payload = '{"identifier":"owner@example.com","password":"correct horse battery staple"}'
+    cross_origin = await auth_client.post(
+        "/auth/session",
+        content=payload,
+        headers={"Content-Type": "text/plain", "Origin": "https://evil.example"},
+    )
+    assert cross_origin.status_code == 404
+    auth_client.cookies.clear()
+    wrong_media_type = await auth_client.post(
+        "/auth/session",
+        content=payload,
+        headers={"Content-Type": "text/plain", "Origin": "https://test"},
+    )
+    assert wrong_media_type.status_code == 401
+    assert "aurum_session" not in auth_client.cookies
+
+
+async def test_chunked_login_body_stops_at_streaming_limit(auth_client, test_sessionmaker):
+    async def oversized_body():
+        yield b'{"identifier":"owner@example.com","password":"'
+        yield b"x" * 9000
+        yield b"x" * 9000
+        yield b'"}'
+
+    response = await auth_client.post(
+        "/auth/session",
+        content=oversized_body(),
+        headers={"Content-Type": "application/json", "Origin": "https://test"},
+    )
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Unable to sign in"}
+    async with test_sessionmaker() as session:
+        assert (await session.execute(select(SecurityAuditEvent))).scalar_one().outcome == "failure"
+
+
 async def test_required_auth_gates_routes_and_enforces_csrf(auth_client, test_sessionmaker):
     await _bootstrap_user(test_sessionmaker)
 
     assert (await auth_client.get("/health")).status_code == 200
-    assert (await auth_client.get("/accounts")).status_code == 401
+    assert (await auth_client.get("/accounts")).status_code == 503
     assert (await auth_client.get("/docs")).status_code == 404
     assert (await auth_client.get("/redoc")).status_code == 404
     assert (await auth_client.get("/openapi.json")).status_code == 404
 
     login = await _login(auth_client)
     csrf_token = login.json()["csrf_token"]
-    assert (await auth_client.get("/accounts")).status_code == 200
+    assert (await auth_client.get("/accounts")).status_code == 503
 
     payload = {"name": "Cash", "type": "cash", "currency": "KZT"}
-    assert (await auth_client.post("/accounts", json=payload)).status_code == 403
+    assert (await auth_client.post("/accounts", json=payload)).status_code == 503
     assert (
         await auth_client.post(
             "/accounts",
             json=payload,
             headers={"X-CSRF-Token": csrf_token, "Origin": "https://evil.example"},
         )
-    ).status_code == 403
+    ).status_code == 503
     created = await auth_client.post(
         "/accounts",
         json=payload,
         headers={"X-CSRF-Token": csrf_token, "Origin": "https://test"},
     )
-    assert created.status_code == 201
+    assert created.status_code == 503
+
+
+async def test_login_rejects_spoofed_loopback_host_over_remote_http(test_sessionmaker, auth_settings):
+    await _bootstrap_user(test_sessionmaker)
+    auth_app = create_app(auth_settings)
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        async with test_sessionmaker() as session:
+            yield session
+
+    auth_app.dependency_overrides[get_session] = override_get_session
+    transport = ASGITransport(app=auth_app, client=("203.0.113.10", 12345))
+    async with AsyncClient(transport=transport, base_url="http://localhost/api") as client:
+        response = await client.post(
+            "/auth/session",
+            json={"identifier": "owner@example.com", "password": PASSWORD},
+            headers={"X-Forwarded-Proto": "https", "X-Real-IP": "127.0.0.1"},
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Authentication is not available"}
+
+
+async def test_login_accepts_https_marker_only_from_trusted_internal_proxy(
+    test_sessionmaker, auth_settings
+):
+    await _bootstrap_user(test_sessionmaker)
+    auth_app = create_app(auth_settings)
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        async with test_sessionmaker() as session:
+            yield session
+
+    auth_app.dependency_overrides[get_session] = override_get_session
+    transport = ASGITransport(app=auth_app, client=("172.31.254.3", 12345))
+    async with AsyncClient(transport=transport, base_url="http://aurum.local/api") as client:
+        response = await client.post(
+            "/auth/session",
+            json={"identifier": "owner@example.com", "password": PASSWORD},
+            headers={
+                "Origin": "https://aurum.local",
+                "X-Forwarded-Proto": "https",
+                "X-Real-IP": "192.168.1.10",
+            },
+        )
+
+    assert response.status_code == 200
+    assert "secure" in response.headers["set-cookie"].lower()
+
+
+async def test_trusted_tls_proxy_preserves_distinct_client_rate_limit_buckets(
+    test_sessionmaker, auth_settings
+):
+    await _bootstrap_user(test_sessionmaker)
+    auth_app = create_app(auth_settings)
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        async with test_sessionmaker() as session:
+            yield session
+
+    auth_app.dependency_overrides[get_session] = override_get_session
+    transport = ASGITransport(app=auth_app, client=("172.31.254.3", 12345))
+    async with AsyncClient(transport=transport, base_url="http://aurum.local/api") as client:
+        first_headers = {
+            "Origin": "https://aurum.local",
+            "X-Forwarded-Proto": "https",
+            "X-Real-IP": "198.51.100.10",
+        }
+        second_headers = {
+            "Origin": "https://aurum.local",
+            "X-Forwarded-Proto": "https",
+            "X-Real-IP": "198.51.100.11",
+        }
+        for attempt in range(8):
+            payload = {"identifier": f"missing-{attempt}@example.com", "password": "wrong-password"}
+            assert (
+                await client.post("/auth/session", json=payload, headers=first_headers)
+            ).status_code == 401
+        blocked_payload = {"identifier": "blocked@example.com", "password": "wrong-password"}
+        assert (
+            await client.post("/auth/session", json=blocked_payload, headers=first_headers)
+        ).status_code == 429
+        assert (
+            await client.post("/auth/session", json=blocked_payload, headers=second_headers)
+        ).status_code == 401
+
+
+async def test_login_rejects_forwarded_headers_from_untrusted_sibling_container(
+    test_sessionmaker, auth_settings
+):
+    await _bootstrap_user(test_sessionmaker)
+    auth_app = create_app(auth_settings)
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        async with test_sessionmaker() as session:
+            yield session
+
+    auth_app.dependency_overrides[get_session] = override_get_session
+    transport = ASGITransport(app=auth_app, client=("172.20.0.10", 12345))
+    async with AsyncClient(transport=transport, base_url="http://localhost/api") as client:
+        response = await client.post(
+            "/auth/session",
+            json={"identifier": "owner@example.com", "password": PASSWORD},
+            headers={"X-Forwarded-Proto": "https", "X-Real-IP": "127.0.0.1"},
+        )
+
+    assert response.status_code == 404
+
+
+async def test_login_allows_default_nginx_chain_only_for_host_loopback_client(
+    test_sessionmaker, auth_settings
+):
+    await _bootstrap_user(test_sessionmaker)
+    auth_app = create_app(auth_settings)
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        async with test_sessionmaker() as session:
+            yield session
+
+    auth_app.dependency_overrides[get_session] = override_get_session
+    transport = ASGITransport(app=auth_app, client=("172.31.254.3", 12345))
+    async with AsyncClient(transport=transport, base_url="http://localhost:3000/api") as client:
+        local = await client.post(
+            "/auth/session",
+            json={"identifier": "owner@example.com", "password": PASSWORD},
+            headers={
+                "Origin": "http://localhost:3000",
+                "X-Forwarded-Proto": "http",
+                "X-Real-IP": "172.31.254.1",
+            },
+        )
+        lan = await client.post(
+            "/auth/session",
+            json={"identifier": "owner@example.com", "password": PASSWORD},
+            headers={
+                "Origin": "http://localhost:3000",
+                "X-Forwarded-Proto": "http",
+                "X-Real-IP": "192.168.1.10",
+            },
+        )
+        logout = await client.delete(
+            "/auth/session",
+            headers={
+                "Origin": "http://localhost:3000",
+                "X-CSRF-Token": local.json()["csrf_token"],
+                "X-Forwarded-Proto": "http",
+                "X-Real-IP": "172.31.254.1",
+            },
+        )
+
+    assert local.status_code == 200
+    assert lan.status_code == 404
+    assert logout.status_code == 204
 
 
 async def test_me_selects_only_accessible_workspace_and_reissues_csrf(auth_client, test_sessionmaker):
@@ -254,6 +488,7 @@ async def test_disabled_user_and_rate_limit_are_non_disclosing(auth_client, test
     assert blocked.json() == {"detail": "Unable to sign in"}
 
     async with test_sessionmaker() as session:
-        rate_record = (await session.execute(select(AuthRateLimit))).scalar_one()
-        assert rate_record.attempt_count == 2
-        assert b"owner@example.com" not in bytes(rate_record.bucket_hmac)
+        rate_records = (await session.execute(select(AuthRateLimit))).scalars().all()
+        assert len(rate_records) == 3
+        assert sorted(record.attempt_count for record in rate_records) == [2, 2, 2]
+        assert all(b"owner@example.com" not in bytes(record.bucket_hmac) for record in rate_records)

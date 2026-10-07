@@ -11,6 +11,15 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class FirstOwnerBootstrapRequest(BaseModel):
+    # Semantic validation is deliberately handled in the locked service so an
+    # invalid payload gets the same generic response as a replay.
+    bootstrap_code: str
+    identifier: str
+    display_name: str
+    password: str
+
+
 class AuthenticatedUser(BaseModel):
     id: UUID
     identifier: str

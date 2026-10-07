@@ -39,6 +39,7 @@ class AuthRateLimit(Base, TimestampMixin):
     __tablename__ = "auth_rate_limits"
     __table_args__ = (
         UniqueConstraint("purpose", "bucket_hmac", name="uq_auth_rate_limits_purpose_bucket"),
+        Index("ix_auth_rate_limits_purpose_window", "purpose", "window_started_at"),
         CheckConstraint("attempt_count >= 0", name="ck_auth_rate_limits_attempt_count"),
     )
 
@@ -48,6 +49,22 @@ class AuthRateLimit(Base, TimestampMixin):
     window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InitialOwnerBootstrap(Base):
+    """Single-use setup capability for the first personal workspace owner."""
+
+    __tablename__ = "initial_owner_bootstrap"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_initial_owner_bootstrap_singleton"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    code_hmac: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SecurityAuditEvent(Base):

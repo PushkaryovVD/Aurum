@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from ipaddress import ip_address, ip_network
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
@@ -67,25 +68,77 @@ def auth_session_service(settings: Settings) -> AuthSessionService:
     )
 
 
-def request_origin(request: Request) -> str:
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
-    scheme = forwarded_proto if forwarded_proto in {"http", "https"} else request.url.scheme
+def _peer_address(request: Request):
+    if request.client is None:
+        return None
+    try:
+        return ip_address(request.client.host)
+    except ValueError:
+        return None
+
+
+def _trusted_proxy_peer(request: Request, settings: Settings) -> bool:
+    peer = _peer_address(request)
+    if peer is None:
+        return False
+    return _address_in_cidrs(peer, settings.auth_trusted_proxy_cidrs_list)
+
+
+def _address_in_cidrs(address, cidrs: list[str]) -> bool:
+    return any(address in ip_network(cidr, strict=False) for cidr in cidrs)
+
+
+def request_scheme(request: Request, settings: Settings) -> str:
+    if _trusted_proxy_peer(request, settings):
+        forwarded = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        if forwarded in {"http", "https"}:
+            return forwarded
+    return request.url.scheme
+
+
+def request_origin(request: Request, settings: Settings) -> str:
+    scheme = request_scheme(request, settings)
     return f"{scheme}://{request.headers.get('host', request.url.netloc)}"
 
 
-def client_signal(request: Request) -> str:
-    # nginx overwrites X-Real-IP before proxying; direct development requests
-    # fall back to the ASGI peer address.
-    return request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+def client_signal(request: Request, settings: Settings) -> str:
+    if _trusted_proxy_peer(request, settings):
+        forwarded = request.headers.get("x-real-ip")
+        if forwarded:
+            try:
+                return str(ip_address(forwarded.strip()))
+            except ValueError:
+                pass
+    peer = _peer_address(request)
+    return str(peer) if peer is not None else "unknown"
 
 
-async def require_authenticated_session(
+def credential_transport_allowed(request: Request, settings: Settings) -> bool:
+    if request_scheme(request, settings) == "https":
+        return True
+    try:
+        client = ip_address(client_signal(request, settings))
+    except ValueError:
+        return False
+    return settings.environment != "production" and _address_in_cidrs(
+        client, settings.auth_loopback_client_cidrs_list
+    )
+
+
+def finance_access_ready(settings: Settings) -> bool:
+    """Legacy unauthenticated mode remains usable until scoped finance activation."""
+    return not settings.app_auth_required
+
+
+async def resolve_authenticated_session(
     request: Request,
-    session: AsyncSession = Depends(get_session),
-    settings: Settings = Depends(get_app_settings),
+    session: AsyncSession,
+    settings: Settings,
 ) -> AuthenticatedSession:
     if not settings.app_auth_required:
         raise HTTPException(status_code=503, detail="Application authentication is not enabled")
+    if not credential_transport_allowed(request, settings):
+        raise HTTPException(status_code=404, detail="Authentication is not available")
 
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
@@ -105,19 +158,26 @@ async def require_authenticated_session(
         record,
         csrf_token=request.headers.get(CSRF_HEADER_NAME),
         hmac_secret=settings.auth_hmac_secret.get_secret_value(),
-        expected_origin=request_origin(request),
+        expected_origin=request_origin(request, settings),
     )
-    await session.commit()
     return AuthenticatedSession(record=record, user=user, token=token)
 
 
-async def require_app_session(
+async def require_authenticated_session(
     request: Request,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
+) -> AuthenticatedSession:
+    authenticated = await resolve_authenticated_session(request, session, settings)
+    await session.commit()
+    return authenticated
+
+
+async def require_finance_access(
+    settings: Settings = Depends(get_app_settings),
 ) -> None:
-    if settings.app_auth_required:
-        await require_authenticated_session(request, session, settings)
+    if not finance_access_ready(settings):
+        raise HTTPException(status_code=503, detail="Financial access is not ready")
 
 
 async def get_request_workspace(

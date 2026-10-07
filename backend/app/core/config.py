@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # operator to edit an environment file, while keeping the key outside the
     # database and application logs.
     auth_hmac_secret_file: str = ""
+    # Shared only with the shipped nginx container. Unlike a bridge address,
+    # this identity survives CasaOS/Compose network rewriting while still
+    # preventing arbitrary sibling containers from asserting forwarded data.
+    auth_proxy_shared_secret: SecretStr = SecretStr("")
+    auth_proxy_shared_secret_file: str = ""
     # Forwarded transport/client headers are accepted only from the exact
     # static address assigned to the shipped nginx proxy. Other containers
     # and direct LAN clients cannot declare their own request secure.
@@ -86,6 +91,17 @@ class Settings(BaseSettings):
             except OSError as exc:
                 raise ValueError("authentication HMAC secret file is unavailable") from exc
             self.auth_hmac_secret = SecretStr(secret)
+        if (
+            not self.auth_proxy_shared_secret.get_secret_value()
+            and self.auth_proxy_shared_secret_file
+        ):
+            try:
+                proxy_secret = Path(self.auth_proxy_shared_secret_file).read_text(
+                    encoding="utf-8"
+                ).strip()
+            except OSError as exc:
+                raise ValueError("authentication proxy identity file is unavailable") from exc
+            self.auth_proxy_shared_secret = SecretStr(proxy_secret)
         if self.auth_session_idle_seconds > self.auth_session_absolute_seconds:
             raise ValueError("session idle lifetime must not exceed absolute lifetime")
 
@@ -103,6 +119,9 @@ class Settings(BaseSettings):
         }
         if len(secret.encode("utf-8")) < 32 or secret.strip().casefold() in default_like:
             raise ValueError("authentication HMAC secret must be at least 32 bytes and non-default")
+        proxy_secret = self.auth_proxy_shared_secret.get_secret_value()
+        if proxy_secret and len(proxy_secret.encode("utf-8")) < 32:
+            raise ValueError("authentication proxy identity must be at least 32 bytes")
 
         if self.environment != "development" and (
             self.auth_argon2_memory_kib < 19456 or self.auth_argon2_time_cost < 2

@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from hmac import compare_digest
 from ipaddress import ip_address, ip_network
 from uuid import UUID
 
@@ -78,6 +79,10 @@ def _peer_address(request: Request):
 
 
 def _trusted_proxy_peer(request: Request, settings: Settings) -> bool:
+    configured_token = settings.auth_proxy_shared_secret.get_secret_value()
+    presented_token = request.headers.get("x-aurum-proxy-token", "")
+    if configured_token and compare_digest(presented_token, configured_token):
+        return True
     peer = _peer_address(request)
     if peer is None:
         return False

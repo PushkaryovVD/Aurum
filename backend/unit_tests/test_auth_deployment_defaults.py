@@ -53,14 +53,16 @@ def test_nginx_preserves_external_host_port_for_same_origin_checks() -> None:
     assert "proxy_set_header Host $host;" not in nginx
 
 
-def test_compose_binds_nginx_to_the_backend_trusted_proxy_identity() -> None:
+def test_compose_provisions_a_shared_proxy_identity_independent_of_bridge_ip() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    nginx = (ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
 
-    assert "subnet: 172.31.254.0/29" in compose
-    assert "gateway: 172.31.254.1" in compose
-    assert "ipv4_address: 172.31.254.3" in compose
-    assert "AURUM_AUTH_TRUSTED_PROXY_CIDRS: 172.31.254.3/32" in compose
-    assert "AURUM_AUTH_LOOPBACK_CLIENT_CIDRS: 127.0.0.0/8,::1/128,172.31.254.1/32" in compose
+    assert "proxy_shared_secret" in compose
+    assert "AURUM_AUTH_PROXY_SHARED_SECRET_FILE: /run/aurum-secrets/proxy_shared_secret" in compose
+    assert compose.count("aurum_auth_secrets:/run/aurum-secrets:ro") == 2
+    assert "30-proxy-identity.sh" in dockerfile
+    assert nginx.count("include /etc/nginx/proxy-identity.conf;") == 3
 
 
 def test_operator_guidance_matches_default_required_auth_boundary() -> None:

@@ -32,8 +32,11 @@ services:
         if [ ! -s /run/aurum-secrets/auth_hmac_secret ]; then
           head -c 48 /dev/urandom | base64 | tr -d '\n' > /run/aurum-secrets/auth_hmac_secret
         fi
-        chown 10001:10001 /run/aurum-secrets/auth_hmac_secret
-        chmod 0400 /run/aurum-secrets/auth_hmac_secret
+        if [ ! -s /run/aurum-secrets/proxy_shared_secret ]; then
+          head -c 48 /dev/urandom | base64 | tr -d '\n' > /run/aurum-secrets/proxy_shared_secret
+        fi
+        chown 10001:10001 /run/aurum-secrets/auth_hmac_secret /run/aurum-secrets/proxy_shared_secret
+        chmod 0400 /run/aurum-secrets/auth_hmac_secret /run/aurum-secrets/proxy_shared_secret
     volumes:
       - aurum_auth_secrets:/run/aurum-secrets
     networks:
@@ -99,6 +102,7 @@ services:
       AURUM_ENVIRONMENT: ${AURUM_ENVIRONMENT:-development}
       AURUM_AUTH_HMAC_SECRET: ${AURUM_AUTH_HMAC_SECRET:-}
       AURUM_AUTH_HMAC_SECRET_FILE: /run/aurum-secrets/auth_hmac_secret
+      AURUM_AUTH_PROXY_SHARED_SECRET_FILE: /run/aurum-secrets/proxy_shared_secret
       AURUM_AUTH_TRUSTED_PROXY_CIDRS: 172.31.254.3/32
       AURUM_AUTH_LOOPBACK_CLIENT_CIDRS: 127.0.0.0/8,::1/128,172.31.254.1/32
       AURUM_AUTH_SESSION_IDLE_SECONDS: ${AURUM_AUTH_SESSION_IDLE_SECONDS:-1800}
@@ -147,6 +151,9 @@ services:
       # Hostnames this instance answers to — anything else gets a 421.
       # See frontend/docker-entrypoint.d/25-allowed-hosts.sh.
       AURUM_ALLOWED_HOSTS: ${AURUM_ALLOWED_HOSTS:-localhost 127.0.0.1}
+      AURUM_AUTH_PROXY_SHARED_SECRET_FILE: /run/aurum-secrets/proxy_shared_secret
+    volumes:
+      - aurum_auth_secrets:/run/aurum-secrets:ro
     depends_on:
       - backend
     networks:

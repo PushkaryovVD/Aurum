@@ -33,6 +33,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.core.config import get_settings
 from app.models.asset import Asset, AssetValuation
 from app.models.crypto import CryptoHolding, CryptoPortfolio, CryptoSyncState, CryptoTransaction
@@ -247,36 +248,43 @@ def _portfolio_to_read(portfolio: CryptoPortfolio) -> CryptoPortfolioRead:
     return CryptoPortfolioRead.model_validate(portfolio)
 
 
-async def list_portfolios(session: AsyncSession, include_archived: bool) -> list[CryptoPortfolioRead]:
+async def list_portfolios(
+    session: AsyncSession, include_archived: bool, context: RequestWorkspace
+) -> list[CryptoPortfolioRead]:
     stmt = select(CryptoPortfolio).order_by(CryptoPortfolio.id)
+    stmt = scope_to_workspace(stmt, CryptoPortfolio, context)
     if not include_archived:
         stmt = stmt.where(CryptoPortfolio.is_archived.is_(False))
     portfolios = (await session.execute(stmt)).scalars().all()
     return [_portfolio_to_read(p) for p in portfolios]
 
 
-async def get_or_create_default_portfolio(session: AsyncSession) -> CryptoPortfolio:
+async def get_or_create_default_portfolio(session: AsyncSession, context: RequestWorkspace) -> CryptoPortfolio:
     """The portfolio a new holding lands in when the caller doesn't specify
     one (see CryptoHoldingCreate.portfolio_id) — the earliest-created
-    portfolio, auto-created the first time it's needed. Same self-healing
-    "create on first use" shape as seed_default_app_settings: a portfolio can
-    later be deleted once empty (see delete_portfolio), so this can't just
-    assume row id=1 always exists."""
-    existing = (
-        await session.execute(select(CryptoPortfolio).order_by(CryptoPortfolio.id).limit(1))
-    ).scalar_one_or_none()
+    portfolio in the request's workspace, auto-created the first time it's
+    needed. Same self-healing "create on first use" shape as
+    seed_default_app_settings: a portfolio can later be deleted once empty
+    (see delete_portfolio), so this can't just assume row id=1 always
+    exists."""
+    stmt = scope_to_workspace(select(CryptoPortfolio).order_by(CryptoPortfolio.id).limit(1), CryptoPortfolio, context)
+    existing = (await session.execute(stmt)).scalar_one_or_none()
     if existing is not None:
         return existing
-    portfolio = CryptoPortfolio(name="Main Portfolio", color=PORTFOLIO_PALETTE[0])
+    portfolio = CryptoPortfolio(name="Main Portfolio", color=PORTFOLIO_PALETTE[0], workspace_id=context.workspace_id)
     session.add(portfolio)
     await session.flush()
     return portfolio
 
 
-async def create_portfolio(session: AsyncSession, payload: CryptoPortfolioCreate) -> CryptoPortfolioRead:
-    count = (await session.execute(select(CryptoPortfolio.id))).scalars().all()
+async def create_portfolio(
+    session: AsyncSession, payload: CryptoPortfolioCreate, context: RequestWorkspace
+) -> CryptoPortfolioRead:
+    context.require_mutation()
+    count_stmt = scope_to_workspace(select(CryptoPortfolio.id), CryptoPortfolio, context)
+    count = (await session.execute(count_stmt)).scalars().all()
     color = PORTFOLIO_PALETTE[len(count) % len(PORTFOLIO_PALETTE)]
-    portfolio = CryptoPortfolio(name=payload.name, color=color)
+    portfolio = CryptoPortfolio(name=payload.name, color=color, workspace_id=context.workspace_id)
     session.add(portfolio)
     await session.commit()
     await session.refresh(portfolio)
@@ -284,9 +292,13 @@ async def create_portfolio(session: AsyncSession, payload: CryptoPortfolioCreate
 
 
 async def update_portfolio(
-    session: AsyncSession, portfolio_id: int, payload: CryptoPortfolioUpdate
+    session: AsyncSession, portfolio_id: int, payload: CryptoPortfolioUpdate, context: RequestWorkspace
 ) -> CryptoPortfolioRead:
-    portfolio = await session.get(CryptoPortfolio, portfolio_id)
+    context.require_mutation()
+    stmt = scope_to_workspace(
+        select(CryptoPortfolio).where(CryptoPortfolio.id == portfolio_id), CryptoPortfolio, context
+    )
+    portfolio = (await session.execute(stmt)).scalar_one_or_none()
     if portfolio is None:
         raise HTTPException(status_code=404, detail="Crypto portfolio not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -296,8 +308,12 @@ async def update_portfolio(
     return _portfolio_to_read(portfolio)
 
 
-async def delete_portfolio(session: AsyncSession, portfolio_id: int) -> None:
-    portfolio = await session.get(CryptoPortfolio, portfolio_id)
+async def delete_portfolio(session: AsyncSession, portfolio_id: int, context: RequestWorkspace) -> None:
+    context.require_mutation()
+    stmt = scope_to_workspace(
+        select(CryptoPortfolio).where(CryptoPortfolio.id == portfolio_id), CryptoPortfolio, context
+    )
+    portfolio = (await session.execute(stmt)).scalar_one_or_none()
     if portfolio is None:
         raise HTTPException(status_code=404, detail="Crypto portfolio not found")
     has_holding = (
@@ -309,16 +325,31 @@ async def delete_portfolio(session: AsyncSession, portfolio_id: int) -> None:
     await session.commit()
 
 
-async def list_holdings(session: AsyncSession, portfolio_id: int | None = None) -> list[CryptoHolding]:
-    stmt = select(CryptoHolding).options(*_EAGER).order_by(CryptoHolding.name)
+async def list_holdings(
+    session: AsyncSession, portfolio_id: int | None, context: RequestWorkspace
+) -> list[CryptoHolding]:
+    stmt = (
+        select(CryptoHolding)
+        .options(*_EAGER)
+        .join(Asset, Asset.id == CryptoHolding.asset_id)
+        .order_by(CryptoHolding.name)
+    )
+    stmt = scope_to_workspace(stmt, Asset, context)
     if portfolio_id is not None:
         stmt = stmt.where(CryptoHolding.portfolio_id == portfolio_id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 
-async def _get_holding_or_404(session: AsyncSession, asset_id: int) -> CryptoHolding:
-    result = await session.execute(select(CryptoHolding).options(*_EAGER).where(CryptoHolding.asset_id == asset_id))
+async def _get_holding_or_404(session: AsyncSession, asset_id: int, context: RequestWorkspace) -> CryptoHolding:
+    stmt = (
+        select(CryptoHolding)
+        .options(*_EAGER)
+        .join(Asset, Asset.id == CryptoHolding.asset_id)
+        .where(CryptoHolding.asset_id == asset_id)
+    )
+    stmt = scope_to_workspace(stmt, Asset, context)
+    result = await session.execute(stmt)
     holding = result.scalar_one_or_none()
     if holding is None:
         raise HTTPException(status_code=404, detail="Crypto holding not found")
@@ -352,22 +383,24 @@ async def _upsert_valuation(session: AsyncSession, asset_id: int, value: Decimal
     await session.execute(upsert_stmt)
 
 
-async def refresh_prices(session: AsyncSession, *, force: bool, portfolio_id: int | None = None) -> CryptoSyncResult:
-    """Sync always covers every holding regardless of `portfolio_id` — a
-    stale price on a coin the user isn't currently looking at would still be
-    wrong the next time they switch tabs. `portfolio_id` only narrows what's
-    returned in the response's `holdings` list, for the Crypto tab's
-    portfolio filter."""
+async def refresh_prices(
+    session: AsyncSession, context: RequestWorkspace, *, force: bool, portfolio_id: int | None = None
+) -> CryptoSyncResult:
+    """Sync always covers every holding in the request's workspace regardless
+    of `portfolio_id` — a stale price on a coin the user isn't currently
+    looking at would still be wrong the next time they switch tabs.
+    `portfolio_id` only narrows what's returned in the response's `holdings`
+    list, for the Crypto tab's portfolio filter."""
     state = await get_or_create_sync_state(session)
     now = datetime.now(timezone.utc)
 
     if not force and state.last_synced_at is not None and now - state.last_synced_at < AUTO_REFRESH_INTERVAL:
-        holdings = await list_holdings(session, portfolio_id)
+        holdings = await list_holdings(session, portfolio_id, context)
         return CryptoSyncResult(
             synced=False, last_synced_at=state.last_synced_at, holdings=_sort_by_invested([_to_read(h) for h in holdings])
         )
 
-    holdings = await list_holdings(session)
+    holdings = await list_holdings(session, None, context)
     error_key: Literal["unreachable"] | None = None
     if holdings:
         settings = await get_or_create_app_settings(session)
@@ -411,16 +444,24 @@ async def refresh_prices(session: AsyncSession, *, force: bool, portfolio_id: in
     )
 
 
-async def create_holding(session: AsyncSession, payload: CryptoHoldingCreate) -> CryptoHoldingRead:
+async def create_holding(
+    session: AsyncSession, payload: CryptoHoldingCreate, context: RequestWorkspace
+) -> CryptoHoldingRead:
+    context.require_mutation()
     settings = await get_or_create_app_settings(session)
 
     if payload.portfolio_id is not None:
-        portfolio = await session.get(CryptoPortfolio, payload.portfolio_id)
+        portfolio_stmt = scope_to_workspace(
+            select(CryptoPortfolio).where(CryptoPortfolio.id == payload.portfolio_id),
+            CryptoPortfolio,
+            context,
+        )
+        portfolio = (await session.execute(portfolio_stmt)).scalar_one_or_none()
         if portfolio is None:
             raise HTTPException(status_code=400, detail="Crypto portfolio not found")
         portfolio_id = portfolio.id
     else:
-        portfolio_id = (await get_or_create_default_portfolio(session)).id
+        portfolio_id = (await get_or_create_default_portfolio(session, context)).id
 
     asset = Asset(
         name=payload.name,
@@ -433,6 +474,7 @@ async def create_holding(session: AsyncSession, payload: CryptoHoldingCreate) ->
         # lib/i18n.ts's netWorth.riskLevelFormHint.high). Editable later via
         # PATCH /assets/{asset_id}, same as any other Asset.
         risk_level=payload.risk_level,
+        workspace_id=context.workspace_id,
     )
     session.add(asset)
     await session.flush()
@@ -491,22 +533,28 @@ async def create_holding(session: AsyncSession, payload: CryptoHoldingCreate) ->
     return _to_read(holding)
 
 
-async def update_holding(session: AsyncSession, asset_id: int, payload: CryptoHoldingUpdate) -> CryptoHoldingRead:
+async def update_holding(
+    session: AsyncSession, asset_id: int, payload: CryptoHoldingUpdate, context: RequestWorkspace
+) -> CryptoHoldingRead:
     """Updates CryptoHolding-only metadata — currently just `network`.
     Quantity/price/date go through add_transaction/update_transaction
     instead; risk_level lives on the Asset via PATCH /assets/{asset_id}."""
-    holding = await _get_holding_or_404(session, asset_id)
+    context.require_mutation()
+    holding = await _get_holding_or_404(session, asset_id, context)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(holding, field, value)
     await session.commit()
     return _to_read(holding)
 
 
-async def add_transaction(session: AsyncSession, asset_id: int, payload: CryptoTransactionCreate) -> CryptoHoldingRead:
+async def add_transaction(
+    session: AsyncSession, asset_id: int, payload: CryptoTransactionCreate, context: RequestWorkspace
+) -> CryptoHoldingRead:
     """A buy or sell against an existing holding — never calls CoinGecko
     (see module docstring): value is recomputed from the last cached
     price, same principle as the old quantity-only edit it replaces."""
-    holding = await _get_holding_or_404(session, asset_id)
+    context.require_mutation()
+    holding = await _get_holding_or_404(session, asset_id, context)
 
     if payload.type == CryptoTransactionType.SELL:
         current_quantity, _ = _compute_position(holding.transactions)
@@ -533,17 +581,18 @@ async def add_transaction(session: AsyncSession, asset_id: int, payload: CryptoT
 
 
 async def update_transaction(
-    session: AsyncSession, transaction_id: int, payload: CryptoTransactionUpdate
+    session: AsyncSession, transaction_id: int, payload: CryptoTransactionUpdate, context: RequestWorkspace
 ) -> CryptoHoldingRead:
     """Edit an existing buy/sell entry — the "view/edit a transaction" flow
     a plain delete-and-recreate can't offer (you'd lose the original id and
     any history a future feature might key off it). Never calls CoinGecko,
     same as add_transaction: value is recomputed from the last cached price."""
+    context.require_mutation()
     transaction = await session.get(CryptoTransaction, transaction_id)
     if transaction is None:
         raise HTTPException(status_code=404, detail="Crypto transaction not found")
     asset_id = transaction.asset_id
-    holding = await _get_holding_or_404(session, asset_id)
+    holding = await _get_holding_or_404(session, asset_id, context)
 
     updates = payload.model_dump(exclude_unset=True)
     effective_type = updates.get("type", transaction.type)
@@ -570,8 +619,10 @@ async def update_transaction(
     return _to_read(holding)
 
 
-async def list_transactions(session: AsyncSession, asset_id: int) -> list[CryptoTransaction]:
-    await _get_holding_or_404(session, asset_id)  # 404s if the holding itself doesn't exist
+async def list_transactions(
+    session: AsyncSession, asset_id: int, context: RequestWorkspace
+) -> list[CryptoTransaction]:
+    await _get_holding_or_404(session, asset_id, context)  # 404s if the holding itself doesn't exist or is foreign
     result = await session.execute(
         select(CryptoTransaction)
         .where(CryptoTransaction.asset_id == asset_id)
@@ -580,15 +631,19 @@ async def list_transactions(session: AsyncSession, asset_id: int) -> list[Crypto
     return list(result.scalars().all())
 
 
-async def delete_transaction(session: AsyncSession, transaction_id: int) -> None:
+async def delete_transaction(session: AsyncSession, transaction_id: int, context: RequestWorkspace) -> None:
+    context.require_mutation()
     transaction = await session.get(CryptoTransaction, transaction_id)
     if transaction is None:
         raise HTTPException(status_code=404, detail="Crypto transaction not found")
     asset_id = transaction.asset_id
+    # A transaction whose holding isn't in the request's workspace must not
+    # be reachable — surface the same 404 a missing transaction would.
+    await _get_holding_or_404(session, asset_id, context)
     await session.delete(transaction)
     await session.flush()
 
-    holding = await _get_holding_or_404(session, asset_id)
+    holding = await _get_holding_or_404(session, asset_id, context)
     quantity, _ = _compute_position(holding.transactions)
     if holding.last_price is not None:
         await _upsert_valuation(session, asset_id, quantity * holding.last_price, date_.today())
@@ -597,7 +652,7 @@ async def delete_transaction(session: AsyncSession, transaction_id: int) -> None
 
 
 async def get_crypto_history(
-    session: AsyncSession, range_key: str, portfolio_id: int | None = None
+    session: AsyncSession, range_key: str, portfolio_id: int | None, context: RequestWorkspace
 ) -> CryptoHistoryResponse:
     """Total crypto holdings value over time, for the History chart on the
     Crypto tab. Same "cumulative point events, forward-filled" approach as
@@ -615,6 +670,7 @@ async def get_crypto_history(
         .join(CryptoHolding, CryptoHolding.asset_id == Asset.id)
         .where(Asset.asset_class == AssetClass.CRYPTO)
     )
+    asset_stmt = scope_to_workspace(asset_stmt, Asset, context)
     if portfolio_id is not None:
         asset_stmt = asset_stmt.where(CryptoHolding.portfolio_id == portfolio_id)
     crypto_asset_ids = set((await session.execute(asset_stmt)).scalars().all())
@@ -690,7 +746,9 @@ async def _fetch_90d_change(client: httpx.AsyncClient, api_key: str, coingecko_i
     return (last_price - first_price) / first_price * 100
 
 
-async def get_90d_performance(session: AsyncSession, portfolio_id: int | None) -> CryptoPerformanceResponse:
+async def get_90d_performance(
+    session: AsyncSession, portfolio_id: int | None, context: RequestWorkspace
+) -> CryptoPerformanceResponse:
     """Real 90-day % price change per currently-held coin, for the Crypto
     tab's Best/Worst Performer stat when the 90d range is picked. Unlike
     1h/24h/7d/30d/1y (all one field on the same batched /coins/markets sync
@@ -701,7 +759,7 @@ async def get_90d_performance(session: AsyncSession, portfolio_id: int | None) -
     as the seed fetch on adding a new holding. Bounded concurrency (5 at
     once) keeps a big portfolio from firing dozens of requests in the same
     instant."""
-    holdings = await list_holdings(session, portfolio_id)
+    holdings = await list_holdings(session, portfolio_id, context)
     held = [h for h in holdings if _compute_position(h.transactions)[0] > 0]
     if not held:
         return CryptoPerformanceResponse(items=[])

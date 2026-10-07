@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RequestWorkspace
 from app.core.audit import log_destructive
 from app.models.account import Account
 from app.models.enums import ExchangeRateSource
@@ -27,6 +28,7 @@ async def suggest_row_categories(
     rows: list[StatementRow],
     *,
     account_by_currency: dict[str, int] | None = None,
+    context: RequestWorkspace,
 ) -> None:
     """Fills in `category_id` — and the name of the rule that chose it — on rows
     that don't have one yet.
@@ -36,8 +38,10 @@ async def suggest_row_categories(
     a specific account are left to the commit rather than guessed at: a preview
     that showed a category the commit then contradicted would be worse than one
     that admits it cannot decide yet.
+
+    Only the request workspace's own rules are consulted.
     """
-    rules = await list_rules(session)
+    rules = await list_rules(session, context)
     if account_by_currency is None:
         rules = [rule for rule in rules if rule.account_id is None]
     compiled = compile_rules(rules)
@@ -127,7 +131,9 @@ async def _destination_accounts(session: AsyncSession, payload: StatementCommit)
     return accounts
 
 
-async def commit_statement(session: AsyncSession, payload: StatementCommit) -> StatementCommitResult:
+async def commit_statement(
+    session: AsyncSession, payload: StatementCommit, context: RequestWorkspace
+) -> StatementCommitResult:
     """Writes the rows the user confirmed in the preview.
 
     Idempotent by construction: a row whose key already exists on its
@@ -148,6 +154,7 @@ async def commit_statement(session: AsyncSession, payload: StatementCommit) -> S
         session,
         importable,
         account_by_currency={currency: account.id for currency, account in accounts.items()},
+        context=context,
     )
 
     rows_by_account: dict[int, list[StatementRow]] = defaultdict(list)

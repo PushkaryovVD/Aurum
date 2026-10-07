@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import RequestWorkspace, get_request_workspace, get_session
 from app.models.envelope import EnvelopeAuditLog, EnvelopeMonth, EnvelopeTemplate, EnvelopeTemplateItem
 from app.schemas.envelope import (
     EnvelopeAllocationInput,
@@ -23,6 +23,8 @@ from app.services.envelope_service import (
     fund,
     fund_next_month as fund_next_envelope_month,
     get_status,
+    list_audit,
+    list_months,
     move,
     open_month,
     reopen_month,
@@ -53,41 +55,62 @@ async def _template_read(session: AsyncSession, template: EnvelopeTemplate) -> E
 
 
 @router.get("/templates", response_model=list[EnvelopeTemplateRead])
-async def list_templates(session: AsyncSession = Depends(get_session)) -> list[EnvelopeTemplateRead]:
+async def list_templates(
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[EnvelopeTemplateRead]:
     templates = list((await session.execute(select(EnvelopeTemplate).order_by(EnvelopeTemplate.name, EnvelopeTemplate.id))).scalars())
     return [await _template_read(session, template) for template in templates]
 
 
-async def _replace_template_items(session: AsyncSession, template: EnvelopeTemplate, payload: EnvelopeTemplateInput) -> None:
+async def _replace_template_items(
+    session: AsyncSession, template: EnvelopeTemplate, payload: EnvelopeTemplateInput, context: RequestWorkspace
+) -> None:
     for item in payload.items:
-        await _expense_category(session, item.category_id)
+        await _expense_category(session, item.category_id, context)
     template.name = payload.name
     await session.execute(delete(EnvelopeTemplateItem).where(EnvelopeTemplateItem.template_id == template.id))
     session.add_all(EnvelopeTemplateItem(template_id=template.id, **item.model_dump()) for item in payload.items)
 
 
 @router.post("/templates", response_model=EnvelopeTemplateRead, status_code=201)
-async def create_template(payload: EnvelopeTemplateInput, session: AsyncSession = Depends(get_session)) -> EnvelopeTemplateRead:
+async def create_template(
+    payload: EnvelopeTemplateInput,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeTemplateRead:
+    context.require_mutation()
     template = EnvelopeTemplate(name=payload.name)
     session.add(template)
     await session.flush()
-    await _replace_template_items(session, template, payload)
+    await _replace_template_items(session, template, payload, context)
     await session.commit()
     return await _template_read(session, template)
 
 
 @router.patch("/templates/{template_id}", response_model=EnvelopeTemplateRead)
-async def update_template(template_id: int, payload: EnvelopeTemplateInput, session: AsyncSession = Depends(get_session)) -> EnvelopeTemplateRead:
+async def update_template(
+    template_id: int,
+    payload: EnvelopeTemplateInput,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeTemplateRead:
+    context.require_mutation()
     template = await session.get(EnvelopeTemplate, template_id)
     if template is None:
         raise HTTPException(404, "Envelope template not found")
-    await _replace_template_items(session, template, payload)
+    await _replace_template_items(session, template, payload, context)
     await session.commit()
     return await _template_read(session, template)
 
 
 @router.delete("/templates/{template_id}", status_code=204)
-async def delete_template(template_id: int, session: AsyncSession = Depends(get_session)) -> Response:
+async def delete_template(
+    template_id: int,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> Response:
+    context.require_mutation()
     template = await session.get(EnvelopeTemplate, template_id)
     if template is None:
         raise HTTPException(404, "Envelope template not found")
@@ -97,65 +120,124 @@ async def delete_template(template_id: int, session: AsyncSession = Depends(get_
 
 
 @router.get("", response_model=list[EnvelopeMonthSummary])
-async def list_months(session: AsyncSession = Depends(get_session)) -> list[EnvelopeMonthSummary]:
-    rows = list((await session.execute(select(EnvelopeMonth).order_by(EnvelopeMonth.year.desc(), EnvelopeMonth.month.desc()))).scalars())
-    result = []
-    for row in rows:
-        status = await get_status(session, row.year, row.month)
-        result.append(EnvelopeMonthSummary(year=row.year, month=row.month, is_closed=row.is_closed, has_ledger_drift=status.has_ledger_drift))
-    return result
+async def read_envelope_months(
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[EnvelopeMonthSummary]:
+    return await list_months(session, context)
 
 
 @router.get("/{year}/{month}", response_model=EnvelopeStatus)
-async def status(year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await get_status(session, year, month)
+async def status(
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await get_status(session, year, month, context)
 
 
 @router.post("/{year}/{month}/open", response_model=EnvelopeStatus)
-async def open_envelope_month(year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await open_month(session, year, month)
+async def open_envelope_month(
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await open_month(session, year, month, context)
 
 
 @router.put("/{year}/{month}/allocations/{category_id}", response_model=EnvelopeStatus)
-async def allocation(category_id: int, payload: EnvelopeAllocationInput, year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await set_allocation(session, year, month, category_id, payload)
+async def allocation(
+    category_id: int,
+    payload: EnvelopeAllocationInput,
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await set_allocation(session, year, month, category_id, payload, context)
 
 
 @router.delete("/{year}/{month}/allocations/{category_id}", response_model=EnvelopeStatus)
-async def remove_allocation(category_id: int, year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await delete_allocation(session, year, month, category_id)
+async def remove_allocation(
+    category_id: int,
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await delete_allocation(session, year, month, category_id, context)
 
 
 @router.post("/{year}/{month}/moves", response_model=EnvelopeStatus, status_code=201)
-async def envelope_move(payload: EnvelopeMoveInput, year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await move(session, year, month, payload)
+async def envelope_move(
+    payload: EnvelopeMoveInput,
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await move(session, year, month, payload, context)
 
 
 @router.post("/{year}/{month}/apply-template/{template_id}", response_model=EnvelopeStatus)
-async def apply_envelope_template(template_id: int, year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await apply_template(session, year, month, template_id)
+async def apply_envelope_template(
+    template_id: int,
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await apply_template(session, year, month, template_id, context)
 
 
 @router.post("/{year}/{month}/fund", response_model=EnvelopeFundResult)
-async def fund_envelopes(payload: EnvelopeFundInput, year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeFundResult:
-    return await fund(session, year, month, payload)
+async def fund_envelopes(
+    payload: EnvelopeFundInput,
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeFundResult:
+    return await fund(session, year, month, payload, context)
 
 
 @router.post("/{year}/{month}/fund-next-month", response_model=EnvelopeFundResult)
-async def fund_next_month(year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeFundResult:
-    return await fund_next_envelope_month(session, year, month)
+async def fund_next_month(
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeFundResult:
+    return await fund_next_envelope_month(session, year, month, context)
 
 
 @router.post("/{year}/{month}/close", response_model=EnvelopeStatus)
-async def close_envelope_month(year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await close_month(session, year, month)
+async def close_envelope_month(
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await close_month(session, year, month, context)
 
 
 @router.post("/{year}/{month}/reopen", response_model=EnvelopeStatus)
-async def reopen_envelope_month(year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> EnvelopeStatus:
-    return await reopen_month(session, year, month)
+async def reopen_envelope_month(
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> EnvelopeStatus:
+    return await reopen_month(session, year, month, context)
 
 
 @router.get("/{year}/{month}/audit", response_model=list[EnvelopeAuditRead])
-async def audit(year: int = YEAR, month: int = MONTH, session: AsyncSession = Depends(get_session)) -> list[EnvelopeAuditLog]:
-    return list((await session.execute(select(EnvelopeAuditLog).where(EnvelopeAuditLog.year == year, EnvelopeAuditLog.month == month).order_by(EnvelopeAuditLog.id))).scalars())
+async def audit(
+    year: int = YEAR,
+    month: int = MONTH,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[EnvelopeAuditLog]:
+    return await list_audit(session, year, month, context)

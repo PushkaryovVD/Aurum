@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.models.account import Account
 from app.models.category import Category
 from app.models.envelope import EnvelopeAllocation, EnvelopeAuditLog, EnvelopeMonth, EnvelopeTemplate, EnvelopeTemplateItem
@@ -20,6 +21,7 @@ from app.schemas.envelope import (
     EnvelopeFundInput,
     EnvelopeFundResult,
     EnvelopeItem,
+    EnvelopeMonthSummary,
     EnvelopeMoveInput,
     EnvelopeShortfall,
     EnvelopeStatus,
@@ -47,23 +49,25 @@ def _months(start: MonthKey, end: MonthKey):
         current = _next_month(current)
 
 
-async def _expense_category(session: AsyncSession, category_id: int) -> Category:
-    category = await session.get(Category, category_id)
+async def _expense_category(session: AsyncSession, category_id: int, context: RequestWorkspace | None = None) -> Category:
+    stmt = select(Category).where(Category.id == category_id)
+    if context is not None:
+        stmt = scope_to_workspace(stmt, Category, context)
+    category = (await session.execute(stmt)).scalar_one_or_none()
     if category is None or category.kind != CategoryKind.EXPENSE:
         raise HTTPException(400, "Envelopes require an expense category")
     return category
 
 
-async def _month_row(session: AsyncSession, year: int, month: int) -> EnvelopeMonth | None:
-    return (
-        await session.execute(
-            select(EnvelopeMonth).where(EnvelopeMonth.year == year, EnvelopeMonth.month == month)
-        )
-    ).scalar_one_or_none()
+async def _month_row(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeMonth | None:
+    stmt = select(EnvelopeMonth).where(EnvelopeMonth.year == year, EnvelopeMonth.month == month)
+    if context is not None:
+        stmt = scope_to_workspace(stmt, EnvelopeMonth, context)
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def _require_open_month(session: AsyncSession, year: int, month: int) -> EnvelopeMonth:
-    row = await _month_row(session, year, month)
+async def _require_open_month(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeMonth:
+    row = await _month_row(session, year, month, context)
     if row is None:
         raise HTTPException(404, "Envelope month is not open")
     if row.is_closed:
@@ -71,65 +75,112 @@ async def _require_open_month(session: AsyncSession, year: int, month: int) -> E
     return row
 
 
-async def open_month(session: AsyncSession, year: int, month: int) -> EnvelopeStatus:
-    row = await _month_row(session, year, month)
+async def _scoped(session: AsyncSession, statement, model, context: RequestWorkspace | None):
+    """Apply the request workspace filter when the caller is authenticated.
+
+    ``None``/``workspace_id is None`` keeps the legacy auth-disabled behavior:
+    every row (including the NULL-workspace namespace) remains visible.
+    """
+    if context is not None:
+        statement = scope_to_workspace(statement, model, context)
+    return statement
+
+
+async def open_month(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeStatus:
+    if context is not None:
+        context.require_mutation()
+    row = await _month_row(session, year, month, context)
     if row is None:
-        session.add(EnvelopeMonth(year=year, month=month))
+        session.add(EnvelopeMonth(year=year, month=month, workspace_id=None if context is None else context.workspace_id))
         await session.commit()
-    return await get_status(session, year, month)
+    return await get_status(session, year, month, context)
 
 
-async def _calculation_data(session: AsyncSession, target: MonthKey):
-    target_end = date(target[0], target[1], calendar.monthrange(*target)[1])
-    month_rows = list((await session.execute(select(EnvelopeMonth).order_by(EnvelopeMonth.year, EnvelopeMonth.month))).scalars())
-    categories = list((await session.execute(select(Category))).scalars())
-    allocations = list(
-        (
-            await session.execute(
-                select(EnvelopeAllocation)
-                .where(or_(EnvelopeAllocation.year < target[0], (EnvelopeAllocation.year == target[0]) & (EnvelopeAllocation.month <= target[1])))
-                .order_by(EnvelopeAllocation.year, EnvelopeAllocation.month, EnvelopeAllocation.category_id)
+async def list_months(session: AsyncSession, context: RequestWorkspace | None = None) -> list[EnvelopeMonthSummary]:
+    stmt = select(EnvelopeMonth).order_by(EnvelopeMonth.year.desc(), EnvelopeMonth.month.desc())
+    stmt = await _scoped(session, stmt, EnvelopeMonth, context)
+    rows = list((await session.execute(stmt)).scalars())
+    result = []
+    for row in rows:
+        status = await get_status(session, row.year, row.month, context)
+        result.append(
+            EnvelopeMonthSummary(
+                year=row.year, month=row.month, is_closed=row.is_closed, has_ledger_drift=status.has_ledger_drift
             )
-        ).scalars()
+        )
+    return result
+
+
+async def list_audit(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> list[EnvelopeAuditLog]:
+    """Audit history for a month, resolved through the workspace-scoped month.
+
+    Audit rows carry no workspace column, so a workspace the month does not
+    belong to yields nothing rather than another workspace's history.
+    """
+    if context is not None and await _month_row(session, year, month, context) is None:
+        return []
+    stmt = (
+        select(EnvelopeAuditLog)
+        .where(EnvelopeAuditLog.year == year, EnvelopeAuditLog.month == month)
+        .order_by(EnvelopeAuditLog.id)
     )
-    plain_rows = (
-        await session.execute(
-            select(
-                Transaction.date,
-                Transaction.type,
-                Transaction.category_id,
-                Category.kind,
-                Category.parent_id,
-                Transaction.created_at,
-                transaction_amount_kzt().label("amount_kzt"),
-            )
-            .join(Account, Account.id == Transaction.account_id)
-            .outerjoin(Category, Category.id == Transaction.category_id)
-            .where(Transaction.date <= target_end)
+    return list((await session.execute(stmt)).scalars())
+
+
+async def _calculation_data(session: AsyncSession, target: MonthKey, context: RequestWorkspace | None = None):
+    target_end = date(target[0], target[1], calendar.monthrange(*target)[1])
+    month_stmt = select(EnvelopeMonth).order_by(EnvelopeMonth.year, EnvelopeMonth.month)
+    month_stmt = await _scoped(session, month_stmt, EnvelopeMonth, context)
+    month_rows = list((await session.execute(month_stmt)).scalars())
+    categories = list((await session.execute(select(Category))).scalars())
+    allocation_stmt = (
+        select(EnvelopeAllocation)
+        .where(or_(EnvelopeAllocation.year < target[0], (EnvelopeAllocation.year == target[0]) & (EnvelopeAllocation.month <= target[1])))
+        .order_by(EnvelopeAllocation.year, EnvelopeAllocation.month, EnvelopeAllocation.category_id)
+    )
+    allocation_stmt = await _scoped(session, allocation_stmt, EnvelopeAllocation, context)
+    allocations = list((await session.execute(allocation_stmt)).scalars())
+    plain_stmt = (
+        select(
+            Transaction.date,
+            Transaction.type,
+            Transaction.category_id,
+            Category.kind,
+            Category.parent_id,
+            Transaction.created_at,
+            transaction_amount_kzt().label("amount_kzt"),
         )
-    ).all()
-    split_rows = (
-        await session.execute(
-            select(
-                Transaction.date,
-                Transaction.type,
-                TransactionSplit.category_id,
-                Category.parent_id,
-                split_amount_kzt().label("amount_kzt"),
-            )
-            .select_from(TransactionSplit)
-            .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
-            .join(Account, Account.id == Transaction.account_id)
-            .outerjoin(Category, Category.id == TransactionSplit.category_id)
-            .where(Transaction.date <= target_end)
+        .join(Account, Account.id == Transaction.account_id)
+        .outerjoin(Category, Category.id == Transaction.category_id)
+        .where(Transaction.date <= target_end)
+    )
+    plain_stmt = await _scoped(session, plain_stmt, Transaction, context)
+    plain_stmt = await _scoped(session, plain_stmt, Account, context)
+    plain_rows = (await session.execute(plain_stmt)).all()
+    split_stmt = (
+        select(
+            Transaction.date,
+            Transaction.type,
+            TransactionSplit.category_id,
+            Category.parent_id,
+            split_amount_kzt().label("amount_kzt"),
         )
-    ).all()
+        .select_from(TransactionSplit)
+        .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
+        .join(Account, Account.id == Transaction.account_id)
+        .outerjoin(Category, Category.id == TransactionSplit.category_id)
+        .where(Transaction.date <= target_end)
+    )
+    split_stmt = await _scoped(session, split_stmt, TransactionSplit, context)
+    split_stmt = await _scoped(session, split_stmt, Transaction, context)
+    split_stmt = await _scoped(session, split_stmt, Account, context)
+    split_rows = (await session.execute(split_stmt)).all()
     return month_rows, categories, allocations, plain_rows, split_rows
 
 
-async def get_status(session: AsyncSession, year: int, month: int) -> EnvelopeStatus:
+async def get_status(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeStatus:
     target = (year, month)
-    month_rows, categories, allocations, plain_rows, split_rows = await _calculation_data(session, target)
+    month_rows, categories, allocations, plain_rows, split_rows = await _calculation_data(session, target, context)
     row_by_month = {(row.year, row.month): row for row in month_rows}
     tracking_start = min(row_by_month, default=None)
     target_row = row_by_month.get(target)
@@ -339,31 +390,40 @@ async def get_status(session: AsyncSession, year: int, month: int) -> EnvelopeSt
     )
 
 
-async def set_allocation(session: AsyncSession, year: int, month: int, category_id: int, payload: EnvelopeAllocationInput) -> EnvelopeStatus:
-    await _expense_category(session, category_id)
-    month_row = await _month_row(session, year, month)
+async def set_allocation(
+    session: AsyncSession,
+    year: int,
+    month: int,
+    category_id: int,
+    payload: EnvelopeAllocationInput,
+    context: RequestWorkspace | None = None,
+) -> EnvelopeStatus:
+    if context is not None:
+        context.require_mutation()
+    await _expense_category(session, category_id, context)
+    month_row = await _month_row(session, year, month, context)
     if month_row is None:
-        month_row = EnvelopeMonth(year=year, month=month)
+        month_row = EnvelopeMonth(year=year, month=month, workspace_id=None if context is None else context.workspace_id)
         session.add(month_row)
         await session.flush()
     elif month_row.is_closed:
         raise HTTPException(409, f"Envelope month {year}-{month:02d} is closed")
-    allocation = (
-        await session.execute(
-            select(EnvelopeAllocation).where(
-                EnvelopeAllocation.year == year,
-                EnvelopeAllocation.month == month,
-                EnvelopeAllocation.category_id == category_id,
-            )
-        )
-    ).scalar_one_or_none()
+    allocation_stmt = select(EnvelopeAllocation).where(
+        EnvelopeAllocation.year == year,
+        EnvelopeAllocation.month == month,
+        EnvelopeAllocation.category_id == category_id,
+    )
+    allocation_stmt = await _scoped(session, allocation_stmt, EnvelopeAllocation, context)
+    allocation = (await session.execute(allocation_stmt)).scalar_one_or_none()
     old_assigned = allocation.assigned_amount if allocation else ZERO
-    status = await get_status(session, year, month)
+    status = await get_status(session, year, month, context)
     delta = payload.assigned_amount - old_assigned
     if delta > ZERO and delta > status.available_to_assign:
         raise HTTPException(400, "Allocation exceeds money available to assign")
     if allocation is None:
-        allocation = EnvelopeAllocation(year=year, month=month, category_id=category_id)
+        allocation = EnvelopeAllocation(
+            year=year, month=month, category_id=category_id, workspace_id=None if context is None else context.workspace_id
+        )
         session.add(allocation)
     allocation.assigned_amount = payload.assigned_amount
     if payload.planned_amount is not None:
@@ -374,44 +434,46 @@ async def set_allocation(session: AsyncSession, year: int, month: int, category_
         allocation.rollover_negative = payload.rollover_negative
     session.add(EnvelopeAuditLog(year=year, month=month, event_type="allocation", category_id=category_id, amount=delta))
     await session.commit()
-    return await get_status(session, year, month)
+    return await get_status(session, year, month, context)
 
 
-async def delete_allocation(session: AsyncSession, year: int, month: int, category_id: int) -> EnvelopeStatus:
-    await _require_open_month(session, year, month)
-    allocation = (
-        await session.execute(
-            select(EnvelopeAllocation).where(
-                EnvelopeAllocation.year == year,
-                EnvelopeAllocation.month == month,
-                EnvelopeAllocation.category_id == category_id,
-            )
-        )
-    ).scalar_one_or_none()
+async def delete_allocation(
+    session: AsyncSession, year: int, month: int, category_id: int, context: RequestWorkspace | None = None
+) -> EnvelopeStatus:
+    if context is not None:
+        context.require_mutation()
+    await _require_open_month(session, year, month, context)
+    allocation_stmt = select(EnvelopeAllocation).where(
+        EnvelopeAllocation.year == year,
+        EnvelopeAllocation.month == month,
+        EnvelopeAllocation.category_id == category_id,
+    )
+    allocation_stmt = await _scoped(session, allocation_stmt, EnvelopeAllocation, context)
+    allocation = (await session.execute(allocation_stmt)).scalar_one_or_none()
     if allocation is None:
         raise HTTPException(404, "Envelope allocation not found")
     amount = allocation.assigned_amount
     await session.delete(allocation)
     session.add(EnvelopeAuditLog(year=year, month=month, event_type="allocation", category_id=category_id, amount=-amount))
     await session.commit()
-    return await get_status(session, year, month)
+    return await get_status(session, year, month, context)
 
 
-async def move(session: AsyncSession, year: int, month: int, payload: EnvelopeMoveInput) -> EnvelopeStatus:
-    await _require_open_month(session, year, month)
+async def move(
+    session: AsyncSession, year: int, month: int, payload: EnvelopeMoveInput, context: RequestWorkspace | None = None
+) -> EnvelopeStatus:
+    if context is not None:
+        context.require_mutation()
+    await _require_open_month(session, year, month, context)
     if payload.from_category_id == payload.to_category_id:
         raise HTTPException(400, "Envelope move needs two different categories")
-    rows = list(
-        (
-            await session.execute(
-                select(EnvelopeAllocation).where(
-                    EnvelopeAllocation.year == year,
-                    EnvelopeAllocation.month == month,
-                    EnvelopeAllocation.category_id.in_([payload.from_category_id, payload.to_category_id]),
-                )
-            )
-        ).scalars()
+    rows_stmt = select(EnvelopeAllocation).where(
+        EnvelopeAllocation.year == year,
+        EnvelopeAllocation.month == month,
+        EnvelopeAllocation.category_id.in_([payload.from_category_id, payload.to_category_id]),
     )
+    rows_stmt = await _scoped(session, rows_stmt, EnvelopeAllocation, context)
+    rows = list((await session.execute(rows_stmt)).scalars())
     by_id = {row.category_id: row for row in rows}
     if len(by_id) != 2:
         raise HTTPException(404, "Both envelopes must exist before moving money")
@@ -433,28 +495,36 @@ async def move(session: AsyncSession, year: int, month: int, payload: EnvelopeMo
         )
     )
     await session.commit()
-    return await get_status(session, year, month)
+    return await get_status(session, year, month, context)
 
 
-async def apply_template(session: AsyncSession, year: int, month: int, template_id: int) -> EnvelopeStatus:
-    await _require_open_month(session, year, month)
+async def apply_template(
+    session: AsyncSession, year: int, month: int, template_id: int, context: RequestWorkspace | None = None
+) -> EnvelopeStatus:
+    if context is not None:
+        context.require_mutation()
+    await _require_open_month(session, year, month, context)
     template = await session.get(EnvelopeTemplate, template_id)
     if template is None:
         raise HTTPException(404, "Envelope template not found")
     items = list((await session.execute(select(EnvelopeTemplateItem).where(EnvelopeTemplateItem.template_id == template_id).order_by(EnvelopeTemplateItem.id))).scalars())
     total = ZERO
     for item in items:
-        row = (
-            await session.execute(
-                select(EnvelopeAllocation).where(
-                    EnvelopeAllocation.year == year,
-                    EnvelopeAllocation.month == month,
-                    EnvelopeAllocation.category_id == item.category_id,
-                )
-            )
-        ).scalar_one_or_none()
+        row_stmt = select(EnvelopeAllocation).where(
+            EnvelopeAllocation.year == year,
+            EnvelopeAllocation.month == month,
+            EnvelopeAllocation.category_id == item.category_id,
+        )
+        row_stmt = await _scoped(session, row_stmt, EnvelopeAllocation, context)
+        row = (await session.execute(row_stmt)).scalar_one_or_none()
         if row is None:
-            row = EnvelopeAllocation(year=year, month=month, category_id=item.category_id, assigned_amount=ZERO)
+            row = EnvelopeAllocation(
+                year=year,
+                month=month,
+                category_id=item.category_id,
+                assigned_amount=ZERO,
+                workspace_id=None if context is None else context.workspace_id,
+            )
             session.add(row)
         row.planned_amount = item.planned_amount
         row.rollover_positive = item.rollover_positive
@@ -462,26 +532,32 @@ async def apply_template(session: AsyncSession, year: int, month: int, template_
         total += item.planned_amount
     session.add(EnvelopeAuditLog(year=year, month=month, event_type="template_applied", amount=total, note=template.name))
     await session.commit()
-    return await get_status(session, year, month)
+    return await get_status(session, year, month, context)
 
 
-async def fund(session: AsyncSession, year: int, month: int, payload: EnvelopeFundInput) -> EnvelopeFundResult:
-    await _require_open_month(session, year, month)
+async def fund(
+    session: AsyncSession, year: int, month: int, payload: EnvelopeFundInput, context: RequestWorkspace | None = None
+) -> EnvelopeFundResult:
+    if context is not None:
+        context.require_mutation()
+    await _require_open_month(session, year, month, context)
     if payload.template_id is not None:
-        await apply_template(session, year, month, payload.template_id)
+        await apply_template(session, year, month, payload.template_id, context)
     if payload.copy_plan_from is not None:
-        source_rows = list((await session.execute(select(EnvelopeAllocation).where(EnvelopeAllocation.year == payload.copy_plan_from.year, EnvelopeAllocation.month == payload.copy_plan_from.month))).scalars())
+        source_stmt = select(EnvelopeAllocation).where(
+            EnvelopeAllocation.year == payload.copy_plan_from.year, EnvelopeAllocation.month == payload.copy_plan_from.month
+        )
+        source_stmt = await _scoped(session, source_stmt, EnvelopeAllocation, context)
+        source_rows = list((await session.execute(source_stmt)).scalars())
         copied_total = ZERO
         for source in source_rows:
-            target = (
-                await session.execute(
-                    select(EnvelopeAllocation).where(
-                        EnvelopeAllocation.year == year,
-                        EnvelopeAllocation.month == month,
-                        EnvelopeAllocation.category_id == source.category_id,
-                    )
-                )
-            ).scalar_one_or_none()
+            target_stmt = select(EnvelopeAllocation).where(
+                EnvelopeAllocation.year == year,
+                EnvelopeAllocation.month == month,
+                EnvelopeAllocation.category_id == source.category_id,
+            )
+            target_stmt = await _scoped(session, target_stmt, EnvelopeAllocation, context)
+            target = (await session.execute(target_stmt)).scalar_one_or_none()
             if target is None:
                 target = EnvelopeAllocation(
                     year=year,
@@ -491,6 +567,7 @@ async def fund(session: AsyncSession, year: int, month: int, payload: EnvelopeFu
                     planned_amount=source.planned_amount,
                     rollover_positive=source.rollover_positive,
                     rollover_negative=source.rollover_negative,
+                    workspace_id=None if context is None else context.workspace_id,
                 )
                 session.add(target)
                 copied_total += source.planned_amount
@@ -502,9 +579,13 @@ async def fund(session: AsyncSession, year: int, month: int, payload: EnvelopeFu
         if copied_total:
             session.add(EnvelopeAuditLog(year=year, month=month, event_type="template_applied", amount=copied_total, note="copied plan"))
         await session.commit()
-    status = await get_status(session, year, month)
+    status = await get_status(session, year, month, context)
     remaining = max(status.available_to_assign, ZERO)
-    rows = list((await session.execute(select(EnvelopeAllocation).where(EnvelopeAllocation.year == year, EnvelopeAllocation.month == month).order_by(EnvelopeAllocation.category_id))).scalars())
+    rows_stmt = select(EnvelopeAllocation).where(
+        EnvelopeAllocation.year == year, EnvelopeAllocation.month == month
+    ).order_by(EnvelopeAllocation.category_id)
+    rows_stmt = await _scoped(session, rows_stmt, EnvelopeAllocation, context)
+    rows = list((await session.execute(rows_stmt)).scalars())
     unfunded: list[EnvelopeShortfall] = []
     for row in rows:
         needed = max(row.planned_amount - row.assigned_amount, ZERO)
@@ -517,34 +598,40 @@ async def fund(session: AsyncSession, year: int, month: int, payload: EnvelopeFu
         if shortfall:
             unfunded.append(EnvelopeShortfall(category_id=row.category_id, shortfall=shortfall))
     await session.commit()
-    return EnvelopeFundResult(status=await get_status(session, year, month), unfunded=unfunded)
+    return EnvelopeFundResult(status=await get_status(session, year, month, context), unfunded=unfunded)
 
 
-async def fund_next_month(session: AsyncSession, year: int, month: int) -> EnvelopeFundResult:
-    await _require_open_month(session, year, month)
+async def fund_next_month(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeFundResult:
+    if context is not None:
+        context.require_mutation()
+    await _require_open_month(session, year, month, context)
     next_year, next_month = _next_month((year, month))
-    await open_month(session, next_year, next_month)
-    return await fund(session, next_year, next_month, EnvelopeFundInput(copy_plan_from=MonthRef(year=year, month=month)))
+    await open_month(session, next_year, next_month, context)
+    return await fund(session, next_year, next_month, EnvelopeFundInput(copy_plan_from=MonthRef(year=year, month=month)), context)
 
 
-async def close_month(session: AsyncSession, year: int, month: int) -> EnvelopeStatus:
-    row = await _month_row(session, year, month)
+async def close_month(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeStatus:
+    if context is not None:
+        context.require_mutation()
+    row = await _month_row(session, year, month, context)
     if row is None:
         raise HTTPException(404, "Envelope month is not open")
     if row.is_closed:
-        return await get_status(session, year, month)
-    status = await get_status(session, year, month)
+        return await get_status(session, year, month, context)
+    status = await get_status(session, year, month, context)
     total = sum((item.activity for item in status.items), ZERO)
     row.is_closed = True
     row.closed_at = datetime.now(timezone.utc)
     row.closed_activity_total = total
     session.add(EnvelopeAuditLog(year=year, month=month, event_type="month_closed", amount=total))
     await session.commit()
-    return await get_status(session, year, month)
+    return await get_status(session, year, month, context)
 
 
-async def reopen_month(session: AsyncSession, year: int, month: int) -> EnvelopeStatus:
-    row = await _month_row(session, year, month)
+async def reopen_month(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeStatus:
+    if context is not None:
+        context.require_mutation()
+    row = await _month_row(session, year, month, context)
     if row is None:
         raise HTTPException(404, "Envelope month is not open")
     if row.is_closed:
@@ -553,4 +640,4 @@ async def reopen_month(session: AsyncSession, year: int, month: int) -> Envelope
         row.closed_activity_total = None
         session.add(EnvelopeAuditLog(year=year, month=month, event_type="month_reopened", amount=ZERO))
         await session.commit()
-    return await get_status(session, year, month)
+    return await get_status(session, year, month, context)

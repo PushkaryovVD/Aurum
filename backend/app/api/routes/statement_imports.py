@@ -8,7 +8,7 @@ import sys
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import RequestWorkspace, get_request_workspace, get_session
 from app.importers import SUPPORTED_EXTENSIONS, resolve_importers
 from app.schemas.statement_import import StatementCommit, StatementCommitResult, StatementPreview
 from app.services.statement_import_service import commit_statement, suggest_row_categories
@@ -70,7 +70,9 @@ async def _parse_in_worker(name: str, content: bytes) -> StatementPreview:
 
 @router.post("/preview", response_model=StatementPreview)
 async def preview_statement(
-    file: UploadFile = File(...), session: AsyncSession = Depends(get_session)
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> StatementPreview:
     """Reads a bank document and returns what it recognised — without writing
     anything. The user reviews and corrects these rows, then posts them back to
@@ -87,10 +89,14 @@ async def preview_statement(
         preview = await _parse_in_worker(name, content)
     # Whatever the saved rules already decide is filled in here, so the user
     # reviews the real proposal instead of an empty category column.
-    await suggest_row_categories(session, preview.rows)
+    await suggest_row_categories(session, preview.rows, context=context)
     return preview
 
 
 @router.post("/commit", response_model=StatementCommitResult)
-async def save_statement(payload: StatementCommit, session: AsyncSession = Depends(get_session)):
-    return await commit_statement(session, payload)
+async def save_statement(
+    payload: StatementCommit,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+):
+    return await commit_statement(session, payload, context)

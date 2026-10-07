@@ -243,7 +243,7 @@ async def _apply_categorization_rule(
     rule was written for something else, and a 400 would block an entry the user
     is otherwise happy with.
     """
-    if fields.get("category_id") is not None or context.workspace_id is not None:
+    if fields.get("category_id") is not None:
         return
     expected_kind = _TYPE_TO_CATEGORY_KIND.get(fields["type"])
     if expected_kind is None:
@@ -258,6 +258,7 @@ async def _apply_categorization_rule(
         account_id=fields["account_id"],
         transaction_type=fields["type"],
         expected_kind=expected_kind,
+        context=context,
     )
 
 

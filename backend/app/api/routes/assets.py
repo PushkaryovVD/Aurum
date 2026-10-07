@@ -9,7 +9,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_session
+from app.api.deps import (
+    RequestWorkspace,
+    get_request_workspace,
+    get_session,
+    scope_to_workspace,
+)
 from app.models.asset import Asset, AssetValuation
 from app.models.enums import AssetValuationMode
 from app.schemas.asset import (
@@ -28,6 +33,11 @@ router = APIRouter(prefix="/assets", tags=["assets"])
 logger = logging.getLogger(__name__)
 
 _EAGER = (selectinload(Asset.valuations),)
+
+
+def _scoped_asset_statement(asset_id: int, context: RequestWorkspace):
+    statement = select(Asset).options(*_EAGER).where(Asset.id == asset_id)
+    return scope_to_workspace(statement, Asset, context)
 
 
 def _to_read(asset: Asset, projection_date: date_ | None = None) -> AssetRead:
@@ -73,13 +83,24 @@ def _to_read(asset: Asset, projection_date: date_ | None = None) -> AssetRead:
 
 
 @router.get("", response_model=list[AssetRead])
-async def list_assets(as_of: date_ | None = None, session: AsyncSession = Depends(get_session)) -> list[AssetRead]:
-    result = await session.execute(select(Asset).options(*_EAGER).order_by(Asset.name))
+async def list_assets(
+    as_of: date_ | None = None,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[AssetRead]:
+    statement = select(Asset).options(*_EAGER).order_by(Asset.name)
+    statement = scope_to_workspace(statement, Asset, context)
+    result = await session.execute(statement)
     return [_to_read(asset, as_of) for asset in result.scalars().all()]
 
 
 @router.post("", response_model=AssetRead, status_code=201)
-async def create_asset(payload: AssetCreate, session: AsyncSession = Depends(get_session)) -> AssetRead:
+async def create_asset(
+    payload: AssetCreate,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> AssetRead:
+    context.require_mutation()
     asset = Asset(
         name=payload.name,
         asset_class=payload.asset_class,
@@ -94,6 +115,7 @@ async def create_asset(payload: AssetCreate, session: AsyncSession = Depends(get
         valuation_mode=payload.valuation_mode,
         useful_life_years=payload.useful_life_years,
         annual_depreciation_rate=payload.annual_depreciation_rate,
+        workspace_id=context.workspace_id,
     )
     session.add(asset)
     await session.flush()
@@ -111,13 +133,19 @@ async def create_asset(payload: AssetCreate, session: AsyncSession = Depends(get
     )
     await session.commit()
 
-    refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
+    refreshed = await session.execute(_scoped_asset_statement(asset.id, context))
     return _to_read(refreshed.scalar_one())
 
 
 @router.patch("/{asset_id}", response_model=AssetRead)
-async def update_asset(asset_id: int, payload: AssetUpdate, session: AsyncSession = Depends(get_session)) -> AssetRead:
-    result = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset_id))
+async def update_asset(
+    asset_id: int,
+    payload: AssetUpdate,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> AssetRead:
+    context.require_mutation()
+    result = await session.execute(_scoped_asset_statement(asset_id, context))
     asset = result.scalar_one_or_none()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -155,12 +183,16 @@ async def update_asset(asset_id: int, payload: AssetUpdate, session: AsyncSessio
 
 @router.post("/{asset_id}/valuations", response_model=AssetRead)
 async def add_asset_valuation(
-    asset_id: int, payload: AssetValuationCreate, session: AsyncSession = Depends(get_session)
+    asset_id: int,
+    payload: AssetValuationCreate,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> AssetRead:
     """Records (or corrects) an asset's value as of a date. Re-submitting the
     same date updates that day's value instead of erroring, so users can fix
     a typo without needing a separate edit flow."""
-    asset = await session.get(Asset, asset_id)
+    context.require_mutation()
+    asset = (await session.execute(_scoped_asset_statement(asset_id, context))).scalar_one_or_none()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
@@ -189,13 +221,17 @@ async def add_asset_valuation(
     await session.commit()
     session.expire(asset, ["valuations"])
 
-    refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
+    refreshed = await session.execute(_scoped_asset_statement(asset.id, context))
     return _to_read(refreshed.scalar_one())
 
 
 @router.get("/{asset_id}/valuations", response_model=list[AssetValuationRead])
-async def list_asset_valuations(asset_id: int, session: AsyncSession = Depends(get_session)) -> list[AssetValuation]:
-    asset = await session.get(Asset, asset_id)
+async def list_asset_valuations(
+    asset_id: int,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[AssetValuation]:
+    asset = (await session.execute(_scoped_asset_statement(asset_id, context))).scalar_one_or_none()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
     result = await session.execute(
@@ -205,8 +241,13 @@ async def list_asset_valuations(asset_id: int, session: AsyncSession = Depends(g
 
 
 @router.get("/revaluation-reminders", response_model=list[AssetRevaluationReminderRead])
-async def list_revaluation_reminders(session: AsyncSession = Depends(get_session)) -> list[AssetRevaluationReminderRead]:
-    result = await session.execute(select(Asset).options(*_EAGER).order_by(Asset.name))
+async def list_revaluation_reminders(
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[AssetRevaluationReminderRead]:
+    statement = select(Asset).options(*_EAGER).order_by(Asset.name)
+    statement = scope_to_workspace(statement, Asset, context)
+    result = await session.execute(statement)
     reminders = []
     for asset in result.scalars().all():
         latest = asset.valuations[-1] if asset.valuations else None
@@ -226,8 +267,10 @@ async def accept_projected_revaluation(
     asset_id: int,
     payload: AssetRevaluationAccept | None = None,
     session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> AssetRead:
-    result = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset_id))
+    context.require_mutation()
+    result = await session.execute(_scoped_asset_statement(asset_id, context))
     asset = result.scalar_one_or_none()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -268,13 +311,18 @@ async def accept_projected_revaluation(
     await session.execute(upsert_stmt)
     await session.commit()
     session.expire(asset, ["valuations"])
-    refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
+    refreshed = await session.execute(_scoped_asset_statement(asset.id, context))
     return _to_read(refreshed.scalar_one())
 
 
 @router.delete("/{asset_id}", status_code=204)
-async def delete_asset(asset_id: int, session: AsyncSession = Depends(get_session)) -> None:
-    asset = await session.get(Asset, asset_id)
+async def delete_asset(
+    asset_id: int,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> None:
+    context.require_mutation()
+    asset = (await session.execute(_scoped_asset_statement(asset_id, context))).scalar_one_or_none()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
     await session.delete(asset)

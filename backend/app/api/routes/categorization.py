@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import RequestWorkspace, get_request_workspace, get_session
 from app.schemas.categorization import (
     CategorizationMatchRead,
     CategorizationMatchRequest,
@@ -25,21 +25,29 @@ router = APIRouter(prefix="/categorization-rules", tags=["categorization"])
 
 
 @router.get("", response_model=list[CategorizationRuleRead])
-async def read_rules(session: AsyncSession = Depends(get_session)) -> list[CategorizationRuleRead]:
-    """Every rule, enabled or not, in evaluation order."""
-    return await list_rules_read(session)
+async def read_rules(
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> list[CategorizationRuleRead]:
+    """Every rule visible to the request's workspace, enabled or not, in
+    evaluation order."""
+    return await list_rules_read(session, context)
 
 
 @router.post("", response_model=CategorizationRuleRead, status_code=201)
 async def create_rule_route(
-    payload: CategorizationRuleCreate, session: AsyncSession = Depends(get_session)
+    payload: CategorizationRuleCreate,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> CategorizationRuleRead:
-    return await create_rule(session, payload)
+    return await create_rule(session, payload, context)
 
 
 @router.post("/match", response_model=CategorizationMatchRead)
 async def match_rule_route(
-    payload: CategorizationMatchRequest, session: AsyncSession = Depends(get_session)
+    payload: CategorizationMatchRequest,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> CategorizationMatchRead:
     """Which rule would decide a transaction of this shape, and the category it
     would assign.
@@ -55,6 +63,7 @@ async def match_rule_route(
         currency=payload.currency,
         account_id=payload.account_id,
         transaction_type=payload.transaction_type,
+        context=context,
     )
     if matched is None:
         return CategorizationMatchRead()
@@ -69,10 +78,12 @@ async def match_rule_route(
 
 @router.post("/reorder", response_model=list[CategorizationRuleRead])
 async def reorder_rule_route(
-    payload: CategorizationRuleReorder, session: AsyncSession = Depends(get_session)
+    payload: CategorizationRuleReorder,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> list[CategorizationRuleRead]:
     """Replaces the whole order — first id runs first."""
-    return await reorder_rules(session, payload)
+    return await reorder_rules(session, payload, context)
 
 
 @router.post("/apply", response_model=RuleApplyResult)
@@ -82,6 +93,7 @@ async def apply_rule_route(
         default=True, description="Leave transactions that already have a category alone"
     ),
     session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> RuleApplyResult:
     """Runs the saved rules over existing transactions.
 
@@ -89,16 +101,25 @@ async def apply_rule_route(
     reordering a rule does is to ask first, and nothing in this endpoint changes
     history unless the caller says so explicitly.
     """
-    return await apply_rules(session, dry_run=dry_run, only_uncategorized=only_uncategorized)
+    return await apply_rules(
+        session, context, dry_run=dry_run, only_uncategorized=only_uncategorized
+    )
 
 
 @router.patch("/{rule_id}", response_model=CategorizationRuleRead)
 async def update_rule_route(
-    rule_id: int, payload: CategorizationRuleUpdate, session: AsyncSession = Depends(get_session)
+    rule_id: int,
+    payload: CategorizationRuleUpdate,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
 ) -> CategorizationRuleRead:
-    return await update_rule(session, rule_id, payload)
+    return await update_rule(session, rule_id, payload, context)
 
 
 @router.delete("/{rule_id}", status_code=204)
-async def delete_rule_route(rule_id: int, session: AsyncSession = Depends(get_session)) -> None:
-    await delete_rule(session, rule_id)
+async def delete_rule_route(
+    rule_id: int,
+    session: AsyncSession = Depends(get_session),
+    context: RequestWorkspace = Depends(get_request_workspace),
+) -> None:
+    await delete_rule(session, rule_id, context)

@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.models.account import Account
 from app.models.asset import Asset, AssetValuation
 from app.models.enums import (
@@ -41,10 +42,15 @@ _SECURITY_EAGER = (
 )
 
 
-async def _security(session: AsyncSession, asset_id: int) -> Security:
-    row = (
-        await session.execute(select(Security).options(*_SECURITY_EAGER).where(Security.asset_id == asset_id))
-    ).scalar_one_or_none()
+async def _security(session: AsyncSession, asset_id: int, context: RequestWorkspace) -> Security:
+    stmt = (
+        select(Security)
+        .options(*_SECURITY_EAGER)
+        .join(InvestmentPortfolio, InvestmentPortfolio.id == Security.portfolio_id)
+        .where(Security.asset_id == asset_id)
+    )
+    stmt = scope_to_workspace(stmt, InvestmentPortfolio, context)
+    row = (await session.execute(stmt)).scalar_one_or_none()
     if row is None:
         raise HTTPException(404, "Security not found")
     return row
@@ -114,10 +120,12 @@ def _cash_transaction(
     purpose: TransactionPurpose,
     rate: Decimal,
     currency: str,
+    context: RequestWorkspace,
 ) -> Transaction:
     rounded = amount.quantize(Decimal("0.01"))
     return Transaction(
         account_id=account_id,
+        workspace_id=context.workspace_id,
         type=tx_type,
         amount=rounded,
         # Security currency == the portfolio cash account's (enforced in
@@ -159,24 +167,38 @@ def _update_cash_transaction(
     row.date = event_date
 
 
-async def list_portfolios(session: AsyncSession) -> list[InvestmentPortfolioRead]:
-    rows = (await session.execute(select(InvestmentPortfolio).order_by(InvestmentPortfolio.id))).scalars().all()
+async def list_portfolios(session: AsyncSession, context: RequestWorkspace) -> list[InvestmentPortfolioRead]:
+    stmt = scope_to_workspace(select(InvestmentPortfolio).order_by(InvestmentPortfolio.id), InvestmentPortfolio, context)
+    rows = (await session.execute(stmt)).scalars().all()
     return [InvestmentPortfolioRead.model_validate(row) for row in rows]
 
 
-async def create_portfolio(session: AsyncSession, payload: InvestmentPortfolioCreate) -> InvestmentPortfolioRead:
-    account = await session.get(Account, payload.account_id)
+async def create_portfolio(
+    session: AsyncSession, payload: InvestmentPortfolioCreate, context: RequestWorkspace
+) -> InvestmentPortfolioRead:
+    context.require_mutation()
+    account_stmt = scope_to_workspace(select(Account).where(Account.id == payload.account_id), Account, context)
+    account = (await session.execute(account_stmt)).scalar_one_or_none()
     if account is None or account.type != AccountType.INVESTMENT:
         raise HTTPException(400, "Portfolio account must be an investment account")
-    row = InvestmentPortfolio(**payload.model_dump())
+    row = InvestmentPortfolio(**payload.model_dump(), workspace_id=context.workspace_id)
     session.add(row)
     await session.commit()
     await session.refresh(row)
     return InvestmentPortfolioRead.model_validate(row)
 
 
-async def create_security(session: AsyncSession, payload: SecurityCreate) -> SecurityPositionRead:
-    portfolio = await session.get(InvestmentPortfolio, payload.portfolio_id, options=[selectinload(InvestmentPortfolio.account)])
+async def create_security(
+    session: AsyncSession, payload: SecurityCreate, context: RequestWorkspace
+) -> SecurityPositionRead:
+    context.require_mutation()
+    portfolio_stmt = (
+        select(InvestmentPortfolio)
+        .options(selectinload(InvestmentPortfolio.account))
+        .where(InvestmentPortfolio.id == payload.portfolio_id)
+    )
+    portfolio_stmt = scope_to_workspace(portfolio_stmt, InvestmentPortfolio, context)
+    portfolio = (await session.execute(portfolio_stmt)).scalar_one_or_none()
     if portfolio is None:
         raise HTTPException(404, "Investment portfolio not found")
     currency = payload.currency.upper()
@@ -188,6 +210,7 @@ async def create_security(session: AsyncSession, payload: SecurityCreate) -> Sec
         currency=currency,
         capital_role=CapitalRole.INCOME,
         risk_level=RiskLevel.MEDIUM,
+        workspace_id=context.workspace_id,
     )
     session.add(asset)
     await session.flush()
@@ -203,19 +226,30 @@ async def create_security(session: AsyncSession, payload: SecurityCreate) -> Sec
         )
     )
     await session.commit()
-    return _to_position(await _security(session, asset.id))
+    return _to_position(await _security(session, asset.id, context))
 
 
-async def list_positions(session: AsyncSession, portfolio_id: int | None = None) -> list[SecurityPositionRead]:
-    stmt = select(Security).options(*_SECURITY_EAGER).order_by(Security.ticker)
+async def list_positions(
+    session: AsyncSession, portfolio_id: int | None, context: RequestWorkspace
+) -> list[SecurityPositionRead]:
+    stmt = (
+        select(Security)
+        .options(*_SECURITY_EAGER)
+        .join(InvestmentPortfolio, InvestmentPortfolio.id == Security.portfolio_id)
+        .order_by(Security.ticker)
+    )
+    stmt = scope_to_workspace(stmt, InvestmentPortfolio, context)
     if portfolio_id is not None:
         stmt = stmt.where(Security.portfolio_id == portfolio_id)
     rows = (await session.execute(stmt)).scalars().all()
     return [_to_position(row) for row in rows]
 
 
-async def create_trade(session: AsyncSession, asset_id: int, payload: SecurityTradeCreate) -> SecurityPositionRead:
-    security = await _security(session, asset_id)
+async def create_trade(
+    session: AsyncSession, asset_id: int, payload: SecurityTradeCreate, context: RequestWorkspace
+) -> SecurityPositionRead:
+    context.require_mutation()
+    security = await _security(session, asset_id, context)
     if payload.external_id:
         duplicate = await session.scalar(
             select(SecurityTrade.id).where(SecurityTrade.asset_id == asset_id, SecurityTrade.external_id == payload.external_id)
@@ -237,6 +271,7 @@ async def create_trade(session: AsyncSession, asset_id: int, payload: SecurityTr
         TransactionPurpose.INVESTMENT_TRADE,
         rate,
         security.currency,
+        context,
     )
     session.add(cash)
     await session.flush()
@@ -251,6 +286,7 @@ async def create_trade(session: AsyncSession, asset_id: int, payload: SecurityTr
             TransactionPurpose.FEE,
             rate,
             security.currency,
+            context,
         )
         session.add(fee_tx)
         await session.flush()
@@ -270,11 +306,14 @@ async def create_trade(session: AsyncSession, asset_id: int, payload: SecurityTr
     )
     await session.commit()
     session.expire_all()
-    return _to_position(await _security(session, asset_id))
+    return _to_position(await _security(session, asset_id, context))
 
 
-async def create_dividend(session: AsyncSession, asset_id: int, payload: SecurityDividendCreate) -> SecurityPositionRead:
-    security = await _security(session, asset_id)
+async def create_dividend(
+    session: AsyncSession, asset_id: int, payload: SecurityDividendCreate, context: RequestWorkspace
+) -> SecurityPositionRead:
+    context.require_mutation()
+    security = await _security(session, asset_id, context)
     if payload.external_id:
         duplicate = await session.scalar(
             select(SecurityDividend.id).where(
@@ -293,6 +332,7 @@ async def create_dividend(session: AsyncSession, asset_id: int, payload: Securit
         TransactionPurpose.DIVIDEND,
         rate,
         security.currency,
+        context,
     )
     session.add(income)
     await session.flush()
@@ -307,6 +347,7 @@ async def create_dividend(session: AsyncSession, asset_id: int, payload: Securit
             TransactionPurpose.TAX,
             rate,
             security.currency,
+            context,
         )
         session.add(tax_tx)
         await session.flush()
@@ -324,11 +365,14 @@ async def create_dividend(session: AsyncSession, asset_id: int, payload: Securit
     )
     await session.commit()
     session.expire_all()
-    return _to_position(await _security(session, asset_id))
+    return _to_position(await _security(session, asset_id, context))
 
 
-async def set_price(session: AsyncSession, asset_id: int, payload: SecurityPriceCreate) -> SecurityPositionRead:
-    security = await _security(session, asset_id)
+async def set_price(
+    session: AsyncSession, asset_id: int, payload: SecurityPriceCreate, context: RequestWorkspace
+) -> SecurityPositionRead:
+    context.require_mutation()
+    security = await _security(session, asset_id, context)
     rate = await _rate(session, payload.as_of_date, security.currency, payload.exchange_rate_to_kzt)
     await session.execute(
         pg_insert(SecurityPrice)
@@ -345,7 +389,7 @@ async def set_price(session: AsyncSession, asset_id: int, payload: SecurityPrice
     )
     await session.flush()
     session.expire(security, ["prices"])
-    security = await _security(session, asset_id)
+    security = await _security(session, asset_id, context)
     quantity, _, _, _ = _position_values(security)
     value = (quantity * payload.price_per_unit).quantize(Decimal("0.01"))
     await session.execute(
@@ -364,20 +408,24 @@ async def set_price(session: AsyncSession, asset_id: int, payload: SecurityPrice
     )
     await session.commit()
     session.expire_all()
-    return _to_position(await _security(session, asset_id))
+    return _to_position(await _security(session, asset_id, context))
 
 
-async def delete_trade(session: AsyncSession, trade_id: int) -> SecurityPositionRead:
+async def delete_trade(session: AsyncSession, trade_id: int, context: RequestWorkspace) -> SecurityPositionRead:
+    context.require_mutation()
     trade = await session.get(SecurityTrade, trade_id)
     if trade is None:
         raise HTTPException(404, "Trade not found")
     asset_id = trade.asset_id
+    # Confirm the parent security is in the request's workspace before any
+    # mutation — a foreign trade is indistinguishable from a missing one.
+    await _security(session, asset_id, context)
     cash_id, fee_id = trade.cash_transaction_id, trade.fee_transaction_id
     await session.delete(trade)
     await session.flush()
     session.expire_all()
     # Replay before committing: removing an earlier buy may make a later sell invalid.
-    _position_values(await _security(session, asset_id))
+    _position_values(await _security(session, asset_id, context))
     for transaction_id in (fee_id, cash_id):
         if transaction_id is not None:
             row = await session.get(Transaction, transaction_id)
@@ -385,15 +433,18 @@ async def delete_trade(session: AsyncSession, trade_id: int) -> SecurityPosition
                 await session.delete(row)
     await session.commit()
     session.expire_all()
-    return _to_position(await _security(session, asset_id))
+    return _to_position(await _security(session, asset_id, context))
 
 
-async def update_trade(session: AsyncSession, trade_id: int, payload: SecurityTradeCreate) -> SecurityPositionRead:
+async def update_trade(
+    session: AsyncSession, trade_id: int, payload: SecurityTradeCreate, context: RequestWorkspace
+) -> SecurityPositionRead:
+    context.require_mutation()
     trade = await session.get(SecurityTrade, trade_id)
     if trade is None:
         raise HTTPException(404, "Trade not found")
     asset_id = trade.asset_id
-    security = await _security(session, asset_id)
+    security = await _security(session, asset_id, context)
     if payload.external_id:
         duplicate = await session.scalar(
             select(SecurityTrade.id).where(
@@ -426,7 +477,7 @@ async def update_trade(session: AsyncSession, trade_id: int, payload: SecurityTr
     fee_tx = await session.get(Transaction, trade.fee_transaction_id) if trade.fee_transaction_id else None
     if payload.fee:
         if fee_tx is None:
-            fee_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate, security.currency)
+            fee_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.fee, payload.date, f"Fee: {security.ticker}", TransactionPurpose.FEE, rate, security.currency, context)
             session.add(fee_tx)
             await session.flush()
             trade.fee_transaction_id = fee_tx.id
@@ -438,17 +489,20 @@ async def update_trade(session: AsyncSession, trade_id: int, payload: SecurityTr
         await session.delete(fee_tx)
     await session.flush()
     session.expire_all()
-    _position_values(await _security(session, asset_id))
+    _position_values(await _security(session, asset_id, context))
     await session.commit()
     session.expire_all()
-    return _to_position(await _security(session, asset_id))
+    return _to_position(await _security(session, asset_id, context))
 
 
-async def delete_dividend(session: AsyncSession, dividend_id: int) -> SecurityPositionRead:
+async def delete_dividend(session: AsyncSession, dividend_id: int, context: RequestWorkspace) -> SecurityPositionRead:
+    context.require_mutation()
     dividend = await session.get(SecurityDividend, dividend_id)
     if dividend is None:
         raise HTTPException(404, "Dividend not found")
     asset_id = dividend.asset_id
+    # Same guard as delete_trade: verify workspace ownership before mutating.
+    await _security(session, asset_id, context)
     transaction_ids = (dividend.tax_transaction_id, dividend.income_transaction_id)
     await session.delete(dividend)
     await session.flush()
@@ -459,15 +513,18 @@ async def delete_dividend(session: AsyncSession, dividend_id: int) -> SecurityPo
                 await session.delete(row)
     await session.commit()
     session.expire_all()
-    return _to_position(await _security(session, asset_id))
+    return _to_position(await _security(session, asset_id, context))
 
 
-async def update_dividend(session: AsyncSession, dividend_id: int, payload: SecurityDividendCreate) -> SecurityPositionRead:
+async def update_dividend(
+    session: AsyncSession, dividend_id: int, payload: SecurityDividendCreate, context: RequestWorkspace
+) -> SecurityPositionRead:
+    context.require_mutation()
     dividend = await session.get(SecurityDividend, dividend_id)
     if dividend is None:
         raise HTTPException(404, "Dividend not found")
     asset_id = dividend.asset_id
-    security = await _security(session, asset_id)
+    security = await _security(session, asset_id, context)
     rate = await _rate(session, payload.date, security.currency, payload.exchange_rate_to_kzt)
     dividend.gross_amount = payload.gross_amount
     dividend.tax_amount = payload.tax_amount
@@ -479,7 +536,7 @@ async def update_dividend(session: AsyncSession, dividend_id: int, payload: Secu
     tax_tx = await session.get(Transaction, dividend.tax_transaction_id) if dividend.tax_transaction_id else None
     if payload.tax_amount:
         if tax_tx is None:
-            tax_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate, security.currency)
+            tax_tx = _cash_transaction(security.portfolio.account_id, TransactionType.EXPENSE, payload.tax_amount, payload.date, f"Dividend tax: {security.ticker}", TransactionPurpose.TAX, rate, security.currency, context)
             session.add(tax_tx)
             await session.flush()
             dividend.tax_transaction_id = tax_tx.id
@@ -491,4 +548,4 @@ async def update_dividend(session: AsyncSession, dividend_id: int, payload: Secu
         await session.delete(tax_tx)
     await session.commit()
     session.expire_all()
-    return _to_position(await _security(session, asset_id))
+    return _to_position(await _security(session, asset_id, context))

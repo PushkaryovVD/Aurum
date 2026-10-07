@@ -7,6 +7,10 @@ the bulk apply — and tested without a database.
 A rule is applied **when a transaction is created or previewed**, never as a
 side effect of editing the rules. Changing history is a separate, explicitly
 previewed action (`apply_rules` with dry_run=False).
+
+Every read and write is scoped to the request's workspace: an authenticated
+caller only ever sees, edits or applies their own workspace's rules, and the
+legacy NULL workspace (auth-disabled installation) keeps seeing everything.
 """
 import re
 from dataclasses import dataclass
@@ -17,6 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.models.categorization_rule import CategorizationRule
 from app.models.enums import CategoryKind, MatchType, TransactionType
 from app.models.transaction import Transaction
@@ -154,23 +159,35 @@ def _to_read(rule: CategorizationRule) -> CategorizationRuleRead:
     )
 
 
-async def list_rules(session: AsyncSession) -> list[CategorizationRule]:
-    """Every rule, enabled or not, in the order they are evaluated — the list
-    the UI shows and edits."""
-    result = await session.execute(
+async def list_rules(session: AsyncSession, context: RequestWorkspace) -> list[CategorizationRule]:
+    """Every rule visible to the request's workspace, enabled or not, in the
+    order they are evaluated — the list the UI shows and edits."""
+    statement = scope_to_workspace(
         select(CategorizationRule)
         .options(selectinload(CategorizationRule.category))
-        .order_by(CategorizationRule.priority, CategorizationRule.id)
+        .order_by(CategorizationRule.priority, CategorizationRule.id),
+        CategorizationRule,
+        context,
     )
+    result = await session.execute(statement)
     return list(result.scalars().all())
 
 
-async def list_rules_read(session: AsyncSession) -> list[CategorizationRuleRead]:
-    return [_to_read(rule) for rule in await list_rules(session)]
+async def list_rules_read(session: AsyncSession, context: RequestWorkspace) -> list[CategorizationRuleRead]:
+    return [_to_read(rule) for rule in await list_rules(session, context)]
 
 
-async def _get_or_404(session: AsyncSession, rule_id: int) -> CategorizationRule:
-    rule = await session.get(CategorizationRule, rule_id, options=[selectinload(CategorizationRule.category)])
+async def _get_or_404(session: AsyncSession, rule_id: int, context: RequestWorkspace) -> CategorizationRule:
+    """Fetch a rule *through* the workspace scope, so a foreign id is a plain
+    404 rather than a row the caller can read or mutate."""
+    statement = scope_to_workspace(
+        select(CategorizationRule)
+        .where(CategorizationRule.id == rule_id)
+        .options(selectinload(CategorizationRule.category)),
+        CategorizationRule,
+        context,
+    )
+    rule = (await session.execute(statement)).scalar_one_or_none()
     if rule is None:
         raise HTTPException(status_code=404, detail="Categorization rule not found")
     return rule
@@ -189,21 +206,36 @@ async def _reload(session: AsyncSession, rule: CategorizationRule) -> Categoriza
     return rule
 
 
-async def create_rule(session: AsyncSession, payload: CategorizationRuleCreate) -> CategorizationRuleRead:
+async def create_rule(
+    session: AsyncSession, payload: CategorizationRuleCreate, context: RequestWorkspace
+) -> CategorizationRuleRead:
+    context.require_mutation()
     validate_pattern(payload.match_type, payload.pattern)
-    highest = (await session.execute(select(func.max(CategorizationRule.priority)))).scalar_one()
+    highest = (
+        await session.execute(
+            scope_to_workspace(
+                select(func.max(CategorizationRule.priority)), CategorizationRule, context
+            )
+        )
+    ).scalar_one()
     # New rules go last: an existing, more specific rule keeps winning until the
-    # user deliberately moves the new one above it.
-    rule = CategorizationRule(**payload.model_dump(), priority=(highest + 1) if highest is not None else 0)
+    # user deliberately moves the new one above it. Priority is compacted within
+    # the workspace only, so another workspace's rules never shift this one.
+    rule = CategorizationRule(
+        **payload.model_dump(),
+        priority=(highest + 1) if highest is not None else 0,
+        workspace_id=context.workspace_id,
+    )
     session.add(rule)
     await session.commit()
     return _to_read(await _reload(session, rule))
 
 
 async def update_rule(
-    session: AsyncSession, rule_id: int, payload: CategorizationRuleUpdate
+    session: AsyncSession, rule_id: int, payload: CategorizationRuleUpdate, context: RequestWorkspace
 ) -> CategorizationRuleRead:
-    rule = await _get_or_404(session, rule_id)
+    context.require_mutation()
+    rule = await _get_or_404(session, rule_id, context)
     updates = payload.model_dump(exclude_unset=True)
     match_type = updates.get("match_type", rule.match_type)
     pattern = updates.get("pattern", rule.pattern)
@@ -218,14 +250,18 @@ async def update_rule(
     return _to_read(await _reload(session, rule))
 
 
-async def delete_rule(session: AsyncSession, rule_id: int) -> None:
-    rule = await _get_or_404(session, rule_id)
+async def delete_rule(session: AsyncSession, rule_id: int, context: RequestWorkspace) -> None:
+    context.require_mutation()
+    rule = await _get_or_404(session, rule_id, context)
     await session.delete(rule)
     await session.commit()
 
 
-async def reorder_rules(session: AsyncSession, payload: CategorizationRuleReorder) -> list[CategorizationRuleRead]:
-    rules = await list_rules(session)
+async def reorder_rules(
+    session: AsyncSession, payload: CategorizationRuleReorder, context: RequestWorkspace
+) -> list[CategorizationRuleRead]:
+    context.require_mutation()
+    rules = await list_rules(session, context)
     known = {rule.id for rule in rules}
     if set(payload.ordered_ids) != known or len(payload.ordered_ids) != len(known):
         # A partial order has no defined meaning: the ids the caller left out
@@ -235,11 +271,12 @@ async def reorder_rules(session: AsyncSession, payload: CategorizationRuleReorde
     for index, rule_id in enumerate(payload.ordered_ids):
         by_id[rule_id].priority = index
     await session.commit()
-    return await list_rules_read(session)
+    return await list_rules_read(session, context)
 
 
 async def apply_rules(
     session: AsyncSession,
+    context: RequestWorkspace,
     *,
     dry_run: bool,
     only_uncategorized: bool,
@@ -250,20 +287,25 @@ async def apply_rules(
     `dry_run=True` (the default the API exposes) reports exactly what would
     happen and writes nothing. `only_uncategorized=False` re-decides rows that
     already have a category — the user's own correction included — so it is
-    never the default.
+    never the default. Both the rules and the transactions considered are
+    confined to the request's workspace.
     """
-    rules = await list_rules(session)
+    if not dry_run:
+        context.require_mutation()
+    rules = await list_rules(session, context)
     compiled = compile_rules(rules)
 
-    stmt = (
+    statement = scope_to_workspace(
         select(Transaction)
         .options(selectinload(Transaction.account))
         .order_by(Transaction.date.desc(), Transaction.id.desc())
-        .limit(min(limit, MAX_APPLY_ROWS))
+        .limit(min(limit, MAX_APPLY_ROWS)),
+        Transaction,
+        context,
     )
     if only_uncategorized:
-        stmt = stmt.where(Transaction.category_id.is_(None))
-    transactions = list((await session.execute(stmt)).scalars().all())
+        statement = statement.where(Transaction.category_id.is_(None))
+    transactions = list((await session.execute(statement)).scalars().all())
 
     counts: dict[int, int] = {rule.id: 0 for rule in rules}
     samples: dict[int, list[str]] = {rule.id: [] for rule in rules}
@@ -312,13 +354,15 @@ async def match_for_transaction(
     currency: str,
     account_id: int,
     transaction_type: TransactionType,
+    context: RequestWorkspace,
 ) -> CategorizationRule | None:
     """The first rule that matches a transaction of this shape, or None.
 
     Used by the create path and by the entry form's live suggestion, so the two
-    can never disagree about what a rule set does.
+    can never disagree about what a rule set does. Only the caller's own
+    workspace rules are considered.
     """
-    rules = await list_rules(session)
+    rules = await list_rules(session, context)
     return match_rule(
         compile_rules(rules),
         description=description,
@@ -340,6 +384,7 @@ async def category_for_transaction(
     account_id: int,
     transaction_type: TransactionType,
     expected_kind: CategoryKind | None = None,
+    context: RequestWorkspace,
 ) -> int | None:
     """The category the saved rules would assign to a transaction of this shape.
 
@@ -355,6 +400,7 @@ async def category_for_transaction(
         currency=currency,
         account_id=account_id,
         transaction_type=transaction_type,
+        context=context,
     )
     if matched is None:
         return None

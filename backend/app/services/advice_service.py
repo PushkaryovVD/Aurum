@@ -13,6 +13,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.models.budget import Budget
 from app.models.account import Account
 from app.models.category import Category
@@ -36,7 +37,9 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
     return (year - 1, 12) if month == 1 else (year, month - 1)
 
 
-async def _category_expense_totals(session: AsyncSession, year: int, month: int) -> dict[int, Decimal]:
+async def _category_expense_totals(
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+) -> dict[int, Decimal]:
     start, end = _month_bounds(year, month)
     stmt = (
         select(Transaction.category_id, func.sum(transaction_amount_kzt()))
@@ -49,13 +52,17 @@ async def _category_expense_totals(session: AsyncSession, year: int, month: int)
         )
         .group_by(Transaction.category_id)
     )
+    stmt = scope_to_workspace(stmt, Transaction, context)
+    stmt = scope_to_workspace(stmt, Account, context)
     return {row[0]: row[1] for row in (await session.execute(stmt)).all()}
 
 
-async def _rising_category_advice(session: AsyncSession, year: int, month: int) -> AdviceItem | None:
+async def _rising_category_advice(
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+) -> AdviceItem | None:
     """The expense category furthest above its own trailing-3-month average,
     if that's at least RISING_CATEGORY_THRESHOLD_PERCENT higher."""
-    current_totals = await _category_expense_totals(session, year, month)
+    current_totals = await _category_expense_totals(session, year, month, context)
     if not current_totals:
         return None
 
@@ -63,7 +70,7 @@ async def _rising_category_advice(session: AsyncSession, year: int, month: int) 
     y, m = year, month
     for _ in range(TRAILING_MONTHS):
         y, m = _previous_month(y, m)
-        for cat_id, amount in (await _category_expense_totals(session, y, m)).items():
+        for cat_id, amount in (await _category_expense_totals(session, y, m, context)).items():
             trailing_totals[cat_id] += amount
 
     best: tuple[float, int, Decimal, Decimal] | None = None
@@ -79,7 +86,9 @@ async def _rising_category_advice(session: AsyncSession, year: int, month: int) 
         return None
 
     increase_percent, cat_id, current, average = best
-    category = await session.get(Category, cat_id)
+    category = (
+        await session.execute(scope_to_workspace(select(Category).where(Category.id == cat_id), Category, context))
+    ).scalar_one_or_none()
     if category is None:
         return None
 
@@ -95,18 +104,25 @@ async def _rising_category_advice(session: AsyncSession, year: int, month: int) 
     )
 
 
-async def _unbudgeted_top_category_advice(session: AsyncSession, year: int, month: int) -> AdviceItem | None:
+async def _unbudgeted_top_category_advice(
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+) -> AdviceItem | None:
     """This month's highest-spending expense category that has no budget."""
-    current_totals = await _category_expense_totals(session, year, month)
+    current_totals = await _category_expense_totals(session, year, month, context)
     if not current_totals:
         return None
 
-    budgeted_ids = {row[0] for row in (await session.execute(select(Budget.category_id))).all()}
+    budgeted_ids = {
+        row[0]
+        for row in (await session.execute(scope_to_workspace(select(Budget.category_id), Budget, context))).all()
+    }
 
     for cat_id, amount in sorted(current_totals.items(), key=lambda item: item[1], reverse=True):
         if cat_id in budgeted_ids:
             continue
-        category = await session.get(Category, cat_id)
+        category = (
+            await session.execute(scope_to_workspace(select(Category).where(Category.id == cat_id), Category, context))
+        ).scalar_one_or_none()
         if category is None:
             continue
         return AdviceItem(
@@ -118,12 +134,14 @@ async def _unbudgeted_top_category_advice(session: AsyncSession, year: int, mont
     return None
 
 
-async def _savings_rate_trend_advice(session: AsyncSession, year: int, month: int) -> AdviceItem | None:
+async def _savings_rate_trend_advice(
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+) -> AdviceItem | None:
     """This month's savings rate (net / real_income) vs. last month's, when
     the swing is large enough to be worth mentioning."""
-    current = await get_dashboard_summary(session, year, month)
+    current = await get_dashboard_summary(session, year, month, context)
     prev_year, prev_month = _previous_month(year, month)
-    previous = await get_dashboard_summary(session, prev_year, prev_month)
+    previous = await get_dashboard_summary(session, prev_year, prev_month, context)
 
     if current.real_income <= 0 or previous.real_income <= 0:
         return None
@@ -142,13 +160,13 @@ async def _savings_rate_trend_advice(session: AsyncSession, year: int, month: in
     )
 
 
-async def get_advice(session: AsyncSession) -> AdviceResponse:
+async def get_advice(session: AsyncSession, context: RequestWorkspace) -> AdviceResponse:
     today = date.today()
     generators = (_rising_category_advice, _unbudgeted_top_category_advice, _savings_rate_trend_advice)
 
     items: list[AdviceItem] = []
     for generate in generators:
-        item = await generate(session, today.year, today.month)
+        item = await generate(session, today.year, today.month, context)
         if item is not None:
             items.append(item)
 

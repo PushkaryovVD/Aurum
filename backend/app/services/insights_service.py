@@ -18,6 +18,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.models.account import Account
 from app.models.enums import AccountType, TransactionType
 from app.models.transaction import Transaction
@@ -41,13 +42,13 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
     return (year - 1, 12) if month == 1 else (year, month - 1)
 
 
-async def _negative_cash_flow_streak(session: AsyncSession) -> int:
+async def _negative_cash_flow_streak(session: AsyncSession, context: RequestWorkspace) -> int:
     today = date.today()
     year, month = _previous_month(today.year, today.month)
 
     streak = 0
     for _ in range(MAX_LOOKBACK_MONTHS):
-        summary = await get_dashboard_summary(session, year, month)
+        summary = await get_dashboard_summary(session, year, month, context)
         if summary.net >= 0:
             break
         streak += 1
@@ -80,10 +81,12 @@ def _net_worth_decline_streak(summary: NetWorthSummary) -> int:
     return streak
 
 
-async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Decimal, threshold_days: int) -> int:
+async def _idle_cash_account_count(
+    session: AsyncSession, threshold_amount: Decimal, threshold_days: int, context: RequestWorkspace
+) -> int:
     eligible_rows = (
             await session.execute(
-                select(Account.id, Account.currency).where(
+                scope_to_workspace(select(Account.id, Account.currency), Account, context).where(
                     Account.is_archived.is_(False), Account.type.in_(_IDLE_CASH_ACCOUNT_TYPES)
                 )
             )
@@ -97,13 +100,17 @@ async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Deci
     # never stored, only ever summed from the full transaction history — plus
     # tracking the most recent date that touched each account along the way.
     rows = await session.execute(
-        select(
+        scope_to_workspace(
+            select(
             Transaction.type,
             Transaction.amount,
             Transaction.base_amount_kzt,
             Transaction.account_id,
             Transaction.transfer_account_id,
             Transaction.date,
+            ),
+            Transaction,
+            context,
         )
     )
     balances: dict[int, Decimal] = defaultdict(Decimal)
@@ -137,11 +144,11 @@ async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Deci
     )
 
 
-async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
+async def get_financial_alerts(session: AsyncSession, context: RequestWorkspace) -> AlertsResponse:
     settings = await get_or_create_app_settings(session)
     alerts: list[FinancialAlert] = []
 
-    cash_flow_streak = await _negative_cash_flow_streak(session)
+    cash_flow_streak = await _negative_cash_flow_streak(session, context)
     if cash_flow_streak >= settings.negative_cash_flow_threshold_months:
         alerts.append(
             FinancialAlert(
@@ -151,7 +158,7 @@ async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
             )
         )
 
-    net_worth_summary = await get_net_worth_summary(session, "all")
+    net_worth_summary = await get_net_worth_summary(session, "all", context)
 
     net_worth_streak = _net_worth_decline_streak(net_worth_summary)
     if net_worth_streak >= settings.net_worth_decline_threshold_months:
@@ -174,7 +181,7 @@ async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
         )
 
     today = date.today()
-    budget_status = await get_budget_status(session, today.year, today.month)
+    budget_status = await get_budget_status(session, today.year, today.month, context.workspace_id)
     over_budget_count = sum(1 for item in budget_status.items if item.is_over_budget)
     if over_budget_count > 0:
         alerts.append(
@@ -185,7 +192,7 @@ async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
             )
         )
 
-    envelope_status = await get_envelope_status(session, today.year, today.month)
+    envelope_status = await get_envelope_status(session, today.year, today.month, context)
     overspent_envelope_count = sum(1 for item in envelope_status.items if item.is_overspent)
     if overspent_envelope_count > 0:
         alerts.append(
@@ -197,7 +204,7 @@ async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
         )
 
     idle_cash_count = await _idle_cash_account_count(
-        session, settings.idle_cash_threshold_amount, settings.idle_cash_threshold_days
+        session, settings.idle_cash_threshold_amount, settings.idle_cash_threshold_days, context
     )
     if idle_cash_count > 0:
         alerts.append(

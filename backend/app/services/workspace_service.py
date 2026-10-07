@@ -127,6 +127,7 @@ async def create_household(
     *,
     creator_id: UUID,
     display_name: str,
+    default_currency: str = "KZT",
 ) -> tuple[Workspace, WorkspaceMembership]:
     normalized_name = display_name.strip()
     if not normalized_name:
@@ -144,6 +145,7 @@ async def create_household(
         role=WorkspaceRole.OWNER,
     )
     session.add(membership)
+    add_workspace_defaults(session, workspace.id, default_currency)
     await session.flush()
     return workspace, membership
 

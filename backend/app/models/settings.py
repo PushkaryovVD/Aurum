@@ -1,10 +1,13 @@
-"""App-wide configuration that isn't tied to any single account/asset — a
-single-row table (id is always 1). Primary display currency (see UPDATES.md
-for why this doesn't do currency conversion) and the proactive-alert
-thresholds consumed by services/insights_service.py."""
-from decimal import Decimal
+"""Per-workspace financial display and alert configuration.
 
-from sqlalchemy import Integer, Numeric, String
+``workspace_id IS NULL`` remains the preserved legacy/auth-disabled singleton
+namespace (id=1); authenticated workspaces each have one scoped row.
+"""
+from decimal import Decimal
+from uuid import UUID as PythonUUID
+
+from sqlalchemy import ForeignKey, Index, Integer, Numeric, String, text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,8 +15,20 @@ from app.db.base import Base
 
 class AppSettings(Base):
     __tablename__ = "app_settings"
+    __table_args__ = (
+        Index("ix_app_settings_workspace_id", "workspace_id"),
+        Index(
+            "uq_app_settings_workspace_id",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     # Consecutive complete months of negative cash flow / declining net worth
     # before insights_service.py raises the corresponding alert.

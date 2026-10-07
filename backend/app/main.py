@@ -49,15 +49,13 @@ async def lifespan(app: FastAPI):
         if not app.state.settings.app_auth_required:
             await seed_default_categories(session)
             await seed_default_account(session)
+            await seed_default_app_settings(session)
         else:
             initial_owner_code = await issue_initial_owner_bootstrap_code(
                 session,
                 hmac_secret=app.state.settings.auth_hmac_secret.get_secret_value(),
                 expires_in=timedelta(seconds=app.state.settings.initial_owner_bootstrap_ttl_seconds),
             )
-        # App settings remain a deployment-wide singleton in this bounded
-        # slice; unlike accounts/categories they are not financial ownership.
-        await seed_default_app_settings(session)
         await session.commit()
         if initial_owner_code is not None:
             logger.warning(

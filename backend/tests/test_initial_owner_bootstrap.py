@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from app.api.deps import get_session
 from app.main import create_app
 from app.models.auth import InitialOwnerBootstrap, SecurityAuditEvent, UserSession
+from app.models.settings import AppSettings
 from app.models.workspace import User, Workspace, WorkspaceMembership, WorkspaceRole
 from app.services.workspace_service import issue_initial_owner_bootstrap_code
 # Pytest discovers imported decorated fixtures in this module's namespace.
@@ -77,6 +78,12 @@ async def test_initial_owner_bootstrap_is_atomic_audited_and_preserves_legacy_na
         assert audit.event_type == "initial_owner_bootstrap" and audit.outcome == "success"
         assert (await session.get(InitialOwnerBootstrap, 1)) is None
         assert (await session.execute(text("SELECT workspace_id FROM accounts LIMIT 1"))).scalar_one() is None
+        legacy_settings = await session.get(AppSettings, 1)
+        scoped_settings = (
+            await session.execute(select(AppSettings).where(AppSettings.workspace_id == workspace.id))
+        ).scalar_one()
+        assert legacy_settings is not None and legacy_settings.workspace_id is None
+        assert scoped_settings.currency == "KZT"
         assert len((await session.execute(select(UserSession))).scalars().all()) == 1
 
 

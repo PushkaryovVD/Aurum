@@ -403,7 +403,7 @@ async def refresh_prices(
     holdings = await list_holdings(session, None, context)
     error_key: Literal["unreachable"] | None = None
     if holdings:
-        settings = await get_or_create_app_settings(session)
+        settings = await get_or_create_app_settings(session, context)
         try:
             market_data = await _fetch_market_data([h.coingecko_id for h in holdings], settings.currency.lower())
         except httpx.HTTPError:
@@ -448,7 +448,7 @@ async def create_holding(
     session: AsyncSession, payload: CryptoHoldingCreate, context: RequestWorkspace
 ) -> CryptoHoldingRead:
     context.require_mutation()
-    settings = await get_or_create_app_settings(session)
+    settings = await get_or_create_app_settings(session, context)
 
     if payload.portfolio_id is not None:
         portfolio_stmt = scope_to_workspace(
@@ -764,7 +764,7 @@ async def get_90d_performance(
     if not held:
         return CryptoPerformanceResponse(items=[])
 
-    settings = await get_or_create_app_settings(session)
+    settings = await get_or_create_app_settings(session, context)
     api_key = _require_api_key()
     semaphore = asyncio.Semaphore(5)
 

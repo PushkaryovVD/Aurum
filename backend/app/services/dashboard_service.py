@@ -93,7 +93,7 @@ async def get_balance_summary(
     balance stays visible, it just doesn't contribute to the total, and
     `incomplete` says so.
     """
-    reporting_currency = (await get_or_create_app_settings(session)).currency.upper()
+    reporting_currency = (await get_or_create_app_settings(session, context)).currency.upper()
     balances, _ = await account_balances(session, context)
     accounts = (
         await session.execute(scope_to_workspace(select(Account), Account, context))

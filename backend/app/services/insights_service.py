@@ -145,7 +145,7 @@ async def _idle_cash_account_count(
 
 
 async def get_financial_alerts(session: AsyncSession, context: RequestWorkspace) -> AlertsResponse:
-    settings = await get_or_create_app_settings(session)
+    settings = await get_or_create_app_settings(session, context)
     alerts: list[FinancialAlert] = []
 
     cash_flow_streak = await _negative_cash_flow_streak(session, context)

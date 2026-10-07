@@ -7,7 +7,7 @@ box. See CLAUDE.md-adjacent design notes in UPDATES.md for the source.
 """
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -67,6 +67,7 @@ def add_workspace_defaults(session: AsyncSession, workspace_id: UUID, default_cu
             color="#2a78d6",
         )
     )
+    session.add(AppSettings(workspace_id=workspace_id, currency=default_currency))
 
 
 async def seed_default_categories(session: AsyncSession) -> None:
@@ -123,4 +124,13 @@ async def seed_default_app_settings(session: AsyncSession) -> None:
         return
 
     session.add(AppSettings(id=1, currency=get_settings().default_currency))
+    # Explicit legacy id=1 inserts do not advance PostgreSQL's serial
+    # sequence. Keep future workspace-scoped generated IDs clear of it.
+    await session.flush()
+    await session.execute(
+        text(
+            "SELECT setval(pg_get_serial_sequence('app_settings', 'id'), "
+            "GREATEST((SELECT MAX(id) FROM app_settings), 1), true)"
+        )
+    )
     await session.commit()

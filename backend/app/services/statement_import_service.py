@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import RequestWorkspace
 from app.core.audit import log_destructive
 from app.models.account import Account
-from app.models.enums import ExchangeRateSource
+from app.models.category import Category
+from app.models.enums import CategoryKind, ExchangeRateSource, TransactionType
 from app.models.transaction import Transaction
 from app.schemas.statement_import import StatementCommit, StatementCommitResult, StatementRow
 from app.services.categorization_service import compile_rules, list_rules, match_rule
@@ -116,19 +117,63 @@ async def _rate_snapshot(
     return official.rate_to_kzt, ExchangeRateSource.NBK
 
 
-async def _destination_accounts(session: AsyncSession, payload: StatementCommit) -> dict[str, Account]:
+async def _destination_accounts(
+    session: AsyncSession, payload: StatementCommit, context: RequestWorkspace
+) -> dict[str, Account]:
     """The account each currency's rows go to, validated to actually be
     denominated in that currency — the ledger currency of an imported row is
     its account's, same rule as the transactions API."""
     accounts: dict[str, Account] = {}
     for currency, account_id in payload.accounts_by_currency.items():
-        account = await session.get(Account, account_id)
+        statement = select(Account).where(Account.id == account_id)
+        if context.workspace_id is not None:
+            statement = statement.where(Account.workspace_id == context.workspace_id)
+        account = (await session.execute(statement)).scalar_one_or_none()
         if account is None:
+            if context.workspace_id is not None:
+                raise HTTPException(404, "Account not found")
             raise HTTPException(400, f"Unknown account for {currency}")
         if account.currency.upper() != currency.upper():
             raise HTTPException(422, f"Account {account.name} is not denominated in {currency.upper()}")
         accounts[currency.upper()] = account
     return accounts
+
+
+async def _validate_row_categories(
+    session: AsyncSession, rows: list[StatementRow], context: RequestWorkspace
+) -> None:
+    """Verify every user- or rule-supplied category before inserting anything.
+
+    A statement payload comes back from a preview and is therefore untrusted:
+    category ids may have been edited, belonged to another workspace, or have
+    been deleted since preview. One batched lookup makes the validation both
+    atomic and independent of the number of rows in the document.
+    """
+    category_ids = {row.category_id for row in rows if row.category_id is not None}
+    if not category_ids:
+        return
+    statement = select(Category).where(Category.id.in_(category_ids))
+    if context.workspace_id is not None:
+        statement = statement.where(Category.workspace_id == context.workspace_id)
+    categories = {category.id: category for category in (await session.execute(statement)).scalars()}
+    for row in rows:
+        if row.category_id is None:
+            continue
+        category = categories.get(row.category_id)
+        if category is None:
+            if context.workspace_id is not None:
+                raise HTTPException(404, "Category not found")
+            raise HTTPException(400, "Category not found")
+        expected_kind = {
+            TransactionType.INCOME: CategoryKind.INCOME,
+            TransactionType.EXPENSE: CategoryKind.EXPENSE,
+        }.get(row.type)
+        is_expense_refund = row.type == TransactionType.INCOME and category.kind == CategoryKind.EXPENSE
+        if expected_kind is not None and category.kind != expected_kind and not is_expense_refund:
+            raise HTTPException(
+                400,
+                f"Category '{category.name}' is a {category.kind.value} category and cannot be used for a {row.type.value} transaction",
+            )
 
 
 async def commit_statement(
@@ -145,8 +190,9 @@ async def commit_statement(
     an operation id as globally unique would silently drop a legitimate second
     import of the same document into a different account.
     """
+    context.require_mutation()
     importable = [row for row in payload.rows if row.importable]
-    accounts = await _destination_accounts(session, payload)
+    accounts = await _destination_accounts(session, payload, context)
     # Rules the preview could not decide — those scoped to a specific account —
     # get their chance now that the destination is known. Rows that already
     # carry a category (the user's own choice, or a preview match) are untouched.
@@ -156,6 +202,7 @@ async def commit_statement(
         account_by_currency={currency: account.id for currency, account in accounts.items()},
         context=context,
     )
+    await _validate_row_categories(session, importable, context)
 
     rows_by_account: dict[int, list[StatementRow]] = defaultdict(list)
     for row in importable:
@@ -168,13 +215,14 @@ async def commit_statement(
     duplicates = 0
     for account_id, rows in rows_by_account.items():
         keys = [_import_key(row) for row in rows]
+        duplicate_statement = select(Transaction.external_id).where(
+            Transaction.account_id == account_id, Transaction.external_id.in_(keys)
+        )
+        if context.workspace_id is not None:
+            duplicate_statement = duplicate_statement.where(Transaction.workspace_id == context.workspace_id)
         seen = set(
             (
-                await session.execute(
-                    select(Transaction.external_id).where(
-                        Transaction.account_id == account_id, Transaction.external_id.in_(keys)
-                    )
-                )
+                await session.execute(duplicate_statement)
             )
             .scalars()
             .all()
@@ -189,6 +237,7 @@ async def commit_statement(
             rate, source = await _rate_snapshot(session, row)
             session.add(
                 Transaction(
+                    workspace_id=context.workspace_id,
                     account_id=account_id,
                     category_id=row.category_id,
                     type=row.type,

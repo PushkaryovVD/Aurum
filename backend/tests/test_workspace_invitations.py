@@ -16,6 +16,7 @@ from app.api.deps import get_session
 from app.core.config import Settings
 from app.main import create_app
 from app.models.auth import AuthRateLimit, SecurityAuditEvent
+from app.models.settings import AppSettings
 from app.models.workspace import User, Workspace, WorkspaceInvitation, WorkspaceMembership, WorkspaceRole
 from app.security.auth import capability_hmac
 from app.services.workspace_service import (
@@ -538,6 +539,13 @@ async def test_public_acceptance_atomically_bootstraps_new_account_and_only_one_
         record = (await session.execute(select(WorkspaceInvitation))).scalar_one()
         assert record.uses == 1
         assert record.accepted_at is not None
+        personal_workspace_id = succeeded.json()["active_workspace"]["id"]
+        scoped_settings = (
+            await session.execute(
+                select(AppSettings).where(AppSettings.workspace_id == personal_workspace_id)
+            )
+        ).scalar_one()
+        assert scoped_settings.currency == "KZT"
 
 
 async def test_public_acceptance_rejects_cross_origin_text_plain_without_consuming_invitation(

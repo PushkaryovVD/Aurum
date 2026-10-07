@@ -94,12 +94,14 @@ async def create_workspace(
     payload: HouseholdCreate,
     authenticated: AuthenticatedSession = Depends(require_authenticated_session),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
 ) -> WorkspaceResponse:
     try:
         workspace, membership = await create_household(
             session,
             creator_id=authenticated.user.id,
             display_name=payload.display_name,
+            default_currency=settings.default_currency,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

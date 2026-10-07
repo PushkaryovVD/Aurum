@@ -24,6 +24,7 @@ from app.models.category import Category
 from app.models.account import Account
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction, TransactionSplit
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.services.currency import split_amount_kzt, transaction_amount_kzt
 
 
@@ -68,6 +69,7 @@ async def _raw_category_contributions(
     transaction_type: TransactionType,
     start_date: date_ | None,
     end_date: date_ | None,
+    context: RequestWorkspace,
 ) -> list[tuple[int, int, Decimal]]:
     """(transaction_id, category_id, amount) for every category a
     transaction of this type/date-range contributed to. A plain transaction
@@ -86,6 +88,10 @@ async def _raw_category_contributions(
         .join(Account, Account.id == Transaction.account_id)
         .where(Transaction.type == transaction_type, TransactionSplit.category_id.is_not(None))
     )
+    # Only the caller's own transactions count: an authenticated dashboard or
+    # ranking report must never sum another workspace's spending.
+    plain_stmt = scope_to_workspace(plain_stmt, Transaction, context)
+    split_stmt = scope_to_workspace(split_stmt, Transaction, context)
     if start_date is not None:
         plain_stmt = plain_stmt.where(Transaction.date >= start_date)
         split_stmt = split_stmt.where(Transaction.date >= start_date)
@@ -106,17 +112,27 @@ async def rollup_spending_by_top_level_category(
     transaction_type: TransactionType,
     start_date: date_ | None = None,
     end_date: date_ | None = None,
+    context: RequestWorkspace,
 ) -> list[CategoryRollupItem]:
     """Every top-level category's total for the period, sorted by amount
     desc (category sort_order as tiebreak — same order the SQL-only version
     used to produce)."""
     contributions = await _raw_category_contributions(
-        session, transaction_type=transaction_type, start_date=start_date, end_date=end_date
+        session,
+        transaction_type=transaction_type,
+        start_date=start_date,
+        end_date=end_date,
+        context=context,
     )
     if not contributions:
         return []
 
-    categories_by_id = {c.id: c for c in (await session.execute(select(Category))).scalars().all()}
+    categories_by_id = {
+        c.id: c
+        for c in (
+            await session.execute(scope_to_workspace(select(Category), Category, context))
+        ).scalars().all()
+    }
 
     amount_by_effective: dict[int, Decimal] = defaultdict(Decimal)
     txn_ids_by_effective: dict[int, set[int]] = defaultdict(set)

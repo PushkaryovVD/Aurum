@@ -10,6 +10,7 @@ from decimal import Decimal
 from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.models.enums import TransactionPurpose, TransactionType
 from app.models.account import Account
 from app.models.transaction import Transaction
@@ -22,9 +23,11 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
 
 
 async def get_cash_flow(
-    session: AsyncSession, start_date: date_ | None, end_date: date_ | None
+    session: AsyncSession, start_date: date_ | None, end_date: date_ | None, context: RequestWorkspace
 ) -> CashFlowResponse:
-    bounds_stmt = select(func.min(Transaction.date), func.max(Transaction.date)).where(
+    bounds_stmt = scope_to_workspace(
+        select(func.min(Transaction.date), func.max(Transaction.date)), Transaction, context
+    ).where(
         Transaction.type != TransactionType.TRANSFER,
         Transaction.purpose != TransactionPurpose.INVESTMENT_TRADE,
     )
@@ -48,22 +51,23 @@ async def get_cash_flow(
     if effective_start is None or effective_end is None:
         return empty
 
-    rows_stmt = (
+    rows_stmt = scope_to_workspace(
         select(
             extract("year", Transaction.date).label("year"),
             extract("month", Transaction.date).label("month"),
             Transaction.type,
             func.sum(transaction_amount_kzt()).label("amount"),
         )
-        .join(Account, Account.id == Transaction.account_id)
-        .where(
-            Transaction.type != TransactionType.TRANSFER,
-            Transaction.purpose != TransactionPurpose.INVESTMENT_TRADE,
-            Transaction.date >= effective_start,
-            Transaction.date <= effective_end,
-        )
-        .group_by("year", "month", Transaction.type)
+        .join(Account, Account.id == Transaction.account_id),
+        Transaction,
+        context,
     )
+    rows_stmt = scope_to_workspace(rows_stmt, Account, context).where(
+        Transaction.type != TransactionType.TRANSFER,
+        Transaction.purpose != TransactionPurpose.INVESTMENT_TRADE,
+        Transaction.date >= effective_start,
+        Transaction.date <= effective_end,
+    ).group_by("year", "month", Transaction.type)
     rows = (await session.execute(rows_stmt)).all()
 
     by_month: dict[tuple[int, int], dict[TransactionType, Decimal]] = defaultdict(dict)

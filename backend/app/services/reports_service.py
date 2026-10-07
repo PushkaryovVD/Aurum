@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import RequestWorkspace, scope_to_workspace
 from app.models.category import Category
 from app.models.account import Account
 from app.models.enums import CategoryKind, TransactionType
@@ -32,9 +33,17 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
 
 
 async def get_category_spending_report(
-    session: AsyncSession, category_id: int, start_date: date_ | None, end_date: date_ | None
+    session: AsyncSession,
+    category_id: int,
+    start_date: date_ | None,
+    end_date: date_ | None,
+    context: RequestWorkspace,
 ) -> CategorySpendingReport:
-    category = await session.get(Category, category_id)
+    category = (
+        await session.execute(
+            scope_to_workspace(select(Category).where(Category.id == category_id), Category, context)
+        )
+    ).scalar_one_or_none()
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
 
@@ -44,7 +53,11 @@ async def get_category_spending_report(
     category_ids: list[int] = [category_id]
     if category.parent_id is None:
         child_ids = (
-            await session.execute(select(Category.id).where(Category.parent_id == category_id))
+            await session.execute(
+                scope_to_workspace(
+                    select(Category.id).where(Category.parent_id == category_id), Category, context
+                )
+            )
         ).scalars().all()
         category_ids.extend(child_ids)
 
@@ -56,12 +69,17 @@ async def get_category_spending_report(
         .join(Account, Account.id == Transaction.account_id)
         .where(Transaction.category_id.in_(category_ids))
     )
+    plain_stmt = scope_to_workspace(plain_stmt, Transaction, context)
+    plain_stmt = scope_to_workspace(plain_stmt, Account, context)
     split_stmt = (
         select(TransactionSplit.transaction_id, Transaction.date, split_amount_kzt())
         .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
         .join(Account, Account.id == Transaction.account_id)
         .where(TransactionSplit.category_id.in_(category_ids))
     )
+    split_stmt = scope_to_workspace(split_stmt, Transaction, context)
+    split_stmt = scope_to_workspace(split_stmt, TransactionSplit, context)
+    split_stmt = scope_to_workspace(split_stmt, Account, context)
     if start_date:
         plain_stmt = plain_stmt.where(Transaction.date >= start_date)
         split_stmt = split_stmt.where(Transaction.date >= start_date)
@@ -134,7 +152,11 @@ _KIND_TO_TRANSACTION_TYPE = {
 
 
 async def get_category_ranking_report(
-    session: AsyncSession, kind: CategoryKind, start_date: date_ | None, end_date: date_ | None
+    session: AsyncSession,
+    kind: CategoryKind,
+    start_date: date_ | None,
+    end_date: date_ | None,
+    context: RequestWorkspace,
 ) -> CategoryRankingReport:
     """All categories of one kind, ranked by total spent/earned over an
     arbitrary period — "which category costs the most" across the whole
@@ -147,7 +169,11 @@ async def get_category_ranking_report(
     # unions plain transactions with split lines the same way the Dashboard
     # breakdown does.
     rows = await rollup_spending_by_top_level_category(
-        session, transaction_type=_KIND_TO_TRANSACTION_TYPE[kind], start_date=start_date, end_date=end_date
+        session,
+        transaction_type=_KIND_TO_TRANSACTION_TYPE[kind],
+        start_date=start_date,
+        end_date=end_date,
+        context=context,
     )
     total_amount = sum((row.amount for row in rows), Decimal("0"))
 

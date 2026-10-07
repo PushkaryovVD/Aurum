@@ -5,8 +5,10 @@ balances so there's a single source of truth for money that already flows
 through the Transactions feature. See services/net_worth_service.py.
 """
 from datetime import date as date_
+from uuid import UUID as PythonUUID
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Date, Enum, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -16,8 +18,13 @@ from app.models.mixins import TimestampMixin
 
 class Asset(Base, TimestampMixin):
     __tablename__ = "assets"
+    __table_args__ = (Index("ix_assets_workspace_id_id", "workspace_id", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     asset_class: Mapped[AssetClass] = mapped_column(
         Enum(AssetClass, name="asset_class", native_enum=False, length=20), nullable=False

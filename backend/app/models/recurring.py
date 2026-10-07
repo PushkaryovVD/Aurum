@@ -5,8 +5,10 @@ from anchor_date + last_posted_date, and how "Post now" creates a real
 Transaction row from the template.
 """
 from datetime import date as date_
+from uuid import UUID as PythonUUID
 
-from sqlalchemy import Boolean, Date, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Boolean, Date, Enum, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -16,8 +18,13 @@ from app.models.mixins import TimestampMixin
 
 class RecurringTransaction(Base, TimestampMixin):
     __tablename__ = "recurring_transactions"
+    __table_args__ = (Index("ix_recurring_transactions_workspace_id_id", "workspace_id", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     # Destination account for TRANSFER-type rows only — same shape as Transaction.

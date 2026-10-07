@@ -36,24 +36,24 @@ export function InitialOwnerBootstrap({ status, onComplete }: {
         onComplete();
         return;
       }
-      setMessage("Initial setup could not be completed. Check the one-time code or try again later.");
+      setMessage(t("entry.bootstrapError"));
     } catch {
-      setMessage("Initial setup could not be completed. Check your connection and try again.");
+      setMessage(t("entry.bootstrapNetwork"));
     } finally { setBusy(false); }
   }
 
   return <>
-    <h2 className="text-xl font-semibold tracking-tight">Initial owner setup</h2>
-    <p className="mt-4 text-sm leading-relaxed text-text-secondary">The installation operator can read the one-time code in the backend startup logs. This is not public registration.</p>
+    <h2 className="text-xl font-semibold tracking-tight">{t("entry.bootstrapTitle")}</h2>
+    <p className="mt-4 text-sm leading-relaxed text-text-secondary">{t("entry.bootstrapIntro")}</p>
     {!allowed && <p className="mt-5 text-sm text-warning" role="alert">{t("entry.transport")}</p>}
-    {!status.initial_owner_bootstrap_available && <p className="mt-5 text-sm text-warning" role="alert">The setup code has expired. Restart the backend to issue a new one.</p>}
+    {!status.initial_owner_bootstrap_available && <p className="mt-5 text-sm text-warning" role="alert">{t("entry.bootstrapExpired")}</p>}
     {message && <p className="mt-5 text-sm" role="status">{message}</p>}
     <form ref={formRef} className="mt-6 space-y-4" onSubmit={(event) => void submit(event)} aria-busy={busy}>
-      <label className="block text-sm" htmlFor="initial-owner-code">One-time code<input id="initial-owner-code" name="bootstrap_code" type="password" autoComplete="one-time-code" required disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
-      <label className="block text-sm" htmlFor="initial-owner-name">Display name<input id="initial-owner-name" name="display_name" autoComplete="name" required maxLength={100} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
+      <label className="block text-sm" htmlFor="initial-owner-code">{t("entry.bootstrapCode")}<input id="initial-owner-code" name="bootstrap_code" type="password" autoComplete="one-time-code" required disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
+      <label className="block text-sm" htmlFor="initial-owner-name">{t("entry.bootstrapName")}<input id="initial-owner-name" name="display_name" autoComplete="name" required maxLength={100} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
       <label className="block text-sm" htmlFor="initial-owner-identifier">{t("entry.identifier")}<input id="initial-owner-identifier" name="identifier" autoComplete="username" required maxLength={320} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
       <label className="block text-sm" htmlFor="initial-owner-password">{t("entry.password")}<input id="initial-owner-password" name="password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
-      <button type="submit" disabled={!enabled} className={`${entryButton} w-full`}>{busy ? t("entry.signingIn") : "Create owner"}</button>
+      <button type="submit" disabled={!enabled} className={`${entryButton} w-full`}>{busy ? t("entry.bootstrapSubmitting") : t("entry.bootstrapSubmit")}</button>
     </form>
   </>;
 }

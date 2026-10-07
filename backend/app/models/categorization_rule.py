@@ -10,8 +10,10 @@ separate, explicitly previewed bulk action.
 """
 from decimal import Decimal
 from typing import TYPE_CHECKING
+from uuid import UUID as PythonUUID
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -25,8 +27,13 @@ if TYPE_CHECKING:
 
 class CategorizationRule(Base, TimestampMixin):
     __tablename__ = "categorization_rules"
+    __table_args__ = (Index("ix_categorization_rules_workspace_id_id", "workspace_id", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     # Lower runs first. Kept dense (0, 1, 2 …) by the service, so reordering is
     # a plain swap rather than a fractional-index scheme.
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

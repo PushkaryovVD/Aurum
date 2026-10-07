@@ -17,8 +17,10 @@ since coingecko_id is deliberately not unique).
 """
 from datetime import date as date_
 from datetime import datetime
+from uuid import UUID as PythonUUID
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -35,8 +37,13 @@ class CryptoPortfolio(Base, TimestampMixin):
     CryptoHolding.portfolio_id below); there's no "ungrouped" state."""
 
     __tablename__ = "crypto_portfolios"
+    __table_args__ = (Index("ix_crypto_portfolios_workspace_id_id", "workspace_id", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     # Hex color for the portfolio's tab dot — auto-assigned from the app's
     # categorical palette at creation time (see services/crypto_service.py's

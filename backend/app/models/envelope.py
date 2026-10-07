@@ -1,8 +1,10 @@
 """Monthly zero-based envelopes, separate from accounts and legacy budgets."""
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID as PythonUUID
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,12 +14,17 @@ from app.models.mixins import TimestampMixin
 class EnvelopeMonth(Base, TimestampMixin):
     __tablename__ = "envelope_months"
     __table_args__ = (
-        UniqueConstraint("year", "month", name="uq_envelope_month"),
+        UniqueConstraint("workspace_id", "year", "month", name="uq_envelope_month_workspace"),
+        Index("ix_envelope_months_workspace_id", "workspace_id"),
         CheckConstraint("year BETWEEN 2000 AND 2100", name="ck_envelope_month_year"),
         CheckConstraint("month BETWEEN 1 AND 12", name="ck_envelope_month_number"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     is_closed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
@@ -28,13 +35,21 @@ class EnvelopeMonth(Base, TimestampMixin):
 class EnvelopeAllocation(Base, TimestampMixin):
     __tablename__ = "envelope_allocations"
     __table_args__ = (
-        UniqueConstraint("year", "month", "category_id", name="uq_envelope_month_category"),
+        UniqueConstraint(
+            "workspace_id", "year", "month", "category_id",
+            name="uq_envelope_month_category_workspace",
+        ),
         CheckConstraint("assigned_amount >= 0", name="ck_envelope_assigned_nonnegative"),
         CheckConstraint("planned_amount >= 0", name="ck_envelope_planned_nonnegative"),
         Index("ix_envelope_allocations_year_month", "year", "month"),
+        Index("ix_envelope_allocations_workspace_id", "workspace_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Nullable only for the temporary auth-disabled compatibility mode.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)

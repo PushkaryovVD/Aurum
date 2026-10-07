@@ -57,6 +57,20 @@ class RequestWorkspace:
             raise HTTPException(status_code=403, detail="Editor or owner role required")
 
 
+def scope_to_workspace(statement, model, context: RequestWorkspace):
+    """Restrict a statement to the request's workspace.
+
+    ``context.workspace_id is None`` means the legacy auth-disabled namespace:
+    it keeps seeing every row exactly as it did before scoping existed, which
+    is what keeps an unauthenticated installation working unchanged. Once a
+    request is authenticated, every financial read is filtered to the
+    workspace the caller is actually a member of.
+    """
+    if context.workspace_id is None:
+        return statement
+    return statement.where(model.workspace_id == context.workspace_id)
+
+
 def get_app_settings(request: Request) -> Settings:
     return request.app.state.settings
 

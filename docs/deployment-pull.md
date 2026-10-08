@@ -20,6 +20,26 @@ docker compose ps
 
 These commands are an operator procedure, not evidence that deployment has occurred. `git pull` updates source/configuration; `docker compose pull` retrieves images; `up --no-build` applies the configuration without compiling source on the host.
 
+### Docker subnet collision
+
+The default internal network is `172.31.254.0/29`. Some appliance-managed
+hosts already reserve a broader overlapping range; Docker then rejects startup
+with `invalid pool request: Pool overlaps with other one on this address space`.
+Set the `AURUM_INTERNAL_*` values in the instance's existing `.env` to an unused
+`/29`, with gateway `.1`, database `.2`, web `.3`, backend `.4`, and
+auth-key-init `.6`; also update the trusted-proxy and loopback-client CIDRs to
+that gateway/web address. The template contains a complete, internally
+consistent example.
+
+If Docker rejected startup before creating `aurum_internal`, apply the changed
+environment with `docker compose up -d --no-build`. If the old internal network
+already exists and services are attached to it, containers must be recreated on
+the replacement network: run `docker compose down` (without `-v`), then
+`docker compose up -d --no-build` and verify service health. Plain `down`
+preserves named volumes, including the database and generated auth secrets;
+`down -v` does not. Never resolve this error with `docker network prune` or
+volume deletion.
+
 For reproducible rollout, set `AURUM_BACKEND_IMAGE` and `AURUM_WEB_IMAGE` to the reviewed release's registry digests (or verified commit-specific tags). The default `develop` tags are mutable and intended for the test environment; they are not an immutable release identity. Verify both images belong to the same reviewed commit before deploying.
 
 ## Existing-installation safety

@@ -41,7 +41,7 @@ services:
       - aurum_auth_secrets:/run/aurum-secrets
     networks:
       aurum_internal:
-        ipv4_address: 172.31.254.6
+        ipv4_address: ${AURUM_AUTH_KEY_INIT_IP:-172.31.254.6}
 
   db:
     image: postgres:16-alpine
@@ -67,7 +67,7 @@ services:
       retries: 10
     networks:
       aurum_internal:
-        ipv4_address: 172.31.254.2
+        ipv4_address: ${AURUM_DB_IP:-172.31.254.2}
 
   backend:
     # CasaOS requires a pullable image/tag even when local Docker Compose also
@@ -103,8 +103,11 @@ services:
       AURUM_AUTH_HMAC_SECRET: ${AURUM_AUTH_HMAC_SECRET:-}
       AURUM_AUTH_HMAC_SECRET_FILE: /run/aurum-secrets/auth_hmac_secret
       AURUM_AUTH_PROXY_SHARED_SECRET_FILE: /run/aurum-secrets/proxy_shared_secret
-      AURUM_AUTH_TRUSTED_PROXY_CIDRS: 172.31.254.3/32
-      AURUM_AUTH_LOOPBACK_CLIENT_CIDRS: 127.0.0.0/8,::1/128,172.31.254.1/32
+      # Keep these aligned with the selected internal network. Static Docker
+      # subnets can collide with appliance-managed networks on a deployment
+      # host, so all deployment-specific addresses are configurable via .env.
+      AURUM_AUTH_TRUSTED_PROXY_CIDRS: ${AURUM_AUTH_TRUSTED_PROXY_CIDRS:-172.31.254.3/32}
+      AURUM_AUTH_LOOPBACK_CLIENT_CIDRS: ${AURUM_AUTH_LOOPBACK_CLIENT_CIDRS:-127.0.0.0/8,::1/128,172.31.254.1/32}
       AURUM_AUTH_SESSION_IDLE_SECONDS: ${AURUM_AUTH_SESSION_IDLE_SECONDS:-1800}
       AURUM_AUTH_SESSION_ABSOLUTE_SECONDS: ${AURUM_AUTH_SESSION_ABSOLUTE_SECONDS:-604800}
       AURUM_AUTH_ARGON2_MEMORY_KIB: ${AURUM_AUTH_ARGON2_MEMORY_KIB:-65536}
@@ -123,7 +126,7 @@ services:
         condition: service_healthy
     networks:
       aurum_internal:
-        ipv4_address: 172.31.254.4
+        ipv4_address: ${AURUM_BACKEND_IP:-172.31.254.4}
 
   web:
     # See backend: CasaOS needs a pullable image reference in addition to build.
@@ -158,7 +161,7 @@ services:
       - backend
     networks:
       aurum_internal:
-        ipv4_address: 172.31.254.3
+        ipv4_address: ${AURUM_WEB_IP:-172.31.254.3}
 
 volumes:
   aurum_pgdata:
@@ -168,5 +171,5 @@ networks:
   aurum_internal:
     ipam:
       config:
-        - subnet: 172.31.254.0/29
-          gateway: 172.31.254.1
+        - subnet: ${AURUM_INTERNAL_SUBNET:-172.31.254.0/29}
+          gateway: ${AURUM_INTERNAL_GATEWAY:-172.31.254.1}

@@ -86,6 +86,16 @@ async def _scoped(session: AsyncSession, statement, model, context: RequestWorks
     return statement
 
 
+def _workspace_id(context: RequestWorkspace | None):
+    """The owner to stamp on a new envelope root/audit row.
+
+    A missing context and the auth-disabled context both deliberately preserve
+    the legacy NULL namespace; authenticated requests always supply their
+    selected workspace UUID.
+    """
+    return None if context is None else context.workspace_id
+
+
 async def open_month(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> EnvelopeStatus:
     if context is not None:
         context.require_mutation()
@@ -112,11 +122,7 @@ async def list_months(session: AsyncSession, context: RequestWorkspace | None = 
 
 
 async def list_audit(session: AsyncSession, year: int, month: int, context: RequestWorkspace | None = None) -> list[EnvelopeAuditLog]:
-    """Audit history for a month, resolved through the workspace-scoped month.
-
-    Audit rows carry no workspace column, so a workspace the month does not
-    belong to yields nothing rather than another workspace's history.
-    """
+    """Audit history for a month, resolved and filtered by its workspace."""
     if context is not None and await _month_row(session, year, month, context) is None:
         return []
     stmt = (
@@ -124,6 +130,7 @@ async def list_audit(session: AsyncSession, year: int, month: int, context: Requ
         .where(EnvelopeAuditLog.year == year, EnvelopeAuditLog.month == month)
         .order_by(EnvelopeAuditLog.id)
     )
+    stmt = await _scoped(session, stmt, EnvelopeAuditLog, context)
     return list((await session.execute(stmt)).scalars())
 
 
@@ -132,7 +139,8 @@ async def _calculation_data(session: AsyncSession, target: MonthKey, context: Re
     month_stmt = select(EnvelopeMonth).order_by(EnvelopeMonth.year, EnvelopeMonth.month)
     month_stmt = await _scoped(session, month_stmt, EnvelopeMonth, context)
     month_rows = list((await session.execute(month_stmt)).scalars())
-    categories = list((await session.execute(select(Category))).scalars())
+    categories_stmt = await _scoped(session, select(Category), Category, context)
+    categories = list((await session.execute(categories_stmt)).scalars())
     allocation_stmt = (
         select(EnvelopeAllocation)
         .where(or_(EnvelopeAllocation.year < target[0], (EnvelopeAllocation.year == target[0]) & (EnvelopeAllocation.month <= target[1])))
@@ -171,7 +179,6 @@ async def _calculation_data(session: AsyncSession, target: MonthKey, context: Re
         .outerjoin(Category, Category.id == TransactionSplit.category_id)
         .where(Transaction.date <= target_end)
     )
-    split_stmt = await _scoped(session, split_stmt, TransactionSplit, context)
     split_stmt = await _scoped(session, split_stmt, Transaction, context)
     split_stmt = await _scoped(session, split_stmt, Account, context)
     split_rows = (await session.execute(split_stmt)).all()
@@ -432,7 +439,16 @@ async def set_allocation(
         allocation.rollover_positive = payload.rollover_positive
     if payload.rollover_negative is not None:
         allocation.rollover_negative = payload.rollover_negative
-    session.add(EnvelopeAuditLog(year=year, month=month, event_type="allocation", category_id=category_id, amount=delta))
+    session.add(
+        EnvelopeAuditLog(
+            workspace_id=_workspace_id(context),
+            year=year,
+            month=month,
+            event_type="allocation",
+            category_id=category_id,
+            amount=delta,
+        )
+    )
     await session.commit()
     return await get_status(session, year, month, context)
 
@@ -454,7 +470,16 @@ async def delete_allocation(
         raise HTTPException(404, "Envelope allocation not found")
     amount = allocation.assigned_amount
     await session.delete(allocation)
-    session.add(EnvelopeAuditLog(year=year, month=month, event_type="allocation", category_id=category_id, amount=-amount))
+    session.add(
+        EnvelopeAuditLog(
+            workspace_id=_workspace_id(context),
+            year=year,
+            month=month,
+            event_type="allocation",
+            category_id=category_id,
+            amount=-amount,
+        )
+    )
     await session.commit()
     return await get_status(session, year, month, context)
 
@@ -485,6 +510,7 @@ async def move(
     target.assigned_amount += payload.amount
     session.add(
         EnvelopeAuditLog(
+            workspace_id=_workspace_id(context),
             year=year,
             month=month,
             event_type="move",
@@ -504,12 +530,19 @@ async def apply_template(
     if context is not None:
         context.require_mutation()
     await _require_open_month(session, year, month, context)
-    template = await session.get(EnvelopeTemplate, template_id)
+    template_stmt = await _scoped(
+        session,
+        select(EnvelopeTemplate).where(EnvelopeTemplate.id == template_id),
+        EnvelopeTemplate,
+        context,
+    )
+    template = (await session.execute(template_stmt)).scalar_one_or_none()
     if template is None:
         raise HTTPException(404, "Envelope template not found")
     items = list((await session.execute(select(EnvelopeTemplateItem).where(EnvelopeTemplateItem.template_id == template_id).order_by(EnvelopeTemplateItem.id))).scalars())
     total = ZERO
     for item in items:
+        await _expense_category(session, item.category_id, context)
         row_stmt = select(EnvelopeAllocation).where(
             EnvelopeAllocation.year == year,
             EnvelopeAllocation.month == month,
@@ -530,7 +563,16 @@ async def apply_template(
         row.rollover_positive = item.rollover_positive
         row.rollover_negative = item.rollover_negative
         total += item.planned_amount
-    session.add(EnvelopeAuditLog(year=year, month=month, event_type="template_applied", amount=total, note=template.name))
+    session.add(
+        EnvelopeAuditLog(
+            workspace_id=_workspace_id(context),
+            year=year,
+            month=month,
+            event_type="template_applied",
+            amount=total,
+            note=template.name,
+        )
+    )
     await session.commit()
     return await get_status(session, year, month, context)
 
@@ -577,7 +619,16 @@ async def fund(
                 target.rollover_negative = source.rollover_negative
                 copied_total += source.planned_amount
         if copied_total:
-            session.add(EnvelopeAuditLog(year=year, month=month, event_type="template_applied", amount=copied_total, note="copied plan"))
+            session.add(
+                EnvelopeAuditLog(
+                    workspace_id=_workspace_id(context),
+                    year=year,
+                    month=month,
+                    event_type="template_applied",
+                    amount=copied_total,
+                    note="copied plan",
+                )
+            )
         await session.commit()
     status = await get_status(session, year, month, context)
     remaining = max(status.available_to_assign, ZERO)
@@ -593,7 +644,16 @@ async def fund(
         if delta:
             row.assigned_amount += delta
             remaining -= delta
-            session.add(EnvelopeAuditLog(year=year, month=month, event_type="allocation", category_id=row.category_id, amount=delta))
+            session.add(
+                EnvelopeAuditLog(
+                    workspace_id=_workspace_id(context),
+                    year=year,
+                    month=month,
+                    event_type="allocation",
+                    category_id=row.category_id,
+                    amount=delta,
+                )
+            )
         shortfall = needed - delta
         if shortfall:
             unfunded.append(EnvelopeShortfall(category_id=row.category_id, shortfall=shortfall))
@@ -623,7 +683,15 @@ async def close_month(session: AsyncSession, year: int, month: int, context: Req
     row.is_closed = True
     row.closed_at = datetime.now(timezone.utc)
     row.closed_activity_total = total
-    session.add(EnvelopeAuditLog(year=year, month=month, event_type="month_closed", amount=total))
+    session.add(
+        EnvelopeAuditLog(
+            workspace_id=_workspace_id(context),
+            year=year,
+            month=month,
+            event_type="month_closed",
+            amount=total,
+        )
+    )
     await session.commit()
     return await get_status(session, year, month, context)
 
@@ -638,6 +706,14 @@ async def reopen_month(session: AsyncSession, year: int, month: int, context: Re
         row.is_closed = False
         row.closed_at = None
         row.closed_activity_total = None
-        session.add(EnvelopeAuditLog(year=year, month=month, event_type="month_reopened", amount=ZERO))
+        session.add(
+            EnvelopeAuditLog(
+                workspace_id=_workspace_id(context),
+                year=year,
+                month=month,
+                event_type="month_reopened",
+                amount=ZERO,
+            )
+        )
         await session.commit()
     return await get_status(session, year, month, context)

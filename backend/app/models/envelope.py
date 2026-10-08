@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID as PythonUUID
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,9 +62,15 @@ class EnvelopeAllocation(Base, TimestampMixin):
 class EnvelopeAuditLog(Base):
     """Append-only history. Core bulk deletes are reserved for backup restore."""
     __tablename__ = "envelope_audit_logs"
-    __table_args__ = (Index("ix_envelope_audit_logs_year_month", "year", "month"),)
+    __table_args__ = (
+        Index("ix_envelope_audit_logs_workspace_year_month_id", "workspace_id", "year", "month", "id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # NULL is the preserved auth-disabled legacy namespace.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     event_type: Mapped[str] = mapped_column(String(24), nullable=False)
@@ -85,9 +91,23 @@ def _prevent_audit_mutation(*_args: object) -> None:
 
 class EnvelopeTemplate(Base, TimestampMixin):
     __tablename__ = "envelope_templates"
+    __table_args__ = (
+        Index("ix_envelope_templates_workspace_id", "workspace_id"),
+        UniqueConstraint("workspace_id", "name", name="uq_envelope_templates_workspace_name"),
+        Index(
+            "uq_envelope_templates_legacy_name",
+            "name",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    # NULL is the preserved auth-disabled legacy namespace.
+    workspace_id: Mapped[PythonUUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
 class EnvelopeTemplateItem(Base):

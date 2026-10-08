@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RequestWorkspace, get_request_workspace, get_session
+from app.api.deps import RequestWorkspace, get_request_workspace, get_session, scope_to_workspace
 from app.models.envelope import EnvelopeAuditLog, EnvelopeMonth, EnvelopeTemplate, EnvelopeTemplateItem
 from app.schemas.envelope import (
     EnvelopeAllocationInput,
@@ -54,12 +54,31 @@ async def _template_read(session: AsyncSession, template: EnvelopeTemplate) -> E
     )
 
 
+async def _template_or_404(
+    session: AsyncSession, template_id: int, context: RequestWorkspace
+) -> EnvelopeTemplate:
+    statement = scope_to_workspace(
+        select(EnvelopeTemplate).where(EnvelopeTemplate.id == template_id),
+        EnvelopeTemplate,
+        context,
+    )
+    template = (await session.execute(statement)).scalar_one_or_none()
+    if template is None:
+        raise HTTPException(404, "Envelope template not found")
+    return template
+
+
 @router.get("/templates", response_model=list[EnvelopeTemplateRead])
 async def list_templates(
     session: AsyncSession = Depends(get_session),
     context: RequestWorkspace = Depends(get_request_workspace),
 ) -> list[EnvelopeTemplateRead]:
-    templates = list((await session.execute(select(EnvelopeTemplate).order_by(EnvelopeTemplate.name, EnvelopeTemplate.id))).scalars())
+    statement = scope_to_workspace(
+        select(EnvelopeTemplate).order_by(EnvelopeTemplate.name, EnvelopeTemplate.id),
+        EnvelopeTemplate,
+        context,
+    )
+    templates = list((await session.execute(statement)).scalars())
     return [await _template_read(session, template) for template in templates]
 
 
@@ -80,7 +99,7 @@ async def create_template(
     context: RequestWorkspace = Depends(get_request_workspace),
 ) -> EnvelopeTemplateRead:
     context.require_mutation()
-    template = EnvelopeTemplate(name=payload.name)
+    template = EnvelopeTemplate(name=payload.name, workspace_id=context.workspace_id)
     session.add(template)
     await session.flush()
     await _replace_template_items(session, template, payload, context)
@@ -96,9 +115,7 @@ async def update_template(
     context: RequestWorkspace = Depends(get_request_workspace),
 ) -> EnvelopeTemplateRead:
     context.require_mutation()
-    template = await session.get(EnvelopeTemplate, template_id)
-    if template is None:
-        raise HTTPException(404, "Envelope template not found")
+    template = await _template_or_404(session, template_id, context)
     await _replace_template_items(session, template, payload, context)
     await session.commit()
     return await _template_read(session, template)
@@ -111,9 +128,7 @@ async def delete_template(
     context: RequestWorkspace = Depends(get_request_workspace),
 ) -> Response:
     context.require_mutation()
-    template = await session.get(EnvelopeTemplate, template_id)
-    if template is None:
-        raise HTTPException(404, "Envelope template not found")
+    template = await _template_or_404(session, template_id, context)
     await session.delete(template)
     await session.commit()
     return Response(status_code=204)

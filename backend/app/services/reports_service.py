@@ -78,7 +78,6 @@ async def get_category_spending_report(
         .where(TransactionSplit.category_id.in_(category_ids))
     )
     split_stmt = scope_to_workspace(split_stmt, Transaction, context)
-    split_stmt = scope_to_workspace(split_stmt, TransactionSplit, context)
     split_stmt = scope_to_workspace(split_stmt, Account, context)
     if start_date:
         plain_stmt = plain_stmt.where(Transaction.date >= start_date)

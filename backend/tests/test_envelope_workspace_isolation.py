@@ -132,3 +132,105 @@ async def test_legacy_null_envelopes_hidden_from_authenticated_but_visible_when_
     row = next(item for item in visible["items"] if item["category_id"] == legacy_category)
     assert row["has_row"] is True
     assert Decimal(str(row["assigned_amount"])) == Decimal("0.00")
+
+
+async def test_envelope_audits_and_templates_are_workspace_scoped(
+    client, workspace_client, test_sessionmaker
+):
+    csrf, personal, household, first, second = await _two_scopes(workspace_client, test_sessionmaker)
+    personal_headers = _write_headers(csrf, personal)
+    household_headers = _write_headers(csrf, household)
+    personal_category = first["category"]["id"]
+    household_category = second["category"]["id"]
+
+    # Use the same calendar month in both workspaces. The audit list must not
+    # merge rows merely because year/month match.
+    for headers, category_id in ((personal_headers, personal_category), (household_headers, household_category)):
+        opened = await workspace_client.post("/envelopes/2027/4/open", headers=headers)
+        assert opened.status_code == 200, opened.text
+        allocated = await workspace_client.put(
+            f"/envelopes/2027/4/allocations/{category_id}",
+            json={"assigned_amount": "0.00", "planned_amount": "10.00"},
+            headers=headers,
+        )
+        assert allocated.status_code == 200, allocated.text
+
+    personal_audit = (await workspace_client.get("/envelopes/2027/4/audit", headers=personal_headers)).json()
+    household_audit = (await workspace_client.get("/envelopes/2027/4/audit", headers=household_headers)).json()
+    assert [row["category_id"] for row in personal_audit] == [personal_category]
+    assert [row["category_id"] for row in household_audit] == [household_category]
+
+    personal_template = await workspace_client.post(
+        "/envelopes/templates",
+        json={"name": "Monthly plan", "items": [{"category_id": personal_category, "planned_amount": "10.00"}]},
+        headers=personal_headers,
+    )
+    household_template = await workspace_client.post(
+        "/envelopes/templates",
+        json={"name": "Monthly plan", "items": [{"category_id": household_category, "planned_amount": "10.00"}]},
+        headers=household_headers,
+    )
+    assert personal_template.status_code == 201, personal_template.text
+    assert household_template.status_code == 201, household_template.text
+    personal_template_id = personal_template.json()["id"]
+    household_template_id = household_template.json()["id"]
+
+    assert [row["id"] for row in (await workspace_client.get("/envelopes/templates", headers=personal_headers)).json()] == [
+        personal_template_id
+    ]
+    assert [row["id"] for row in (await workspace_client.get("/envelopes/templates", headers=household_headers)).json()] == [
+        household_template_id
+    ]
+
+    foreign_payload = {"name": "tamper", "items": [{"category_id": personal_category, "planned_amount": "1.00"}]}
+    assert (
+        await workspace_client.patch(
+            f"/envelopes/templates/{household_template_id}", json=foreign_payload, headers=personal_headers
+        )
+    ).status_code == 404
+    assert (
+        await workspace_client.delete(f"/envelopes/templates/{household_template_id}", headers=personal_headers)
+    ).status_code == 404
+    assert (
+        await workspace_client.post(
+            f"/envelopes/2027/4/apply-template/{household_template_id}", headers=personal_headers
+        )
+    ).status_code == 404
+
+    # Compatibility mode remains installation-wide, including both scoped rows.
+    assert {row["id"] for row in (await client.get("/envelopes/templates")).json()} >= {
+        personal_template_id,
+        household_template_id,
+    }
+
+
+async def test_legacy_null_template_is_hidden_from_authenticated_workspace(
+    client, workspace_client, test_sessionmaker
+):
+    _, personal = await _bootstrap_user(test_sessionmaker, "envelope-template-legacy@example.com")
+    csrf = await _login(workspace_client, "envelope-template-legacy@example.com")
+    headers = _write_headers(csrf, personal)
+
+    async with test_sessionmaker() as session:
+        category_id = (
+            await session.execute(text("SELECT id FROM categories WHERE workspace_id IS NULL LIMIT 1"))
+        ).scalar_one()
+        template_id = (
+            await session.execute(
+                text("INSERT INTO envelope_templates (workspace_id, name) VALUES (NULL, 'Legacy plan') RETURNING id")
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO envelope_template_items (template_id, category_id, planned_amount) "
+                "VALUES (:template_id, :category_id, 1)"
+            ),
+            {"template_id": template_id, "category_id": category_id},
+        )
+        await session.commit()
+
+    assert (await workspace_client.get("/envelopes/templates", headers=headers)).json() == []
+    assert (
+        await workspace_client.delete(f"/envelopes/templates/{template_id}", headers=headers)
+    ).status_code == 404
+    assert template_id in {row["id"] for row in (await client.get("/envelopes/templates")).json()}

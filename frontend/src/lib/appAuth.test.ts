@@ -17,7 +17,6 @@ it.each([
 it.each([
   { ...dev, session_transport: "insecure" },
   { app_auth_required: false, finance_access_ready: false },
-  { ...dev, finance_access_ready: true },
   { ...dev, finance_access_ready: undefined },
   { ...dev, app_auth_required: 0 },
 ])("incomplete or permissive status is rejected: %j", (status) => {

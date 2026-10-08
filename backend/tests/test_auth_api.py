@@ -244,30 +244,50 @@ async def test_required_auth_gates_routes_and_enforces_csrf(auth_client, test_se
     await _bootstrap_user(test_sessionmaker)
 
     assert (await auth_client.get("/health")).status_code == 200
-    assert (await auth_client.get("/accounts")).status_code == 503
+    assert (await auth_client.get("/accounts")).status_code == 401
     assert (await auth_client.get("/docs")).status_code == 404
     assert (await auth_client.get("/redoc")).status_code == 404
     assert (await auth_client.get("/openapi.json")).status_code == 404
 
     login = await _login(auth_client)
     csrf_token = login.json()["csrf_token"]
-    assert (await auth_client.get("/accounts")).status_code == 503
+    assert (await auth_client.get("/accounts")).status_code == 200
 
     payload = {"name": "Cash", "type": "cash", "currency": "KZT"}
-    assert (await auth_client.post("/accounts", json=payload)).status_code == 503
+    assert (await auth_client.post("/accounts", json=payload)).status_code == 403
     assert (
         await auth_client.post(
             "/accounts",
             json=payload,
             headers={"X-CSRF-Token": csrf_token, "Origin": "https://evil.example"},
         )
-    ).status_code == 503
+    ).status_code == 403
     created = await auth_client.post(
         "/accounts",
         json=payload,
         headers={"X-CSRF-Token": csrf_token, "Origin": "https://test"},
     )
-    assert created.status_code == 503
+    assert created.status_code == 201
+
+
+async def test_finance_access_opens_when_workspace_security_schema_is_ready(
+    auth_client, test_sessionmaker
+):
+    await _bootstrap_user(test_sessionmaker)
+
+    status_response = await auth_client.get("/auth/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["finance_access_ready"] is True
+
+    login = await _login(auth_client)
+    assert (await auth_client.get("/accounts")).status_code == 200
+
+    created = await auth_client.post(
+        "/accounts",
+        json={"name": "Private cash", "type": "cash", "currency": "KZT"},
+        headers={"X-CSRF-Token": login.json()["csrf_token"], "Origin": "https://test"},
+    )
+    assert created.status_code == 201
 
 
 async def test_login_rejects_spoofed_loopback_host_over_remote_http(test_sessionmaker, auth_settings):

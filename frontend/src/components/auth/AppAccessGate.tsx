@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Link, matchPath, useLocation } from "react-router-dom";
 import { useTranslation } from "@/lib/i18n";
 import { readAuthStatus, type AppAuthStatus } from "@/lib/appAuth";
@@ -10,11 +10,13 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const location = useLocation();
   const [status, setStatus] = useState<AppAuthStatus | null>(null);
+  const [financeAccessGranted, setFinanceAccessGranted] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const grantFinanceAccess = useCallback(() => setFinanceAccessGranted(true), []);
   useEffect(() => {
     const controller = new AbortController();
-    setStatus(null); setFailed(false);
+    setStatus(null); setFinanceAccessGranted(false); setFailed(false);
     void readAuthStatus(controller.signal).then((value) => {
       if (!controller.signal.aborted) setStatus(value);
     }).catch(() => { if (!controller.signal.aborted) setFailed(true); });
@@ -30,7 +32,10 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
   if (status.initial_owner_bootstrap_required) return (
     <EntryFrame><InitialOwnerBootstrap status={status} onComplete={() => setAttempt((value) => value + 1)} /></EntryFrame>
   );
-  if (status.app_auth_required) return <EntryFrame><SessionEntry status={status} /></EntryFrame>;
+  if (status.app_auth_required) {
+    if (status.finance_access_ready && financeAccessGranted) return <>{children}</>;
+    return <EntryFrame><SessionEntry status={status} onFinanceAccessGranted={grantFinanceAccess} /></EntryFrame>;
+  }
   if (!matchPath("/login", location.pathname)) return (
     <>
       <nav aria-label={t("entry.title")} className="flex justify-end border-b border-border bg-surface-0 px-5">

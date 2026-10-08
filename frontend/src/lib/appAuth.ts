@@ -9,11 +9,9 @@ export interface AppAuthStatus {
 export function parseAuthStatus(value: unknown): AppAuthStatus {
   if (!value || typeof value !== "object") throw new Error("Invalid auth status");
   const status = value as Record<string, unknown>;
-  // Legacy unauthenticated mode remains ready; required-auth finance remains
-  // closed until a separately reviewed client/backend activation.
   if (typeof status.app_auth_required !== "boolean" ||
       typeof status.finance_access_ready !== "boolean" ||
-      status.finance_access_ready !== !status.app_auth_required ||
+      (!status.app_auth_required && !status.finance_access_ready) ||
       typeof status.initial_owner_bootstrap_required !== "boolean" ||
       typeof status.initial_owner_bootstrap_available !== "boolean" ||
       (status.session_transport !== "https" && status.session_transport !== "https_or_loopback")) {

@@ -16,6 +16,7 @@ let container: HTMLDivElement;
 let client: QueryClient;
 const disabled = { app_auth_required: false, finance_access_ready: true, session_transport: "https_or_loopback", initial_owner_bootstrap_required: false, initial_owner_bootstrap_available: false };
 const required = { ...disabled, app_auth_required: true, finance_access_ready: false };
+const readyRequired = { ...required, finance_access_ready: true };
 const initialOwnerRequired = { ...required, initial_owner_bootstrap_required: true, initial_owner_bootstrap_available: true };
 const session = { user: { id: "test-user", identifier: "test-only", display_name: "Test user" }, csrf_token: "test-only-csrf", workspaces: [], active_workspace: {} };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -75,6 +76,14 @@ it("required mode resolves identity and never mounts finance on any protected ro
   expect(container.textContent).toContain("Session confirmed");
   expect(container.textContent).toContain("Financial space is not open yet");
   expect(container.querySelector('a[href="/"]')).toBeNull();
+  expect(fetcher.mock.calls.map(([path]) => path)).toEqual(["/api/auth/status", "/api/auth/me"]);
+});
+it("required mode opens finance only after a verified session and ready schema", async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(readyRequired)).mockResolvedValueOnce(reply(session));
+  vi.stubGlobal("fetch", fetcher);
+  await render("/accounts");
+  expect(finance).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain("FINANCE");
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual(["/api/auth/status", "/api/auth/me"]);
 });
 it("initial-owner setup refreshes status, verifies its server session, and never opens finance", async () => {

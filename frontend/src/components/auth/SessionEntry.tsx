@@ -25,7 +25,13 @@ async function currentSession(signal: AbortSignal): Promise<IdentitySession | nu
 }
 
 /** Identity-only session entry. No financial query or workspace switch exists here. */
-export function SessionEntry({ status }: { status: AppAuthStatus }) {
+export function SessionEntry({
+  status,
+  onFinanceAccessGranted,
+}: {
+  status: AppAuthStatus;
+  onFinanceAccessGranted: () => void;
+}) {
   const { t } = useTranslation();
   const client = useQueryClient();
   const allowed = sessionTransportAllowed(status, window.location);
@@ -43,10 +49,14 @@ export function SessionEntry({ status }: { status: AppAuthStatus }) {
     // Clear any legacy finance cache when entering explicitly required mode.
     void client.cancelQueries().then(() => client.clear());
     if (allowed) void currentSession(controller.signal).then((value) => {
-      if (!controller.signal.aborted) { setSession(value); setPhase(value ? "session" : "anonymous"); }
+      if (!controller.signal.aborted) {
+        setSession(value);
+        setPhase(value ? "session" : "anonymous");
+        if (value && status.finance_access_ready) onFinanceAccessGranted();
+      }
     }).catch(() => { if (!controller.signal.aborted) { setPhase("error"); setMessage("entry.sessionError"); } });
     return () => { controller.abort(); pending.current?.abort(); };
-  }, [allowed, attempt, client]);
+  }, [allowed, attempt, client, onFinanceAccessGranted, status.finance_access_ready]);
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,7 +84,11 @@ export function SessionEntry({ status }: { status: AppAuthStatus }) {
       const verified = await currentSession(controller.signal);
       if (!verified) throw new Error("Cookie session not established");
       await client.cancelQueries(); client.clear();
-      if (!controller.signal.aborted) { setSession(verified); setPhase("session"); }
+      if (!controller.signal.aborted) {
+        setSession(verified);
+        setPhase("session");
+        if (status.finance_access_ready) onFinanceAccessGranted();
+      }
     } catch {
       if (!controller.signal.aborted) { setSession(null); setPhase("error"); setMessage("entry.sessionError"); }
     } finally {

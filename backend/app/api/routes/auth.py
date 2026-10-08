@@ -62,11 +62,11 @@ async def read_auth_status(
     settings: Settings = Depends(get_app_settings),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, bool | str]:
-    """Public mode only; financial isolation and operator bootstrap are incomplete."""
+    """Return the public authentication/bootstrap and finance-readiness contract."""
     response.headers["Cache-Control"] = "no-store"
     return {
         "app_auth_required": settings.app_auth_required,
-        "finance_access_ready": finance_access_ready(settings),
+        "finance_access_ready": await finance_access_ready(session, settings),
         "session_transport": "https" if settings.environment == "production" else "https_or_loopback",
         "initial_owner_bootstrap_required": await initial_owner_bootstrap_required(
             session, app_auth_required=settings.app_auth_required

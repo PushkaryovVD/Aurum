@@ -5,7 +5,8 @@ from ipaddress import ip_address, ip_network
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -144,9 +145,33 @@ def credential_transport_allowed(request: Request, settings: Settings) -> bool:
     )
 
 
-def finance_access_ready(settings: Settings) -> bool:
-    """Legacy unauthenticated mode remains usable until scoped finance activation."""
-    return not settings.app_auth_required
+WORKSPACE_SECURITY_REVISION = "e5f6a7b8c9d0"
+
+
+async def finance_access_ready(session: AsyncSession, settings: Settings) -> bool:
+    """Return whether the reviewed workspace-security migration is applied.
+
+    Required-auth is deliberately pinned to the revision that introduced the
+    complete reviewed workspace-security schema. Alembic records its revision
+    in the same transaction as schema DDL, so a missing or partial upgrade
+    cannot open finance. A later schema revision intentionally requires an
+    explicit security review and baseline update before this gate opens.
+    """
+    if not settings.app_auth_required:
+        return True
+
+    try:
+        return bool(
+            await session.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM alembic_version "
+                    "WHERE version_num = :revision)"
+                ),
+                {"revision": WORKSPACE_SECURITY_REVISION},
+            )
+        )
+    except SQLAlchemyError:
+        return False
 
 
 async def resolve_authenticated_session(
@@ -193,10 +218,15 @@ async def require_authenticated_session(
 
 
 async def require_finance_access(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> None:
-    if not finance_access_ready(settings):
+    if not await finance_access_ready(session, settings):
         raise HTTPException(status_code=503, detail="Financial access is not ready")
+    if settings.app_auth_required:
+        await resolve_authenticated_session(request, session, settings)
+        await session.commit()
 
 
 async def get_request_workspace(

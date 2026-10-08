@@ -1,0 +1,16 @@
+# Cloudflare Tunnel origin TLS terminator. Used with
+# docker-compose.cloudflare-tunnel.yml only.
+#
+# The certificate/key are a Cloudflare Origin Certificate pair mounted read-only
+# from paths outside Git. cloudflared must connect with HTTPS and preserve SNI
+# as AURUM_DOMAIN; do not turn off origin TLS verification.
+{$AURUM_DOMAIN} {
+	tls /etc/caddy/origin/cert.pem /etc/caddy/origin/key.pem
+
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	reverse_proxy web:8080 {
+		header_up X-Real-IP {remote_host}
+	}
+}

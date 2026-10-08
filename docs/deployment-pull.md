@@ -56,6 +56,18 @@ The host's ports 80 and 443 must reach Caddy for certificate issuance. If the
 internal Docker range was changed because of an overlap, configure the matching
 `AURUM_TLS_*` values too; the TLS overlay has its own static network.
 
+### Cloudflare Tunnel origin
+
+When Cloudflare Tunnel routes a public hostname to an Aurum host, do not point
+it at plaintext `http://<host>:3000` for login/bootstrap traffic. Use
+`docker-compose.cloudflare-tunnel.yml`, a Cloudflare Origin Certificate mounted
+read-only into Caddy, and an explicit LAN-only TLS origin port instead. Configure
+the public hostname service as `https://<host>:8443`, preserve the public domain
+as the origin server name, and keep origin TLS verification enabled. The overlay
+removes the plaintext web port and makes Caddy provide the authenticated HTTPS
+assertion over Aurum's private Docker network. Do not use `noTLSVerify` as a
+permanent workaround.
+
 For reproducible rollout, set `AURUM_BACKEND_IMAGE` and `AURUM_WEB_IMAGE` to the reviewed release's registry digests (or verified commit-specific tags). The default `develop` tags are mutable and intended for the test environment; they are not an immutable release identity. Verify both images belong to the same reviewed commit before deploying.
 
 ## Existing-installation safety

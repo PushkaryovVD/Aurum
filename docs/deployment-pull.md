@@ -40,6 +40,22 @@ preserves named volumes, including the database and generated auth secrets;
 `down -v` does not. Never resolve this error with `docker network prune` or
 volume deletion.
 
+### HTTPS before initial-owner setup
+
+Initial owner setup and session creation reject HTTP from LAN or internet
+clients. A generic `404` from an authentication endpoint on plain HTTP is an
+intentional non-disclosing transport failure, not evidence that the route is
+missing or the one-time code is wrong. For a public hostname, configure
+`AURUM_DOMAIN` and use the TLS overlay:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --no-build
+```
+
+The host's ports 80 and 443 must reach Caddy for certificate issuance. If the
+internal Docker range was changed because of an overlap, configure the matching
+`AURUM_TLS_*` values too; the TLS overlay has its own static network.
+
 For reproducible rollout, set `AURUM_BACKEND_IMAGE` and `AURUM_WEB_IMAGE` to the reviewed release's registry digests (or verified commit-specific tags). The default `develop` tags are mutable and intended for the test environment; they are not an immutable release identity. Verify both images belong to the same reviewed commit before deploying.
 
 ## Existing-installation safety

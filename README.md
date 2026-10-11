@@ -128,6 +128,12 @@ At minimum, change these two before going any further:
 
 Everything else in `.env` (currency, CORS, the port Aurum listens on) has a sensible default and can be left alone for a first run.
 
+Optional Tradernet/Freedom Broker live portfolio access uses a dedicated
+read-only API key. Set `AURUM_TRADERNET_API_PUBLIC_KEY` and
+`AURUM_TRADERNET_API_SECRET_KEY`, then restart the backend. Do not enable
+trading permission on this key: Aurum intentionally exposes only balances and
+open positions and never sends order commands.
+
 ### 4. Start it
 
 ```bash

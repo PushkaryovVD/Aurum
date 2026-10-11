@@ -9,6 +9,7 @@ import {
   useInvestmentPortfolios, useInvestmentPositions, useSetSecurityPrice,
 } from "@/hooks/useInvestments";
 import { useTranslation } from "@/lib/i18n";
+import { TradernetCard } from "@/components/investments/TradernetCard";
 
 const field = "h-9 w-full rounded-lg border border-border bg-surface-0 px-3 text-sm text-text-primary";
 const today = new Date().toISOString().slice(0, 10);
@@ -51,6 +52,7 @@ export function InvestmentsPage() {
   }
 
   return <div className="space-y-5">
+    <TradernetCard />
     <Card><CardHeader><CardTitle>{t("nav.investments")}</CardTitle></CardHeader><CardContent>
       {!investmentAccounts.length && <p className="mb-4 text-sm text-warning">{t("investments.needAccount")}</p>}
       <div className="grid gap-4 lg:grid-cols-2">

@@ -777,6 +777,23 @@ personal vehicle)
 }
 ```
 
+## Tradernet / Freedom Broker live portfolio
+
+Set `AURUM_TRADERNET_API_PUBLIC_KEY` and
+`AURUM_TRADERNET_API_SECRET_KEY` to a dedicated API key **without trading
+permission**. The backend signs the fixed read-only `getPositionJson` command;
+the private key is never returned by the API or stored in PostgreSQL. Restart
+the backend after changing either variable.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/investments/tradernet/status` | Returns whether both environment keys are configured; never returns either key. |
+| `GET` | `/investments/tradernet/portfolio` | Fetches current cash balances and open positions directly from Tradernet. It does not modify the Aurum ledger. |
+
+Historical trades and dividends still use the reviewed import flow until a
+live-response fixture can prove an idempotent reconciliation. Aurum deliberately
+does not expose a generic Tradernet command proxy or any order endpoint.
+
 ## Crypto
 
 Live-priced crypto holdings with a full buy/sell history — a CoinMarketCap-style portfolio view, kept

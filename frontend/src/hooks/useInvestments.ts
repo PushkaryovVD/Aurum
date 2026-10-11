@@ -12,6 +12,13 @@ const invalidate = (client: ReturnType<typeof useQueryClient>) => {
 
 export const useInvestmentPortfolios = () => useQuery({ queryKey: ["investments", "portfolios"], queryFn: investments.fetchInvestmentPortfolios });
 export const useInvestmentPositions = () => useQuery({ queryKey: ["investments", "positions"], queryFn: investments.fetchInvestmentPositions });
+export const useTradernetStatus = () => useQuery({ queryKey: ["investments", "tradernet", "status"], queryFn: investments.fetchTradernetStatus });
+export const useTradernetPortfolio = (enabled: boolean) => useQuery({
+  queryKey: ["investments", "tradernet", "portfolio"],
+  queryFn: investments.fetchTradernetPortfolio,
+  enabled,
+  staleTime: 60_000,
+});
 
 function mutation<T>(fn: (body: T) => Promise<unknown>) {
   const client = useQueryClient();

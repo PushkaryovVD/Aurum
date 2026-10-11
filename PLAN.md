@@ -343,6 +343,14 @@ foreign-currency operation.
 
 ## Tradernet Global import
 
+Delivered read-only API foundation (2026-10-11): a dedicated environment-only
+Tradernet API key is HMAC-signed in the backend, and the Investments page shows
+live account balances and open positions through the fixed `getPositionJson`
+command. No secret reaches the browser or database, and Aurum exposes no generic
+command proxy or order endpoint. Historical trade/dividend synchronization,
+reconciliation with local records and broker reports remain separate work; the
+live snapshot is never silently written into the accounting ledger.
+
 - Parse a redacted Tradernet Global/Freedom Broker XLSX statement through
   upload, recognition, mapping, preview and atomic import stages.
 - Report unknown sheet rows explicitly and make repeat imports idempotent.

@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # rather than silently hitting CoinGecko's much stingier keyless tier.
     coingecko_api_key: str = ""
 
+    # Read-only Tradernet integration. Generate a dedicated API key without
+    # trading permission and keep both values in the deployment environment.
+    tradernet_api_public_key: str = ""
+    tradernet_api_secret_key: SecretStr = SecretStr("")
+
     # Swagger/ReDoc/openapi.json opt-in for legacy auth-disabled mode. The
     # docs_enabled property below always suppresses them when application auth
     # is required, regardless of this compatibility default.

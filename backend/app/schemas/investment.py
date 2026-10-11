@@ -1,4 +1,4 @@
-from datetime import date as date_
+from datetime import date as date_, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -86,3 +86,34 @@ class SecurityPositionRead(BaseModel):
     total_return: Decimal
     trades: list[SecurityTradeRead]
     dividends: list[SecurityDividendRead]
+
+
+class TradernetConnectionStatus(BaseModel):
+    configured: bool
+    mode: str = "read_only"
+
+
+class TradernetAccountRead(BaseModel):
+    currency: str
+    available_funds: Decimal
+    exchange_rate: Decimal | None = None
+    forecast_in: Decimal | None = None
+    forecast_out: Decimal | None = None
+
+
+class TradernetPositionRead(BaseModel):
+    external_position_id: str | None = None
+    ticker: str
+    name: str
+    currency: str
+    quantity: Decimal
+    market_price: Decimal | None = None
+    market_value: Decimal | None = None
+    book_price: Decimal | None = None
+    unrealized_profit: Decimal | None = None
+
+
+class TradernetPortfolioSnapshot(BaseModel):
+    fetched_at: datetime
+    accounts: list[TradernetAccountRead]
+    positions: list[TradernetPositionRead]

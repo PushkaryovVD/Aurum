@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import RequestWorkspace, get_request_workspace, get_session
+from app.api.deps import RequestWorkspace, get_app_settings, get_request_workspace, get_session
+from app.core.config import Settings
 from app.schemas.investment import (
     InvestmentPortfolioCreate,
     InvestmentPortfolioRead,
@@ -10,10 +11,30 @@ from app.schemas.investment import (
     SecurityPositionRead,
     SecurityPriceCreate,
     SecurityTradeCreate,
+    TradernetConnectionStatus,
+    TradernetPortfolioSnapshot,
 )
-from app.services import investment_service
+from app.services import investment_service, tradernet_service
 
 router = APIRouter(prefix="/investments", tags=["investments"])
+
+
+@router.get("/tradernet/status", response_model=TradernetConnectionStatus)
+async def tradernet_status(
+    settings: Settings = Depends(get_app_settings),
+) -> TradernetConnectionStatus:
+    return TradernetConnectionStatus(configured=tradernet_service.is_configured(settings))
+
+
+@router.get("/tradernet/portfolio", response_model=TradernetPortfolioSnapshot)
+async def tradernet_portfolio(
+    settings: Settings = Depends(get_app_settings),
+) -> TradernetPortfolioSnapshot:
+    try:
+        return await tradernet_service.fetch_portfolio(settings)
+    except tradernet_service.TradernetUnavailable as exc:
+        status_code = 503 if not tradernet_service.is_configured(settings) else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.get("/portfolios", response_model=list[InvestmentPortfolioRead])

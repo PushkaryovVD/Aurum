@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # Authentication remains opt-in so this bounded slice cannot unexpectedly
     # lock an existing installation out of its data.
     app_auth_required: bool = False
+    # Self-hosted installations commonly terminate TLS at Cloudflare, a NAS
+    # gateway, or not at all on a trusted LAN. Keep the transport policy
+    # explicit instead of inferring it from the deployment environment.
+    allow_insecure_http: bool = False
 
     environment: Literal["development", "test", "production"] = "development"
     auth_hmac_secret: SecretStr = SecretStr("")
@@ -61,13 +65,11 @@ class Settings(BaseSettings):
     # preventing arbitrary sibling containers from asserting forwarded data.
     auth_proxy_shared_secret: SecretStr = SecretStr("")
     auth_proxy_shared_secret_file: str = ""
-    # Forwarded transport/client headers are accepted only from the exact
-    # static address assigned to the shipped nginx proxy. Other containers
-    # and direct LAN clients cannot declare their own request secure.
-    auth_trusted_proxy_cidrs: str = "172.31.254.3/32"
-    # Host-originated traffic reaches nginx through the fixed bridge gateway;
-    # these are the only client addresses treated as loopback HTTP.
-    auth_loopback_client_cidrs: str = "127.0.0.0/8,::1/128,172.31.254.1/32"
+    # The shipped nginx authenticates itself with a generated shared secret.
+    # CIDR trust stays available for custom deployments but is empty by
+    # default so Docker can allocate any non-conflicting bridge subnet.
+    auth_trusted_proxy_cidrs: str = ""
+    auth_loopback_client_cidrs: str = "127.0.0.0/8,::1/128"
     auth_session_idle_seconds: int = Field(default=1800, ge=60, le=86400)
     auth_session_absolute_seconds: int = Field(default=604800, ge=300, le=2592000)
     auth_argon2_memory_kib: int = Field(default=65536, ge=8192, le=1048576)

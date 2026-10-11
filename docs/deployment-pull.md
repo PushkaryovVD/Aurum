@@ -20,53 +20,30 @@ docker compose ps
 
 These commands are an operator procedure, not evidence that deployment has occurred. `git pull` updates source/configuration; `docker compose pull` retrieves images; `up --no-build` applies the configuration without compiling source on the host.
 
-### Docker subnet collision
+### HTTP, HTTPS, and portable Docker networking
 
-The default internal network is `172.31.254.0/29`. Some appliance-managed
-hosts already reserve a broader overlapping range; Docker then rejects startup
-with `invalid pool request: Pool overlaps with other one on this address space`.
-Set the `AURUM_INTERNAL_*` values in the instance's existing `.env` to an unused
-`/29`, with gateway `.1`, database `.2`, web `.3`, backend `.4`, and
-auth-key-init `.6`; also update the trusted-proxy and loopback-client CIDRs to
-that gateway/web address. The template contains a complete, internally
-consistent example.
+The default stack publishes plain HTTP on host port `3000` and allows login and
+initial-owner setup over that transport. Docker selects the internal bridge
+subnet automatically, and services resolve each other by name; no fixed
+container IPs or host-specific subnet variables are required. Set
+`AURUM_BIND_ADDRESS=127.0.0.1` for host-only access, or set
+`AURUM_ALLOW_INSECURE_HTTP=false` when HTTPS must be enforced.
 
-If Docker rejected startup before creating `aurum_internal`, apply the changed
-environment with `docker compose up -d --no-build`. If the old internal network
-already exists and services are attached to it, containers must be recreated on
-the replacement network: run `docker compose down` (without `-v`), then
-`docker compose up -d --no-build` and verify service health. Plain `down`
-preserves named volumes, including the database and generated auth secrets;
-`down -v` does not. Never resolve this error with `docker network prune` or
-volume deletion.
-
-### HTTPS before initial-owner setup
-
-Initial owner setup and session creation reject HTTP from LAN or internet
-clients. A generic `404` from an authentication endpoint on plain HTTP is an
-intentional non-disclosing transport failure, not evidence that the route is
-missing or the one-time code is wrong. For a public hostname, configure
-`AURUM_DOMAIN` and use the TLS overlay:
+For direct HTTPS, configure `AURUM_DOMAIN` and use the optional TLS overlay:
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --no-build
 ```
 
-The host's ports 80 and 443 must reach Caddy for certificate issuance. If the
-internal Docker range was changed because of an overlap, configure the matching
-`AURUM_TLS_*` values too; the TLS overlay has its own static network.
+The host's ports 80 and 443 must reach Caddy for certificate issuance.
 
 ### Cloudflare Tunnel origin
 
-When Cloudflare Tunnel routes a public hostname to an Aurum host, do not point
-it at plaintext `http://<host>:3000` for login/bootstrap traffic. Use
-`docker-compose.cloudflare-tunnel.yml`, a Cloudflare Origin Certificate mounted
-read-only into Caddy, and an explicit LAN-only TLS origin port instead. Configure
-the public hostname service as `https://<host>:8443`, preserve the public domain
-as the origin server name, and keep origin TLS verification enabled. The overlay
-removes the plaintext web port and makes Caddy provide the authenticated HTTPS
-assertion over Aurum's private Docker network. Do not use `noTLSVerify` as a
-permanent workaround.
+Cloudflare Tunnel already terminates HTTPS for browser traffic. When
+`cloudflared` runs on the host, point the public hostname at
+`http://127.0.0.1:3000`. When it runs in another container, point it at the
+Docker host's LAN address and port `3000`. The compatibility overlay remains a
+no-op so existing commands that include it do not remove the published port.
 
 For reproducible rollout, set `AURUM_BACKEND_IMAGE` and `AURUM_WEB_IMAGE` to the reviewed release's registry digests (or verified commit-specific tags). The default `develop` tags are mutable and intended for the test environment; they are not an immutable release identity. Verify both images belong to the same reviewed commit before deploying.
 
@@ -111,12 +88,13 @@ version. The UI verifies session mutations by reading `/me` afterwards, retains
 CSRF only in memory, and clears query cache on identity changes/logout. It does
 not persist passwords, session capabilities, or CSRF in browser storage.
 
-HTTPS is required for production session cookies. Non-production entry allows
-plain HTTP only when the actual network peer is loopback, not merely when a
-client-controlled `Host` header names localhost. The shipped TLS overlay sends
-trusted transport metadata through nginx's un-published internal port; the
-public HTTP port ignores browser-supplied forwarding headers. A missing/invalid
-cookie remains a failed session check, not success.
+The shipped Compose configuration permits HTTP session entry and sets the
+cookie's `Secure` flag only when the request actually arrives through HTTPS.
+Operators that require HTTPS-only credentials can set
+`AURUM_ALLOW_INSECURE_HTTP=false`. The optional TLS overlay sends trusted
+transport metadata through nginx's un-published internal port; the public HTTP
+port ignores browser-supplied forwarding headers. A missing or invalid cookie
+remains a failed session check, not success.
 
 When `app_auth_required` is true, **all financial UI and API routes remain
 server-side unavailable**, including after successful sign-in. The routers stay

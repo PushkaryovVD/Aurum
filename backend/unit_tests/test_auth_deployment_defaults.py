@@ -11,6 +11,8 @@ def test_develop_compose_enables_first_owner_setup_without_operator_env_edits() 
 
     assert "AURUM_APP_AUTH_REQUIRED: ${AURUM_APP_AUTH_REQUIRED:-true}" in compose
     assert "AURUM_APP_AUTH_REQUIRED=true" in env_example
+    assert "AURUM_ALLOW_INSECURE_HTTP: ${AURUM_ALLOW_INSECURE_HTTP:-true}" in compose
+    assert "AURUM_ALLOW_INSECURE_HTTP=true" in env_example
 
 
 def test_disposable_postgres_runtime_is_never_a_deployment_setting() -> None:
@@ -28,7 +30,7 @@ def test_tls_proxy_uses_an_internal_port_instead_of_trusting_client_forwarded_pr
 
     assert "$http_x_forwarded_proto" not in nginx
     assert "listen 8080;" in nginx
-    assert '"8080:172.31.255.2" 1;' in nginx
+    assert "8080 1;" in nginx
     assert "reverse_proxy web:8080" in caddy
     assert "header_up X-Real-IP {remote_host}" in caddy
     assert "8080 $http_x_real_ip;" in nginx
@@ -40,9 +42,19 @@ def test_tls_proxy_uses_an_internal_port_instead_of_trusting_client_forwarded_pr
         "workspaces/[^/]+/invitations"
     ) in nginx
     assert "client_max_body_size 16k;" in nginx
-    assert "subnet: 172.31.255.0/29" in tls_compose
-    assert "ipv4_address: 172.31.255.2" in tls_compose
-    assert "ipv4_address: 172.31.255.3" in tls_compose
+    assert "subnet:" not in tls_compose
+    assert "ipv4_address:" not in tls_compose
+
+
+def test_compose_uses_portable_docker_networking_and_publishes_http() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    tunnel = (ROOT / "docker-compose.cloudflare-tunnel.yml").read_text(encoding="utf-8")
+
+    assert "ipv4_address:" not in compose
+    assert "ipam:" not in compose
+    assert '${AURUM_BIND_ADDRESS:-0.0.0.0}:${AURUM_WEB_PORT:-3000}:80' in compose
+    assert "ports: !reset []" not in tunnel
+    assert "services: {}" in tunnel
 
 
 def test_nginx_preserves_external_host_port_for_same_origin_checks() -> None:

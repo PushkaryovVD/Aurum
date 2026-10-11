@@ -1,7 +1,7 @@
 export interface AppAuthStatus {
   app_auth_required: boolean;
   finance_access_ready: boolean;
-  session_transport: "https" | "https_or_loopback";
+  session_transport: "https" | "https_or_loopback" | "http_or_https";
   initial_owner_bootstrap_required: boolean;
   initial_owner_bootstrap_available: boolean;
 }
@@ -14,7 +14,9 @@ export function parseAuthStatus(value: unknown): AppAuthStatus {
       (!status.app_auth_required && !status.finance_access_ready) ||
       typeof status.initial_owner_bootstrap_required !== "boolean" ||
       typeof status.initial_owner_bootstrap_available !== "boolean" ||
-      (status.session_transport !== "https" && status.session_transport !== "https_or_loopback")) {
+      (status.session_transport !== "https" &&
+       status.session_transport !== "https_or_loopback" &&
+       status.session_transport !== "http_or_https")) {
     throw new Error("Invalid auth status");
   }
   return status as unknown as AppAuthStatus;
@@ -22,6 +24,7 @@ export function parseAuthStatus(value: unknown): AppAuthStatus {
 
 export function sessionTransportAllowed(status: AppAuthStatus, location: Pick<Location, "protocol" | "hostname">): boolean {
   if (location.protocol === "https:") return true;
+  if (status.session_transport === "http_or_https") return location.protocol === "http:";
   return status.session_transport === "https_or_loopback" && location.protocol === "http:" &&
     ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 }

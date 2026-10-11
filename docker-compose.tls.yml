@@ -39,8 +39,7 @@ services:
     depends_on:
       - web
     networks:
-      aurum_tls:
-        ipv4_address: ${AURUM_TLS_CADDY_IP:-172.31.255.2}
+      - aurum_tls
 
   web:
     # Reachable only through Caddy now. The "!reset" is what actually removes
@@ -48,8 +47,7 @@ services:
     # list would be merged, not substituted, and the port would stay open.
     ports: !reset []
     networks:
-      aurum_tls:
-        ipv4_address: ${AURUM_TLS_WEB_IP:-172.31.255.3}
+      - aurum_tls
 
 volumes:
   caddy_data:
@@ -57,7 +55,3 @@ volumes:
 
 networks:
   aurum_tls:
-    ipam:
-      config:
-        - subnet: ${AURUM_TLS_SUBNET:-172.31.255.0/29}
-          gateway: ${AURUM_TLS_GATEWAY:-172.31.255.1}

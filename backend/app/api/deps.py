@@ -134,6 +134,8 @@ def client_signal(request: Request, settings: Settings) -> str:
 
 
 def credential_transport_allowed(request: Request, settings: Settings) -> bool:
+    if settings.allow_insecure_http:
+        return True
     if request_scheme(request, settings) == "https":
         return True
     try:

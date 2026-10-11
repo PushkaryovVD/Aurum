@@ -72,3 +72,17 @@ def test_invalid_proxy_identity_cannot_assert_forwarded_https() -> None:
 
     assert request_scheme(request, settings) == "http"
     assert credential_transport_allowed(request, settings) is False
+
+
+def test_explicit_http_mode_allows_dynamic_lan_client() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="production",
+        app_auth_required=True,
+        allow_insecure_http=True,
+        auth_hmac_secret="hmac-test-secret-with-at-least-32-bytes",
+    )
+    request = _request(peer="192.168.50.25", headers={"host": "aurum.local:3000"})
+
+    assert request_scheme(request, settings) == "http"
+    assert credential_transport_allowed(request, settings) is True

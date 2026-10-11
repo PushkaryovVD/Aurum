@@ -195,14 +195,23 @@ mode on a network-exposed instance without an appropriate perimeter.
 
 ### Two settings that decide who can reach you
 
-Both default to "this machine only", so opening Aurum up is a deliberate act rather than something that happens by accident:
+The defaults allow LAN and reverse-proxy access so the same Compose file works on a workstation, NAS, or server:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `AURUM_BIND_ADDRESS` | `127.0.0.1` | Which host interface the port is published on. The default means nothing else on your network can connect, even on the same Wi-Fi. Set `0.0.0.0` to open it. |
-| `AURUM_ALLOWED_HOSTS` | `localhost 127.0.0.1` | Hostnames Aurum answers to; anything else gets a `421`. This blocks DNS rebinding, where a site you're browsing points its own domain at `127.0.0.1` and reads your instance through your own browser. |
+| `AURUM_BIND_ADDRESS` | `0.0.0.0` | Which host interface publishes port 3000. Set `127.0.0.1` for host-only access. |
+| `AURUM_ALLOWED_HOSTS` | `*` | Hostnames Aurum answers to. Replace `*` with an explicit space-separated list to enable DNS-rebinding protection. |
 
 If you open the bind address, add whatever you type in the address bar to `AURUM_ALLOWED_HOSTS` too — the LAN IP, your domain, a `.local` name. Forgetting the second one is the usual cause of a `421` on an otherwise working setup.
+
+Plain HTTP is supported for LAN use and as a Cloudflare Tunnel origin. To
+require HTTPS for login and initial-owner setup, set
+`AURUM_ALLOW_INSECURE_HTTP=false`.
+
+For Cloudflare Tunnel running on the Docker host, use
+`http://127.0.0.1:3000` as the origin. If cloudflared runs in another
+container, use the Docker host's LAN address and port `3000`. Cloudflare
+provides HTTPS to the browser; a second origin certificate is not required.
 
 ### Serving it over HTTPS
 

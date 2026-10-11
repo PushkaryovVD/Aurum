@@ -10,6 +10,8 @@ it.each([
   ["http:", "[::1]", "https_or_loopback", true],
   ["http:", "192.168.1.10", "https_or_loopback", false],
   ["http:", "localhost.evil.example", "https_or_loopback", false],
+  ["http:", "192.168.1.10", "http_or_https", true],
+  ["http:", "aurum.example.com", "http_or_https", true],
   ["file:", "localhost", "https_or_loopback", false],
 ] as const)("session transport %s %s with %s is %s", (protocol, hostname, transport, expected) => {
   expect(sessionTransportAllowed({ ...dev, session_transport: transport }, { protocol, hostname })).toBe(expected);

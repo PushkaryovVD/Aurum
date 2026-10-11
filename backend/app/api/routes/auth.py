@@ -67,7 +67,11 @@ async def read_auth_status(
     return {
         "app_auth_required": settings.app_auth_required,
         "finance_access_ready": await finance_access_ready(session, settings),
-        "session_transport": "https" if settings.environment == "production" else "https_or_loopback",
+        "session_transport": (
+            "http_or_https"
+            if settings.allow_insecure_http
+            else "https" if settings.environment == "production" else "https_or_loopback"
+        ),
         "initial_owner_bootstrap_required": await initial_owner_bootstrap_required(
             session, app_auth_required=settings.app_auth_required
         ),
@@ -243,7 +247,9 @@ async def read_auth_json(request: Request) -> Mapping[str, object] | None:
 
 
 def _cookie_secure(request: Request, settings: Settings) -> bool:
-    return settings.environment == "production" or request_origin(request, settings).startswith("https://")
+    # Browsers ignore Secure cookies on a plain-HTTP origin. Production mode
+    # alone does not prove that TLS is actually present.
+    return request_origin(request, settings).startswith("https://")
 
 
 def _set_session_cookie(response: Response, request: Request, settings: Settings, token: str) -> None:

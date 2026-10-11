@@ -1,44 +1,10 @@
-# Cloudflare Tunnel origin overlay.
+# Compatibility overlay for existing deployment commands.
 #
-# Use with the base Compose file:
-#   docker compose -f docker-compose.yml -f docker-compose.cloudflare-tunnel.yml up -d --no-build
+# Cloudflare Tunnel terminates public HTTPS itself, so Aurum does not need a
+# second Caddy/origin-certificate layer. Point cloudflared directly at
+# http://127.0.0.1:${AURUM_WEB_PORT:-3000} when it runs on the host, or at the
+# host's LAN address when cloudflared runs in another container.
 #
-# cloudflared is deliberately outside this Compose project. It reaches Caddy at
-# the explicit LAN-only host address/port below; Caddy then reaches web over an
-# isolated Docker network and marks the request as HTTPS for the backend.
-services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "${AURUM_TUNNEL_ORIGIN_BIND_ADDRESS:?set the host LAN address in .env}:${AURUM_TUNNEL_ORIGIN_PORT:-8443}:443"
-    environment:
-      AURUM_DOMAIN: ${AURUM_DOMAIN:?set AURUM_DOMAIN in .env to the public tunnel hostname}
-    volumes:
-      - ./Caddyfile.cloudflare-tunnel:/etc/caddy/Caddyfile:ro
-      - type: bind
-        source: ${AURUM_CLOUDFLARE_ORIGIN_CERT_PATH:?set the Cloudflare Origin Certificate path in .env}
-        target: /etc/caddy/origin/cert.pem
-        read_only: true
-      - type: bind
-        source: ${AURUM_CLOUDFLARE_ORIGIN_KEY_PATH:?set the Cloudflare Origin Certificate private-key path in .env}
-        target: /etc/caddy/origin/key.pem
-        read_only: true
-    depends_on:
-      - web
-    networks:
-      aurum_tls:
-        ipv4_address: ${AURUM_TLS_CADDY_IP:-172.31.255.2}
-
-  web:
-    ports: !reset []
-    networks:
-      aurum_tls:
-        ipv4_address: ${AURUM_TLS_WEB_IP:-172.31.255.3}
-
-networks:
-  aurum_tls:
-    ipam:
-      config:
-        - subnet: ${AURUM_TLS_SUBNET:-172.31.255.0/29}
-          gateway: ${AURUM_TLS_GATEWAY:-172.31.255.1}
+# Keeping this file as a no-op means old commands continue to work, while the
+# base stack keeps port 3000 published.
+services: {}

@@ -35,7 +35,8 @@ major version, project identity and image references unchanged. In particular,
 it does **not** make the supplied required-auth/production configuration ready
 for multi-user use. The entry screen blocks financial UI in required-auth mode
 while bootstrap and full financial isolation remain unfinished. Production
-session entry requires HTTPS; plain HTTP to the LAN address is not sufficient.
+the default portable deployment supports session entry over HTTP as well as
+HTTPS. Use `AURUM_ALLOW_INSECURE_HTTP=false` only for an HTTPS-only deployment.
 Do not disable application authentication on a LAN-exposed instance with an
 empty Basic Auth perimeter just to bypass this block.
 

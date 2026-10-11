@@ -27,16 +27,21 @@ class _ReadinessSession:
         return self.readiness
 
 
-@pytest.mark.parametrize("required,ready,environment,transport", [
-    (False, True, "development", "https_or_loopback"),
-    (True, True, "development", "https_or_loopback"),
-    (True, False, "production", "https"),
-    (True, False, "test", "https_or_loopback"),
+@pytest.mark.parametrize("required,ready,environment,allow_http,transport", [
+    (False, True, "development", False, "https_or_loopback"),
+    (True, True, "development", False, "https_or_loopback"),
+    (True, False, "production", False, "https"),
+    (True, False, "test", False, "https_or_loopback"),
+    (True, True, "production", True, "http_or_https"),
 ])
 @pytest.mark.asyncio
-async def test_status_reports_database_backed_finance_readiness(required, ready, environment, transport):
+async def test_status_reports_database_backed_finance_readiness(required, ready, environment, allow_http, transport):
     app = FastAPI()
-    app.state.settings = SimpleNamespace(app_auth_required=required, environment=environment)
+    app.state.settings = SimpleNamespace(
+        app_auth_required=required,
+        environment=environment,
+        allow_insecure_http=allow_http,
+    )
     session = _ReadinessSession(ready)
 
     async def override_get_session():
@@ -60,7 +65,11 @@ async def test_status_reports_database_backed_finance_readiness(required, ready,
 @pytest.mark.asyncio
 async def test_required_auth_readiness_checks_workspace_identity_constraints_and_triggers():
     app = FastAPI()
-    app.state.settings = SimpleNamespace(app_auth_required=True, environment="development")
+    app.state.settings = SimpleNamespace(
+        app_auth_required=True,
+        environment="development",
+        allow_insecure_http=False,
+    )
     session = _ReadinessSession(True)
 
     async def override_get_session():
@@ -85,7 +94,11 @@ async def test_required_auth_readiness_checks_workspace_identity_constraints_and
 @pytest.mark.asyncio
 async def test_initial_owner_endpoint_is_unavailable_when_application_auth_is_disabled():
     app = FastAPI()
-    app.state.settings = SimpleNamespace(app_auth_required=False, environment="development")
+    app.state.settings = SimpleNamespace(
+        app_auth_required=False,
+        environment="development",
+        allow_insecure_http=False,
+    )
 
     async def override_get_session():
         yield _ReadinessSession(True)

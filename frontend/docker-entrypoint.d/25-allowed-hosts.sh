@@ -9,13 +9,12 @@
 # really is same-origin — but the Host header still carries the attacker's
 # domain, so refusing hostnames we don't expect closes it.
 #
-# AURUM_ALLOWED_HOSTS is a space- or comma-separated list. Default covers
-# local access only; add your own hostname when you serve Aurum under one
-# (see .env.example). "*" disables the check entirely.
+# AURUM_ALLOWED_HOSTS is a space- or comma-separated list. The portable
+# Compose default is "*"; replace it with explicit names to enable the check.
 set -eu
 
 FRAGMENT=/etc/nginx/allowed-hosts.conf
-HOSTS="${AURUM_ALLOWED_HOSTS:-localhost 127.0.0.1}"
+HOSTS="${AURUM_ALLOWED_HOSTS:-*}"
 
 if [ "$HOSTS" = "*" ]; then
   : > "$FRAGMENT"

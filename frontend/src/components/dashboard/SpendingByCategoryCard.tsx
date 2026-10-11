@@ -8,9 +8,11 @@ import { formatCurrency } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { CategoryBreakdownItem } from "@/types";
+import type { QueryDisplayState } from "@/lib/queryDisplayState";
 
 interface SpendingByCategoryCardProps {
-  items: CategoryBreakdownItem[];
+  items?: CategoryBreakdownItem[];
+  state: QueryDisplayState;
 }
 
 function DonutTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: CategoryBreakdownItem }> }) {
@@ -26,7 +28,7 @@ function DonutTooltip({ active, payload }: { active?: boolean; payload?: Array<{
   );
 }
 
-export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
+export function SpendingByCategoryCard({ items = [], state }: SpendingByCategoryCardProps) {
   const { t } = useTranslation();
   // The breakdown lives in a modal, not expanded inline — a category with
   // many subcategories (or many split purchases) would otherwise push this
@@ -44,7 +46,11 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
         <CardTitle>{t("dashboard.spendingByCategoryTitle")}</CardTitle>
       </CardHeader>
       <CardContent>
-        {!hasData ? (
+        {state === "loading" ? (
+          <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
+        ) : state === "unavailable" ? (
+          <p className="py-10 text-center text-sm text-danger" role="alert">{t("dashboard.dataUnavailable")}</p>
+        ) : !hasData ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("dashboard.noExpensesThisMonth")}</p>
         ) : (
           <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">

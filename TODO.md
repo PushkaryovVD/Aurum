@@ -23,18 +23,6 @@
 - **Why it matters:** broader linked fixtures will detect unintended changes in future migrations; scoped installations cannot treat downgrade as a general rollback because restoring global uniqueness may reject scoped duplicates.
 - **Suggested direction:** add representative linked records for untouched families, an old-head no-op upgrade fixture, and populated NULL-only downgrade preservation tests. Keep these separate from auth activation and ownership backfill.
 
-## Complete privacy gates before enabling application authentication
-
-- **Problem:** this slice scopes category-budget routes/status only. Other financial families and installation-wide callers of `get_budget_status` (for example insights/alerts) remain outside this bounded implementation.
-- **Why it matters:** passing budget/core tests does not establish application-wide workspace isolation or approve auth activation.
-- **Suggested direction:** deliver separate reviewed slices for remaining routes/aggregations and UI selection; keep broader Kanban/UI/auth-activation gates incomplete.
-
-## Do not present unavailable dashboard data as a zero balance
-
-- **Problem:** after a failed dashboard request, balance and statistic cards fall back to zero while category/transaction cards can show empty states.
-- **Why it matters:** unavailable financial data must not be confused with a confirmed zero balance or a month without activity.
-- **Suggested direction:** give dashboard cards explicit loading/error/empty states and preserve stale data only when its freshness is clearly indicated; add focused request-failure regression coverage.
-
 ## Split the frontend bundle by route
 
 - **Problem:** the frontend production build warns that the main JavaScript chunk exceeds the recommended size.

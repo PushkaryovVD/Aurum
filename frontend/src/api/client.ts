@@ -1,5 +1,16 @@
 const API_BASE = "/api";
 
+interface ApiSessionContext {
+  csrfToken: string;
+  workspaceId: string;
+}
+
+let sessionContext: ApiSessionContext | null = null;
+
+export function setApiSessionContext(context: ApiSessionContext | null) {
+  sessionContext = context;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -10,9 +21,17 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isForm = init?.body instanceof FormData;
+  const method = (init?.method ?? "GET").toUpperCase();
+  const headers = new Headers(init?.headers);
+  if (!isForm && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (sessionContext) {
+    headers.set("X-Aurum-Workspace", sessionContext.workspaceId);
+    if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", sessionContext.csrfToken);
+  }
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: isForm ? undefined : { "Content-Type": "application/json" },
+    credentials: "same-origin",
     ...init,
+    headers,
   });
 
   if (!response.ok) {

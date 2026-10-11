@@ -18,7 +18,8 @@ const disabled = { app_auth_required: false, finance_access_ready: true, session
 const required = { ...disabled, app_auth_required: true, finance_access_ready: false };
 const readyRequired = { ...required, finance_access_ready: true };
 const initialOwnerRequired = { ...required, initial_owner_bootstrap_required: true, initial_owner_bootstrap_available: true };
-const session = { user: { id: "test-user", identifier: "test-only", display_name: "Test user" }, csrf_token: "test-only-csrf", workspaces: [], active_workspace: {} };
+const workspace = { id: "workspace-one", display_name: "Personal", kind: "personal", role: "owner" };
+const session = { user: { id: "test-user", identifier: "test-only", display_name: "Test user" }, csrf_token: "test-only-csrf", workspaces: [workspace], active_workspace: workspace };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 function Finance() { useEffect(() => { finance(); }, []); return <div>FINANCE</div>; }
 async function render(path = "/") {

@@ -3,20 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { sessionTransportAllowed, type AppAuthStatus } from "@/lib/appAuth";
+import { parseSession, type IdentitySession } from "@/lib/authSession";
 import { entryButton, entryControl } from "./EntryFrame";
 
-interface IdentitySession {
-  user: { id: string; identifier: string; display_name: string };
-  csrf_token: string;
-}
-function parseSession(value: unknown): IdentitySession {
-  const data = value as Partial<IdentitySession> | null;
-  if (!data || !data.user || typeof data.user.id !== "string" || !data.user.id ||
-      typeof data.user.identifier !== "string" || typeof data.user.display_name !== "string" ||
-      typeof data.csrf_token !== "string" || !data.csrf_token) throw new Error("Invalid identity session");
-  // Only identity and CSRF enter memory; workspace data is deliberately unused.
-  return { user: data.user, csrf_token: data.csrf_token };
-}
 async function currentSession(signal: AbortSignal): Promise<IdentitySession | null> {
   const response = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store", signal });
   if (response.status === 401) return null;
@@ -30,7 +19,7 @@ export function SessionEntry({
   onFinanceAccessGranted,
 }: {
   status: AppAuthStatus;
-  onFinanceAccessGranted: () => void;
+  onFinanceAccessGranted: (session: IdentitySession) => void;
 }) {
   const { t } = useTranslation();
   const client = useQueryClient();
@@ -52,7 +41,7 @@ export function SessionEntry({
       if (!controller.signal.aborted) {
         setSession(value);
         setPhase(value ? "session" : "anonymous");
-        if (value && status.finance_access_ready) onFinanceAccessGranted();
+        if (value && status.finance_access_ready) onFinanceAccessGranted(value);
       }
     }).catch(() => { if (!controller.signal.aborted) { setPhase("error"); setMessage("entry.sessionError"); } });
     return () => { controller.abort(); pending.current?.abort(); };
@@ -87,7 +76,7 @@ export function SessionEntry({
       if (!controller.signal.aborted) {
         setSession(verified);
         setPhase("session");
-        if (status.finance_access_ready) onFinanceAccessGranted();
+        if (status.finance_access_ready) onFinanceAccessGranted(verified);
       }
     } catch {
       if (!controller.signal.aborted) { setSession(null); setPhase("error"); setMessage("entry.sessionError"); }

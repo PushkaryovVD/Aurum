@@ -22,20 +22,25 @@ deleted, so each one is still reviewable on its own.
 
 ### Verified state
 
-Current publication checkpoint (2026-10-04): independently reviewed household
-invitations, core account/category/tag/transaction isolation, category-budget
-isolation, and safe disposable PostgreSQL test lifecycle are locally integrated.
-The integrated checkout passes **421 backend tests** and **103 frontend tests**;
-TypeScript and the frontend production build pass. The design changes currently
-cover the shared shell/dashboard only, not the whole redesign. This is an
-intermediate checkpoint, not completion of the delivery sequence below.
+Current publication checkpoint (2026-10-11): household membership and
+recipient-bound invitations, one-time initial-owner bootstrap, session
+authentication, and workspace isolation for every financial resource family
+are integrated on `develop`. Required application authentication is enabled by
+the canonical Compose deployment, and finance opens only when the reviewed
+workspace-security migration revision is present. HTTP and HTTPS deployment,
+Cloudflare Tunnel origin access, automatic Docker networking, and port `3000`
+have been verified locally with healthy containers.
 
-Application authentication must remain disabled until all remaining financial
-families and initial-account bootstrap/onboarding are verified. Workspace
-switching is not enabled. The migration chain intentionally fails closed on
-unexpectedly populated legacy financial tables; no ownership backfill or data
-deletion is performed. Dependency remediation and final technical/financial
-reviews remain pending. Generated graph artifacts are excluded from publication.
+The frontend now retains the verified workspace list in memory, scopes every
+shared API request to the active workspace, remounts financial queries after a
+workspace change, and exposes a responsive workspace selector. Household
+administration and invitation flows are not exposed in the frontend yet.
+Populated legacy rows remain preserved in the `NULL` workspace namespace;
+explicit ownership adoption
+is still a separate reviewed migration and must not be inferred automatically.
+The progressive page redesign, dependency remediation, and final
+technical/financial reviews remain pending. Generated graph artifacts are
+excluded from publication.
 
 Historical verification (before this checkpoint):
 
@@ -71,11 +76,13 @@ connect to the server or CasaOS. Backup/restore automation is out of scope.
 Use one implementation worker at a time and independently review each candidate
 before integrating it. Existing local design changes must be preserved.
 
-1. Household membership and recipient-bound invitations (`t_8b21f75e`).
-2. Backend authorization and database workspace scope for every financial
-   resource, including legacy-owner migration/bootstrap (`t_6587a72b`). Do not
-   expose shared-workspace switching before isolation is verified.
-3. Mobile-first account, invitation and workspace interface (`t_79659070`).
+1. **Completed:** household membership and recipient-bound invitation backend.
+2. **Completed:** backend authorization, initial-owner bootstrap, and database
+   workspace scope for every financial resource. Explicit adoption of preserved
+   legacy `NULL` rows remains a separate migration-maintenance deliverable.
+3. **Current:** mobile-first account, invitation and workspace interface.
+   Workspace selection, request scoping, CSRF propagation and query-cache
+   isolation are complete; household administration and invitations are next.
 4. Progressive page redesign and honest loading/error/stale-data states
    (`t_25c84f6a`), continuing the approved restrained financial-minimalist theme.
 5. Reviewed release-candidate integration and pull-only Compose/runbook delivery

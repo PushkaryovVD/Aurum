@@ -98,6 +98,7 @@ const ru = {
   "sidebar.closeMenu": "Закрыть меню",
 
   "topbar.openMenu": "Открыть меню",
+  "topbar.workspace": "Рабочее пространство",
 
   "common.loading": "Загрузка…",
   "common.expand": "Развернуть",
@@ -122,6 +123,9 @@ const ru = {
   "auth.noAuthModalAccept": "Я понимаю риски и хочу продолжить",
 
   "dashboard.errorLoading": "Не удалось загрузить данные дашборда. Проверьте, что backend запущен.",
+  "dashboard.dataUnavailable": "Данные сейчас недоступны. Это не означает, что здесь нет операций.",
+  "dashboard.staleData": "Не удалось обновить данные. Показана последняя доступная версия, обновлённая в {{time}}.",
+  "dashboard.staleList": "Список не удалось обновить; показаны ранее загруженные операции.",
   "dashboard.statRealIncomeLabel": "Реальный доход",
   "dashboard.statRealIncomeCaption": "зарплаты, возвраты",
   "dashboard.statSpentLabel": "Расходы",
@@ -926,6 +930,7 @@ const en: Record<keyof typeof ru, string> = {
   "sidebar.closeMenu": "Close menu",
 
   "topbar.openMenu": "Open menu",
+  "topbar.workspace": "Workspace",
 
   "common.loading": "Loading…",
   "common.expand": "Expand",
@@ -950,6 +955,9 @@ const en: Record<keyof typeof ru, string> = {
   "auth.noAuthModalAccept": "I understand the risk and want to continue",
 
   "dashboard.errorLoading": "Failed to load dashboard data. Check that the backend is running.",
+  "dashboard.dataUnavailable": "Data is currently unavailable. This does not mean there are no records.",
+  "dashboard.staleData": "Could not refresh the data. Showing the last available version updated at {{time}}.",
+  "dashboard.staleList": "The list could not be refreshed; previously loaded transactions are shown.",
   "dashboard.statRealIncomeLabel": "Real income",
   "dashboard.statRealIncomeCaption": "paychecks, refunds",
   "dashboard.statSpentLabel": "Spent",

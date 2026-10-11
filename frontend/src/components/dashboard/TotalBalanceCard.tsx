@@ -2,10 +2,11 @@ import { Card } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { BalanceSummary } from "@/types";
+import type { QueryDisplayState } from "@/lib/queryDisplayState";
 
 interface TotalBalanceCardProps {
   balance?: BalanceSummary;
-  isLoading: boolean;
+  state: QueryDisplayState;
 }
 
 /** All-time money across every account, in the app's reporting currency.
@@ -15,7 +16,7 @@ interface TotalBalanceCardProps {
  * and what had to be converted to get there. A currency with no available rate
  * is listed but left out of the total rather than quietly treated as though it
  * were already in the reporting currency. */
-export function TotalBalanceCard({ balance, isLoading }: TotalBalanceCardProps) {
+export function TotalBalanceCard({ balance, state }: TotalBalanceCardProps) {
   const { t } = useTranslation();
   const reporting = balance?.reporting_currency ?? "KZT";
   // The reporting currency's own row would just repeat the headline figure.
@@ -26,7 +27,7 @@ export function TotalBalanceCard({ balance, isLoading }: TotalBalanceCardProps) 
     <Card className="p-card sm:py-7">
       <p className="text-sm font-medium text-text-secondary">{t("dashboard.balanceTitle")}</p>
       <p className="mt-3 break-words text-3xl font-semibold leading-tight tracking-tight tabular-nums text-text-primary [overflow-wrap:anywhere] sm:text-4xl">
-        {isLoading ? "…" : formatCurrency(balance?.total ?? 0, reporting)}
+        {state === "loading" ? "…" : state === "unavailable" || !balance ? "—" : formatCurrency(balance.total, reporting)}
       </p>
       <p className="mt-2 text-xs leading-5 text-text-muted">{t("dashboard.balanceCaption", { currency: reporting })}</p>
 

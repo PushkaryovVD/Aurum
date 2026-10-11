@@ -6,6 +6,7 @@ import { useTranslation } from "@/lib/i18n";
 import { categoryPath, translateCategoryName } from "@/lib/categoryLabels";
 import { useTransactions } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useCategories";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 
 interface RecentTransactionsCardProps {
   year: number;
@@ -14,7 +15,8 @@ interface RecentTransactionsCardProps {
 
 export function RecentTransactionsCard({ year, month }: RecentTransactionsCardProps) {
   const { t } = useTranslation();
-  const { data, isLoading } = useTransactions({ year, month, page: 1, page_size: 6 });
+  const { data, isLoading, isError } = useTransactions({ year, month, page: 1, page_size: 6 });
+  const state = queryDisplayState(data !== undefined, isLoading, isError);
   const { data: categories } = useCategories();
 
   return (
@@ -29,11 +31,15 @@ export function RecentTransactionsCard({ year, month }: RecentTransactionsCardPr
         </Link>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {state === "loading" ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
+        ) : state === "unavailable" ? (
+          <p className="py-10 text-center text-sm text-danger" role="alert">{t("dashboard.dataUnavailable")}</p>
         ) : !data?.items.length ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("dashboard.noTransactionsYet")}</p>
         ) : (
+          <>
+          {state === "stale" && <p className="mb-3 text-xs text-warning" role="status">{t("dashboard.staleList")}</p>}
           <ul className="divide-y divide-gridline">
             {data.items.map((tx) => {
               const isSplit = tx.splits.length > 0;
@@ -73,6 +79,7 @@ export function RecentTransactionsCard({ year, month }: RecentTransactionsCardPr
               );
             })}
           </ul>
+          </>
         )}
       </CardContent>
     </Card>

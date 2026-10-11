@@ -5,18 +5,24 @@ import { readAuthStatus, type AppAuthStatus } from "@/lib/appAuth";
 import { AppReturnLink, EntryFrame, entryButton, entryControl } from "./EntryFrame";
 import { InitialOwnerBootstrap } from "./InitialOwnerBootstrap";
 import { SessionEntry } from "./SessionEntry";
+import { WorkspaceProvider } from "@/contexts/WorkspaceContext";
+import { setApiSessionContext } from "@/api/client";
+import type { IdentitySession } from "@/lib/authSession";
 
 export function AppAccessGate({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const location = useLocation();
   const [status, setStatus] = useState<AppAuthStatus | null>(null);
-  const [financeAccessGranted, setFinanceAccessGranted] = useState(false);
+  const [session, setSession] = useState<IdentitySession | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const grantFinanceAccess = useCallback(() => setFinanceAccessGranted(true), []);
+  const grantFinanceAccess = useCallback((verified: IdentitySession) => {
+    setApiSessionContext({ csrfToken: verified.csrf_token, workspaceId: verified.active_workspace.id });
+    setSession(verified);
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
-    setStatus(null); setFinanceAccessGranted(false); setFailed(false);
+    setStatus(null); setSession(null); setApiSessionContext(null); setFailed(false);
     void readAuthStatus(controller.signal).then((value) => {
       if (!controller.signal.aborted) setStatus(value);
     }).catch(() => { if (!controller.signal.aborted) setFailed(true); });
@@ -33,7 +39,7 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
     <EntryFrame><InitialOwnerBootstrap status={status} onComplete={() => setAttempt((value) => value + 1)} /></EntryFrame>
   );
   if (status.app_auth_required) {
-    if (status.finance_access_ready && financeAccessGranted) return <>{children}</>;
+    if (status.finance_access_ready && session) return <WorkspaceProvider session={session}>{children}</WorkspaceProvider>;
     return <EntryFrame><SessionEntry status={status} onFinanceAccessGranted={grantFinanceAccess} /></EntryFrame>;
   }
   if (!matchPath("/login", location.pathname)) return (

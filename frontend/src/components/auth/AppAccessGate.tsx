@@ -20,6 +20,7 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
     setApiSessionContext({ csrfToken: verified.csrf_token, workspaceId: verified.active_workspace.id });
     setSession(verified);
   }, []);
+  const endSession = useCallback(() => setSession(null), []);
   useEffect(() => {
     const controller = new AbortController();
     setStatus(null); setSession(null); setApiSessionContext(null); setFailed(false);
@@ -39,7 +40,7 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
     <EntryFrame><InitialOwnerBootstrap status={status} onComplete={() => setAttempt((value) => value + 1)} /></EntryFrame>
   );
   if (status.app_auth_required) {
-    if (status.finance_access_ready && session) return <WorkspaceProvider session={session}>{children}</WorkspaceProvider>;
+    if (status.finance_access_ready && session) return <WorkspaceProvider session={session} onSessionEnded={endSession}>{children}</WorkspaceProvider>;
     return <EntryFrame><SessionEntry status={status} onFinanceAccessGranted={grantFinanceAccess} /></EntryFrame>;
   }
   if (!matchPath("/login", location.pathname)) return (

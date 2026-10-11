@@ -1,8 +1,8 @@
 export interface WorkspaceSummary {
   id: string;
   display_name: string;
-  kind: string;
-  role: string;
+  kind: "personal" | "household";
+  role: "owner" | "editor" | "viewer";
 }
 
 export interface IdentitySession {
@@ -16,15 +16,15 @@ function parseWorkspace(value: unknown): WorkspaceSummary {
   const workspace = value as Partial<WorkspaceSummary> | null;
   if (!workspace || typeof workspace.id !== "string" || !workspace.id ||
       typeof workspace.display_name !== "string" || !workspace.display_name ||
-      typeof workspace.kind !== "string" || !workspace.kind ||
-      typeof workspace.role !== "string" || !workspace.role) {
+      !["personal", "household"].includes(String(workspace.kind)) ||
+      !["owner", "editor", "viewer"].includes(String(workspace.role))) {
     throw new Error("Invalid workspace session");
   }
   return {
     id: workspace.id,
     display_name: workspace.display_name,
-    kind: workspace.kind,
-    role: workspace.role,
+    kind: workspace.kind as WorkspaceSummary["kind"],
+    role: workspace.role as WorkspaceSummary["role"],
   };
 }
 

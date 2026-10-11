@@ -33,11 +33,10 @@ have been verified locally with healthy containers.
 
 The frontend now retains the verified workspace list in memory, scopes every
 shared API request to the active workspace, remounts financial queries after a
-workspace change, and exposes a responsive workspace selector. Household
-administration and invitation flows are not exposed in the frontend yet.
-Populated legacy rows remain preserved in the `NULL` workspace namespace;
-explicit ownership adoption
-is still a separate reviewed migration and must not be inferred automatically.
+workspace change, and exposes responsive account, workspace, membership and
+invitation controls. Populated legacy rows remain preserved in the `NULL`
+workspace namespace; explicit ownership adoption is still a separate reviewed
+migration and must not be inferred automatically.
 The progressive page redesign, dependency remediation, and final
 technical/financial reviews remain pending. Generated graph artifacts are
 excluded from publication.
@@ -80,11 +79,13 @@ before integrating it. Existing local design changes must be preserved.
 2. **Completed:** backend authorization, initial-owner bootstrap, and database
    workspace scope for every financial resource. Explicit adoption of preserved
    legacy `NULL` rows remains a separate migration-maintenance deliverable.
-3. **Current:** mobile-first account, invitation and workspace interface.
-   Workspace selection, request scoping, CSRF propagation and query-cache
-   isolation are complete; household administration and invitations are next.
-4. Progressive page redesign and honest loading/error/stale-data states
-   (`t_25c84f6a`), continuing the approved restrained financial-minimalist theme.
+3. **Completed:** mobile-first account, invitation and workspace interface,
+   including selection, request/CSRF scoping, query-cache isolation, household
+   creation, invitation acceptance, membership administration and sign-out.
+4. **Current:** progressive page redesign and honest loading/error/stale-data
+   states (`t_25c84f6a`), continuing the approved restrained
+   financial-minimalist theme. Dashboard availability states are complete;
+   remaining pages still need the same treatment.
 5. Reviewed release-candidate integration and pull-only Compose/runbook delivery
    (`t_7457b658`), then independent technical QA (`t_452489c9`).
 6. **Last:** financial-domain product assessment (`t_0d2eca4f`) on the verified

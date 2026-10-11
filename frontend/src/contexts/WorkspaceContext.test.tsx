@@ -6,8 +6,8 @@ import { api, setApiSessionContext } from "@/api/client";
 import { useWorkspace, WorkspaceProvider } from "./WorkspaceContext";
 import type { IdentitySession } from "@/lib/authSession";
 
-const one = { id: "workspace-one", display_name: "One", kind: "personal", role: "owner" };
-const two = { id: "workspace-two", display_name: "Two", kind: "shared", role: "member" };
+const one = { id: "workspace-one", display_name: "One", kind: "personal", role: "owner" } as const;
+const two = { id: "workspace-two", display_name: "Two", kind: "household", role: "viewer" } as const;
 const session: IdentitySession = {
   user: { id: "user-one", identifier: "owner@example.com", display_name: "Owner" },
   csrf_token: "csrf-one",
@@ -20,7 +20,7 @@ let container: HTMLDivElement;
 let client: QueryClient;
 
 function Harness({ children }: { children: ReactNode }) {
-  return <QueryClientProvider client={client}><WorkspaceProvider session={session}>{children}</WorkspaceProvider></QueryClientProvider>;
+  return <QueryClientProvider client={client}><WorkspaceProvider session={session} onSessionEnded={() => undefined}>{children}</WorkspaceProvider></QueryClientProvider>;
 }
 
 beforeEach(() => {
@@ -72,4 +72,29 @@ it("rejects a workspace that is not present in the verified session", async () =
   }
   await act(async () => { root.render(<Harness><Consumer /></Harness>); });
   await expect(switchWorkspace!("unknown")).rejects.toThrow("not available");
+});
+
+it("signs out with CSRF and clears protected query data", async () => {
+  const ended = vi.fn();
+  const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetcher);
+  setApiSessionContext({ csrfToken: session.csrf_token, workspaceId: session.active_workspace.id });
+  client.setQueryData(["private"], "sensitive");
+  function Consumer() {
+    const workspace = useWorkspace()!;
+    return <button type="button" onClick={() => void workspace.signOut()}>Sign out</button>;
+  }
+  await act(async () => {
+    root.render(<QueryClientProvider client={client}><WorkspaceProvider session={session} onSessionEnded={ended}><Consumer /></WorkspaceProvider></QueryClientProvider>);
+  });
+  await act(async () => { container.querySelector("button")!.click(); });
+  await vi.waitFor(() => expect(ended).toHaveBeenCalledOnce());
+
+  const [url, init] = fetcher.mock.calls[0];
+  const headers = new Headers(init.headers);
+  expect(url).toBe("/api/auth/session");
+  expect(init.method).toBe("DELETE");
+  expect(headers.get("X-CSRF-Token")).toBe("csrf-one");
+  expect(headers.get("X-Aurum-Workspace")).toBe("workspace-one");
+  expect(client.getQueryData(["private"])).toBeUndefined();
 });

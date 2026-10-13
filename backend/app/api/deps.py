@@ -147,7 +147,7 @@ def credential_transport_allowed(request: Request, settings: Settings) -> bool:
     )
 
 
-WORKSPACE_SECURITY_REVISION = "e5f6a7b8c9d0"
+WORKSPACE_SECURITY_REVISION = "f9c3d5e7a012"
 
 
 async def finance_access_ready(session: AsyncSession, settings: Settings) -> bool:

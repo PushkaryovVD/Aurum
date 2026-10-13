@@ -6,6 +6,18 @@ import { sessionTransportAllowed, type AppAuthStatus } from "@/lib/appAuth";
 import { parseSession, type IdentitySession } from "@/lib/authSession";
 import { entryButton, entryControl } from "./EntryFrame";
 
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        initData?: string;
+        ready?: () => void;
+        expand?: () => void;
+      };
+    };
+  }
+}
+
 async function currentSession(signal: AbortSignal): Promise<IdentitySession | null> {
   const response = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store", signal });
   if (response.status === 401) return null;
@@ -37,7 +49,27 @@ export function SessionEntry({
     setPhase("checking"); setSession(null); setMessage(null);
     // Clear any legacy finance cache when entering explicitly required mode.
     void client.cancelQueries().then(() => client.clear());
-    if (allowed) void currentSession(controller.signal).then((value) => {
+    if (allowed) void currentSession(controller.signal).then(async (value) => {
+      const webApp = window.Telegram?.WebApp;
+      const initData = webApp?.initData;
+      if (!value && initData) {
+        webApp?.ready?.();
+        webApp?.expand?.();
+        const telegramResponse = await fetch("/api/telegram/session", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: controller.signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ init_data: initData }),
+        });
+        // 403 means this Telegram identity has not been linked yet. Keep the
+        // normal Aurum login available so the user can link it in Settings.
+        if (telegramResponse.ok) value = parseSession(await telegramResponse.json());
+        else if (telegramResponse.status !== 403 && telegramResponse.status !== 401) {
+          throw new Error("Telegram session failed");
+        }
+      }
       if (!controller.signal.aborted) {
         setSession(value);
         setPhase(value ? "session" : "anonymous");

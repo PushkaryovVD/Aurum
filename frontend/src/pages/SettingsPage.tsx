@@ -3,6 +3,7 @@ import { BackupCard } from "@/components/settings/BackupCard";
 import { CurrencyCard } from "@/components/settings/CurrencyCard";
 import { PreferencesCard } from "@/components/settings/PreferencesCard";
 import { WorkspaceCard } from "@/components/settings/WorkspaceCard";
+import { TelegramCard } from "@/components/settings/TelegramCard";
 import { useAppSettings } from "@/hooks/useSettings";
 import { t } from "@/lib/i18n";
 
@@ -16,6 +17,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PreferencesCard />
       <WorkspaceCard />
+      <TelegramCard />
       <CurrencyCard />
       <AlertThresholdsCard />
       <BackupCard />

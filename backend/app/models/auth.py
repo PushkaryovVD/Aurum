@@ -1,8 +1,9 @@
 """Persistence models for server-side authentication and security telemetry."""
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID as PythonUUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, LargeBinary, String, UniqueConstraint, text
+from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -90,3 +91,85 @@ class SecurityAuditEvent(Base):
     target_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+
+class TelegramIdentity(Base):
+    """A Telegram account explicitly linked to one Aurum identity."""
+
+    __tablename__ = "telegram_identities"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_telegram_identities_user_id"),
+        UniqueConstraint("telegram_user_id", name="uq_telegram_identities_telegram_user_id"),
+    )
+
+    id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_telegram_identities_user_id_users", ondelete="CASCADE"),
+        nullable=False,
+    )
+    default_workspace_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", name="fk_telegram_identities_workspace_id_workspaces", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    last_authenticated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TelegramLinkCode(Base):
+    """Short-lived, single-use capability used to link a Telegram account."""
+
+    __tablename__ = "telegram_link_codes"
+    __table_args__ = (
+        UniqueConstraint("code_hmac", name="uq_telegram_link_codes_code_hmac"),
+        Index("ix_telegram_link_codes_user_active", "user_id", "consumed_at"),
+    )
+
+    id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_telegram_link_codes_user_id_users", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", name="fk_telegram_link_codes_workspace_id_workspaces", ondelete="CASCADE"),
+        nullable=False,
+    )
+    code_hmac: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TelegramTransactionDraft(Base):
+    """A bot message waiting for an explicit inline-button confirmation."""
+
+    __tablename__ = "telegram_transaction_drafts"
+    __table_args__ = (Index("ix_telegram_transaction_drafts_identity_active", "identity_id", "consumed_at"),)
+
+    id: Mapped[PythonUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    identity_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("telegram_identities.id", name="fk_telegram_drafts_identity_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[PythonUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    transaction_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

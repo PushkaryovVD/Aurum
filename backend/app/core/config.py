@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     tradernet_api_public_key: str = ""
     tradernet_api_secret_key: SecretStr = SecretStr("")
 
+    # Telegram bot / Mini App integration. The token is intentionally a
+    # SecretStr so accidental settings dumps cannot reveal it. The public URL
+    # must be HTTPS because Telegram opens Mini Apps only from secure origins.
+    telegram_bot_token: SecretStr = SecretStr("")
+    telegram_webapp_url: str = ""
+    telegram_init_data_max_age_seconds: int = Field(default=300, ge=30, le=3600)
+    telegram_link_code_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+
     # Swagger/ReDoc/openapi.json opt-in for legacy auth-disabled mode. The
     # docs_enabled property below always suppresses them when application auth
     # is required, regardless of this compatibility default.
@@ -111,6 +119,12 @@ class Settings(BaseSettings):
             self.auth_proxy_shared_secret = SecretStr(proxy_secret)
         if self.auth_session_idle_seconds > self.auth_session_absolute_seconds:
             raise ValueError("session idle lifetime must not exceed absolute lifetime")
+
+        telegram_token = self.telegram_bot_token.get_secret_value()
+        if bool(telegram_token) != bool(self.telegram_webapp_url):
+            raise ValueError("Telegram bot token and web app URL must be configured together")
+        if self.telegram_webapp_url and not self.telegram_webapp_url.startswith("https://"):
+            raise ValueError("Telegram Mini App URL must use HTTPS")
 
         if not self.app_auth_required:
             return self

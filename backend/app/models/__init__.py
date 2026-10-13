@@ -1,5 +1,13 @@
 from app.models.account import Account
-from app.models.auth import AuthRateLimit, InitialOwnerBootstrap, SecurityAuditEvent, UserSession
+from app.models.auth import (
+    AuthRateLimit,
+    InitialOwnerBootstrap,
+    SecurityAuditEvent,
+    TelegramIdentity,
+    TelegramLinkCode,
+    TelegramTransactionDraft,
+    UserSession,
+)
 from app.models.asset import Asset, AssetValuation
 from app.models.budget import Budget
 from app.models.categorization_rule import CategorizationRule
@@ -45,6 +53,9 @@ __all__ = [
     "RecurringTransaction",
     "SecurityAuditEvent",
     "Tag",
+    "TelegramIdentity",
+    "TelegramLinkCode",
+    "TelegramTransactionDraft",
     "Transaction",
     "TransactionSplit",
     "User",

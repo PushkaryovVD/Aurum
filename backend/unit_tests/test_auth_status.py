@@ -88,7 +88,7 @@ async def test_required_auth_readiness_checks_workspace_identity_constraints_and
         "version_num",
     ):
         assert identifier in statement.text
-    assert session.readiness_parameters == {"revision": "e5f6a7b8c9d0"}
+    assert session.readiness_parameters == {"revision": "f9c3d5e7a012"}
 
 
 @pytest.mark.asyncio

@@ -96,6 +96,8 @@ services:
       # Dedicated read-only Tradernet key pair. Never enable trading on it.
       AURUM_TRADERNET_API_PUBLIC_KEY: ${AURUM_TRADERNET_API_PUBLIC_KEY:-}
       AURUM_TRADERNET_API_SECRET_KEY: ${AURUM_TRADERNET_API_SECRET_KEY:-}
+      AURUM_TELEGRAM_BOT_TOKEN: ${AURUM_TELEGRAM_BOT_TOKEN:-}
+      AURUM_TELEGRAM_WEBAPP_URL: ${AURUM_TELEGRAM_WEBAPP_URL:-}
       AURUM_ENABLE_DOCS: ${AURUM_ENABLE_DOCS:-true}
       # The develop/test deployment must expose the first-owner ceremony
       # without asking the operator to edit CasaOS environment fields.
@@ -129,6 +131,38 @@ services:
         condition: service_healthy
     networks:
       - aurum_internal
+
+  telegram-bot:
+    image: ${AURUM_BACKEND_IMAGE:-ghcr.io/pushkaryovvd/aurum-backend:develop}
+    container_name: aurum-telegram-bot
+    build: ./backend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    command: ["python", "-m", "app.telegram_bot"]
+    environment:
+      AURUM_POSTGRES_USER: ${AURUM_POSTGRES_USER:-aurum}
+      AURUM_POSTGRES_PASSWORD: ${AURUM_POSTGRES_PASSWORD:-change-me}
+      AURUM_POSTGRES_DB: ${AURUM_POSTGRES_DB:-aurum}
+      AURUM_POSTGRES_HOST: db
+      AURUM_POSTGRES_PORT: 5432
+      AURUM_APP_AUTH_REQUIRED: ${AURUM_APP_AUTH_REQUIRED:-true}
+      AURUM_ALLOW_INSECURE_HTTP: ${AURUM_ALLOW_INSECURE_HTTP:-true}
+      AURUM_AUTH_HMAC_SECRET_FILE: /run/aurum-secrets/auth_hmac_secret
+      AURUM_TELEGRAM_BOT_TOKEN: ${AURUM_TELEGRAM_BOT_TOKEN:-}
+      AURUM_TELEGRAM_WEBAPP_URL: ${AURUM_TELEGRAM_WEBAPP_URL:-}
+    volumes:
+      - aurum_auth_secrets:/run/aurum-secrets:ro
+    depends_on:
+      auth-key-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - aurum_internal
+    profiles: ["telegram"]
 
   web:
     # See backend: CasaOS needs a pullable image reference in addition to build.

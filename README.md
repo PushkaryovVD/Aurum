@@ -124,7 +124,9 @@ At minimum, change these two before going any further:
 | Variable | What it does |
 |---|---|
 | `AURUM_POSTGRES_PASSWORD` | Password for Aurum's own Postgres container. The template ships with `change-me` on purpose — replace it with something real. |
-| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | Protect the entire site and API with the browser's standard HTTP Basic Auth prompt. The invite-only `/login` and first-owner flow do not replace this perimeter; required-auth finance remains closed pending its separate rollout. Leave these blank only for a private loopback installation. See [Security & Self-Hosting](#-security--self-hosting) below. |
+| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | Optional second, browser-native password perimeter. Leave both blank to use only Aurum's own account login and avoid two password prompts. |
+| `AURUM_TELEGRAM_BOT_TOKEN` | Optional BotFather token for the Telegram bot and Mini App. Keep it only in `.env`; revoke it immediately if it is ever pasted into chat or committed. |
+| `AURUM_TELEGRAM_WEBAPP_URL` | Public HTTPS origin of this Aurum installation, opened by Telegram (for example `https://finance.example.com`). |
 
 Everything else in `.env` (currency, CORS, the port Aurum listens on) has a sensible default and can be left alone for a first run.
 
@@ -196,8 +198,8 @@ mode on a network-exposed instance without an appropriate perimeter.
 
 **Aurum's `/login` entry is an identity-session surface, not a completed multi-user financial security rollout.** Develop/test Compose enables it and the first-owner ceremony by default, while required mode blocks every financial screen and API route even after sign-in. Legacy auth-disabled mode remains available for the existing single-installation finance UI. See [the deployment limitations](docs/deployment-pull.md#loginaccess-surface-bounded-frontend-slice).
 
-- If you explicitly disable application authentication for legacy finance access and leave `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` unset, **anyone who can reach the container can read, edit, and delete all financial data.** Keep that combination restricted to loopback.
-- Set both variables before exposing your instance beyond your own machine (a VPS, a subdomain, a Tailscale/VPN endpoint someone else might share). This turns on the browser's standard HTTP Basic Auth prompt in front of the entire app, static assets and API alike. Aurum never stores or injects the credentials in JavaScript.
+- If you explicitly disable application authentication and leave `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` unset, **anyone who can reach the container can read, edit, and delete all financial data.** Keep that combination restricted to loopback.
+- With `AURUM_APP_AUTH_REQUIRED=true`, Aurum's own account login protects finance. Basic Auth is an optional second perimeter; leave both Basic Auth variables blank if you do not want a second password prompt.
 
 ### Two settings that decide who can reach you
 
@@ -222,6 +224,34 @@ provides HTTPS to the browser; a second origin certificate is not required.
 ### Serving it over HTTPS
 
 Aurum speaks plain HTTP by design — certificates belong to a dedicated terminator, not to the app's own nginx. Basic Auth sends your password on **every** request, so without TLS anyone who can see the traffic has it.
+
+### Telegram Mini App
+
+Telegram access is optional. It reuses Aurum's own users and workspace roles;
+Telegram usernames are never treated as proof of identity.
+
+1. Revoke any bot token that has appeared in chat, logs, or Git and generate a
+   fresh one with `@BotFather`.
+2. Put `AURUM_TELEGRAM_BOT_TOKEN` and your public HTTPS Aurum origin in
+   `AURUM_TELEGRAM_WEBAPP_URL` in the private `.env` file.
+3. Configure the same HTTPS URL as the bot's Main Mini App or menu button in
+   `@BotFather`.
+4. Start Aurum with `docker compose --profile telegram up -d --build`.
+5. Sign in to Aurum once, open Settings → Telegram, create a one-time code and
+   send `/link CODE` to the bot in a private chat.
+
+After linking, the Mini App validates Telegram's signed `initData` on the
+server and opens the correct Aurum account without asking for the Aurum
+password again. The code is single-use and expires after ten minutes. Telegram
+requires an HTTPS URL for Mini Apps; the same Aurum instance can still remain
+available over plain HTTP on the trusted LAN.
+
+In the private bot chat, send `-2500 coffee` to prepare an expense or
+`+500000 salary` to prepare income. The bot shows the amount, currency and
+account first; nothing is written until the confirmation button is pressed.
+The first active account in the linked workspace is used for this quick-entry
+flow. Use the Mini App when another account, category, date, currency, split,
+or transfer must be selected explicitly.
 
 A ready-to-use Caddy setup ships with the repo (`docker-compose.tls.yml` + `Caddyfile`). It gets a Let's Encrypt certificate on first start and renews it by itself:
 

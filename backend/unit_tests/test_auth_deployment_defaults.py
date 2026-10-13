@@ -72,7 +72,9 @@ def test_compose_provisions_a_shared_proxy_identity_independent_of_bridge_ip() -
 
     assert "proxy_shared_secret" in compose
     assert "AURUM_AUTH_PROXY_SHARED_SECRET_FILE: /run/aurum-secrets/proxy_shared_secret" in compose
-    assert compose.count("aurum_auth_secrets:/run/aurum-secrets:ro") == 2
+    # backend, web, and the optional Telegram worker all read the same
+    # installation-owned secrets without depending on a Docker bridge IP.
+    assert compose.count("aurum_auth_secrets:/run/aurum-secrets:ro") == 3
     assert "30-proxy-identity.sh" in dockerfile
     assert nginx.count("include /etc/nginx/proxy-identity.conf;") == 3
 

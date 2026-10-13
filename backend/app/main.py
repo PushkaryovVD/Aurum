@@ -28,6 +28,7 @@ from app.api.routes import (
     settings as settings_routes,
     statement_imports,
     tags,
+    telegram,
     transactions,
     workspaces,
 )
@@ -102,6 +103,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         )
 
     configured_app.include_router(auth.router, prefix="/api")
+    configured_app.include_router(telegram.router, prefix="/api")
     configured_app.include_router(workspaces.router, prefix="/api")
     protected = [Depends(require_finance_access)]
     for route in (

@@ -113,6 +113,10 @@ class TelegramIdentity(Base):
         ForeignKey("workspaces.id", name="fk_telegram_identities_workspace_id_workspaces", ondelete="RESTRICT"),
         nullable=False,
     )
+    default_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_telegram_identities_account_id_accounts", ondelete="SET NULL"),
+        nullable=True,
+    )
     telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)

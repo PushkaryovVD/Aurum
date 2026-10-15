@@ -126,7 +126,7 @@ At minimum, change these two before going any further:
 | `AURUM_POSTGRES_PASSWORD` | Password for Aurum's own Postgres container. The template ships with `change-me` on purpose — replace it with something real. |
 | `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | Optional second, browser-native password perimeter. Leave both blank to use only Aurum's own account login and avoid two password prompts. |
 | `AURUM_TELEGRAM_BOT_TOKEN` | Optional BotFather token for the Telegram bot and Mini App. Keep it only in `.env`; revoke it immediately if it is ever pasted into chat or committed. |
-| `AURUM_TELEGRAM_WEBAPP_URL` | Public HTTPS origin of this Aurum installation, opened by Telegram (for example `https://finance.example.com`). |
+| `AURUM_TELEGRAM_WEBAPP_URL` | Optional public HTTPS origin opened by the Mini App. Leave blank when using only bot quick entry. |
 
 Everything else in `.env` (currency, CORS, the port Aurum listens on) has a sensible default and can be left alone for a first run.
 
@@ -232,10 +232,10 @@ Telegram usernames are never treated as proof of identity.
 
 1. Revoke any bot token that has appeared in chat, logs, or Git and generate a
    fresh one with `@BotFather`.
-2. Put `AURUM_TELEGRAM_BOT_TOKEN` and your public HTTPS Aurum origin in
-   `AURUM_TELEGRAM_WEBAPP_URL` in the private `.env` file.
-3. Configure the same HTTPS URL as the bot's Main Mini App or menu button in
-   `@BotFather`.
+2. Put `AURUM_TELEGRAM_BOT_TOKEN` in the private `.env` file. The bot's quick
+   transaction entry works without a domain or inbound port.
+3. For the optional Mini App, also put your public HTTPS Aurum origin in
+   `AURUM_TELEGRAM_WEBAPP_URL` and configure the same URL in `@BotFather`.
 4. Start Aurum with `docker compose --profile telegram up -d --build`.
 5. Sign in to Aurum once, open Settings → Telegram, create a one-time code and
    send `/link CODE` to the bot in a private chat.
@@ -249,9 +249,9 @@ available over plain HTTP on the trusted LAN.
 In the private bot chat, send `-2500 coffee` to prepare an expense or
 `+500000 salary` to prepare income. The bot shows the amount, currency and
 account first; nothing is written until the confirmation button is pressed.
-The first active account in the linked workspace is used for this quick-entry
-flow. Use the Mini App when another account, category, date, currency, split,
-or transfer must be selected explicitly.
+If the workspace has several accounts, use `/accounts` once to select the
+default for quick entry. The choice is remembered. Use the Mini App when a
+category, date, currency, split, or transfer must be selected explicitly.
 
 A ready-to-use Caddy setup ships with the repo (`docker-compose.tls.yml` + `Caddyfile`). It gets a Let's Encrypt certificate on first start and renews it by itself:
 

@@ -47,7 +47,11 @@ class TelegramBot:
     def __init__(self) -> None:
         settings = get_settings()
         self.token = settings.telegram_bot_token.get_secret_value()
-        self.webapp_url = settings.telegram_webapp_url.rstrip("/")
+        self.webapp_url = (
+            settings.telegram_webapp_url.rstrip("/")
+            if settings.telegram_mini_app_enabled
+            else ""
+        )
         self.hmac_secret = settings.auth_hmac_secret.get_secret_value()
         if not self.token:
             raise RuntimeError("AURUM_TELEGRAM_BOT_TOKEN is not configured")
@@ -91,6 +95,46 @@ class TelegramBot:
             )
         ).one_or_none()
 
+    async def send_account_picker(
+        self,
+        client: httpx.AsyncClient,
+        chat_id: int,
+        telegram_user_id: int,
+        *,
+        prompt: str = "Выберите счёт для быстрых транзакций:",
+    ) -> None:
+        async with AsyncSessionLocal() as session:
+            linked = await self.linked_context(session, telegram_user_id)
+            if linked is None:
+                await self.send(client, chat_id, "Сначала привяжите аккаунт командой /link КОД.")
+                return
+            identity, _user, _membership, workspace = linked
+            accounts = list(
+                (
+                    await session.execute(
+                        select(Account)
+                        .where(Account.workspace_id == workspace.id, Account.is_archived.is_(False))
+                        .order_by(Account.id)
+                    )
+                ).scalars()
+            )
+            selected_id = identity.default_account_id
+        if not accounts:
+            await self.send(client, chat_id, "В рабочей области нет активных счетов.", open_app=True)
+            return
+        rows = []
+        for account in accounts:
+            marker = "✓ " if account.id == selected_id else ""
+            rows.append([{
+                "text": f"{marker}{account.name} · {account.currency}"[:64],
+                "callback_data": f"acct:{account.id}",
+            }])
+        await self.api(client, "sendMessage", {
+            "chat_id": chat_id,
+            "text": prompt,
+            "reply_markup": {"inline_keyboard": rows},
+        })
+
     async def draft_from_message(self, client: httpx.AsyncClient, chat_id: int, sender_id: int, text: str) -> bool:
         parsed = parse_quick_transaction(text)
         if parsed is None:
@@ -105,16 +149,30 @@ class TelegramBot:
             if membership.role == WorkspaceRole.VIEWER:
                 await self.send(client, chat_id, "В этой рабочей области у вас доступ только для просмотра.")
                 return True
-            account = (
+            accounts = list((
                 await session.execute(
                     select(Account)
                     .where(Account.workspace_id == workspace.id, Account.is_archived.is_(False))
                     .order_by(Account.id)
-                    .limit(1)
                 )
-            ).scalar_one_or_none()
-            if account is None:
+            ).scalars())
+            if not accounts:
                 await self.send(client, chat_id, "Сначала создайте активный счёт в Aurum.", open_app=True)
+                return True
+            account = next(
+                (item for item in accounts if item.id == identity.default_account_id),
+                None,
+            )
+            if account is None and len(accounts) == 1:
+                account = accounts[0]
+                identity.default_account_id = account.id
+            if account is None:
+                await self.send_account_picker(
+                    client,
+                    chat_id,
+                    sender_id,
+                    prompt="Сначала выберите счёт, затем отправьте транзакцию ещё раз:",
+                )
                 return True
             draft = TelegramTransactionDraft(
                 identity_id=identity.id,
@@ -146,8 +204,43 @@ class TelegramBot:
         callback_id = callback.get("id")
         sender = callback.get("from") or {}
         data = str(callback.get("data") or "")
+        if not isinstance(callback_id, str) or not isinstance(sender.get("id"), int):
+            return
+        account_match = re.fullmatch(r"acct:(\d+)", data)
+        if account_match is not None:
+            answer = "Счёт недоступен"
+            async with AsyncSessionLocal() as session:
+                linked = await self.linked_context(session, sender["id"])
+                if linked is not None:
+                    identity, _user, _membership, workspace = linked
+                    account = (
+                        await session.execute(
+                            select(Account).where(
+                                Account.id == int(account_match.group(1)),
+                                Account.workspace_id == workspace.id,
+                                Account.is_archived.is_(False),
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if account is not None:
+                        identity.default_account_id = account.id
+                        await session.commit()
+                        answer = f"Выбран счёт: {account.name} · {account.currency}"
+            await self.api(client, "answerCallbackQuery", {
+                "callback_query_id": callback_id,
+                "text": answer[:200],
+            })
+            message = callback.get("message") or {}
+            chat = message.get("chat") or {}
+            if isinstance(chat.get("id"), int) and isinstance(message.get("message_id"), int):
+                await self.api(client, "editMessageText", {
+                    "chat_id": chat["id"],
+                    "message_id": message["message_id"],
+                    "text": answer,
+                })
+            return
         match = re.fullmatch(r"tx:([0-9a-f]{32}):(ok|no)", data)
-        if not isinstance(callback_id, str) or not isinstance(sender.get("id"), int) or match is None:
+        if match is None:
             return
         answer = "Черновик уже недоступен"
         async with AsyncSessionLocal() as session:
@@ -243,23 +336,48 @@ class TelegramBot:
                     await self.send(client, chat_id, "Код неверный или уже истёк. Создайте новый код в настройках Aurum.")
                     return
                 await session.commit()
-            await self.send(client, chat_id, "Telegram привязан. Теперь Aurum открывается без дополнительного пароля.", open_app=True)
+            linked_text = "Telegram привязан. Можно добавлять транзакции сообщениями."
+            if self.webapp_url:
+                linked_text += " Mini App открывается без дополнительного пароля."
+            await self.send(client, chat_id, linked_text, open_app=True)
+            return
+        if text.lower().split("@", 1)[0] in {"/accounts", "/account"}:
+            await self.send_account_picker(client, chat_id, sender["id"])
             return
         if await self.draft_from_message(client, chat_id, sender["id"], text):
             return
         await self.send(
             client,
             chat_id,
-            "Быстрый ввод: отправьте «-2500 кофе» для расхода или «+500000 зарплата» для дохода.\n\nЧтобы привязать аккаунт: откройте Настройки → Telegram в Aurum, создайте код и отправьте сюда /link КОД.",
+            "Быстрый ввод: отправьте «-2500 кофе» для расхода или «+500000 зарплата» для дохода. Счёт можно выбрать командой /accounts.\n\nЧтобы привязать аккаунт: откройте Настройки → Telegram в Aurum, создайте код и отправьте сюда /link КОД.",
             open_app=True,
         )
 
     async def run(self) -> None:
         offset = 0
+        commands_configured = False
         timeout = httpx.Timeout(40, connect=10)
         async with httpx.AsyncClient(timeout=timeout) as client:
             while True:
                 try:
+                    if not commands_configured:
+                        # Long polling and webhooks are mutually exclusive in
+                        # Bot API. Keep pending messages when switching an
+                        # existing bot back to this self-hosted worker.
+                        await self.api(client, "deleteWebhook", {"drop_pending_updates": False})
+                        await self.api(client, "setMyCommands", {"commands": [
+                            {"command": "accounts", "description": "Выбрать счёт для транзакций"},
+                            {"command": "start", "description": "Помощь и запуск Aurum"},
+                        ]})
+                        if self.webapp_url:
+                            await self.api(client, "setChatMenuButton", {
+                                "menu_button": {
+                                    "type": "web_app",
+                                    "text": "Открыть Aurum",
+                                    "web_app": {"url": self.webapp_url},
+                                }
+                            })
+                        commands_configured = True
                     body = await self.api(
                         client,
                         "getUpdates",

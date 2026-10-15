@@ -6,6 +6,7 @@ from app.schemas.auth import AuthSessionResponse
 
 class TelegramStatusResponse(BaseModel):
     configured: bool
+    mini_app_configured: bool
     linked: bool
     username: str | None = None
 

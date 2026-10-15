@@ -32,6 +32,9 @@ export function TelegramCard() {
     <CardContent className="space-y-4">
       <p className="text-sm text-text-secondary">{t("telegram.description")}</p>
       {!value?.configured && <p className="text-sm text-warning">{t("telegram.notConfigured")}</p>}
+      {value?.configured && !value.mini_app_configured && (
+        <p className="text-sm text-text-muted">{t("telegram.botOnly")}</p>
+      )}
       {value?.linked && <p className="text-sm text-success">
         {t("telegram.linked", { username: value.username ? `@${value.username}` : t("telegram.account") })}
       </p>}

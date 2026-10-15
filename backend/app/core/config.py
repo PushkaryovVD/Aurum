@@ -3,6 +3,7 @@ from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -120,12 +121,6 @@ class Settings(BaseSettings):
         if self.auth_session_idle_seconds > self.auth_session_absolute_seconds:
             raise ValueError("session idle lifetime must not exceed absolute lifetime")
 
-        telegram_token = self.telegram_bot_token.get_secret_value()
-        if bool(telegram_token) != bool(self.telegram_webapp_url):
-            raise ValueError("Telegram bot token and web app URL must be configured together")
-        if self.telegram_webapp_url and not self.telegram_webapp_url.startswith("https://"):
-            raise ValueError("Telegram Mini App URL must use HTTPS")
-
         if not self.app_auth_required:
             return self
 
@@ -183,6 +178,14 @@ class Settings(BaseSettings):
     def docs_enabled(self) -> bool:
         """Keep API metadata unavailable whenever application auth is enabled."""
         return self.enable_docs and not self.app_auth_required
+
+    @property
+    def telegram_mini_app_enabled(self) -> bool:
+        """Invalid/incomplete Mini App config must not disable bot-only mode."""
+        token = self.telegram_bot_token.get_secret_value()
+        url = self.telegram_webapp_url.strip()
+        parsed = urlsplit(url)
+        return bool(token and parsed.scheme == "https" and parsed.hostname)
 
 
 @lru_cache

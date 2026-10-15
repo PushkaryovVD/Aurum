@@ -38,9 +38,8 @@ async def telegram_status(
         await session.execute(select(TelegramIdentity).where(TelegramIdentity.user_id == authenticated.user.id))
     ).scalar_one_or_none()
     return TelegramStatusResponse(
-        configured=bool(
-            settings.telegram_bot_token.get_secret_value() and settings.telegram_webapp_url
-        ),
+        configured=bool(settings.telegram_bot_token.get_secret_value()),
+        mini_app_configured=settings.telegram_mini_app_enabled,
         linked=identity is not None,
         username=identity.telegram_username if identity else None,
     )

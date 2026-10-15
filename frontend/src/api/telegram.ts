@@ -2,6 +2,7 @@ import { api } from "./client";
 
 export interface TelegramStatus {
   configured: boolean;
+  mini_app_configured: boolean;
   linked: boolean;
   username: string | null;
 }

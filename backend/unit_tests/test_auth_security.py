@@ -50,6 +50,34 @@ def test_application_auth_forces_api_docs_off():
     assert settings.docs_enabled is False
 
 
+def test_telegram_bot_can_run_without_a_mini_app_url():
+    settings = Settings(
+        _env_file=None,
+        telegram_bot_token="123456:test-only-token",
+        telegram_webapp_url="",
+    )
+    assert settings.telegram_bot_token.get_secret_value() == "123456:test-only-token"
+    assert settings.telegram_webapp_url == ""
+    assert settings.telegram_mini_app_enabled is False
+
+
+def test_invalid_mini_app_config_does_not_disable_bot_only_mode():
+    no_token = Settings(_env_file=None, telegram_webapp_url="https://aurum.example")
+    insecure = Settings(
+        _env_file=None,
+        telegram_bot_token="123456:test-only-token",
+        telegram_webapp_url="http://aurum.example",
+    )
+    configured = Settings(
+        _env_file=None,
+        telegram_bot_token="123456:test-only-token",
+        telegram_webapp_url="https://aurum.example",
+    )
+    assert no_token.telegram_mini_app_enabled is False
+    assert insecure.telegram_mini_app_enabled is False
+    assert configured.telegram_mini_app_enabled is True
+
+
 @pytest.mark.parametrize("secret", ["", "short", "change-me", "replace-me-with-a-secret"])
 def test_non_development_auth_requires_a_strong_non_default_secret(secret: str):
     with pytest.raises(ValidationError, match="HMAC secret"):

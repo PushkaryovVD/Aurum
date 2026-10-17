@@ -5,12 +5,15 @@ import { Button } from "@/components/ui/Button";
 import { RecurringList } from "@/components/recurring/RecurringList";
 import { RecurringFormModal } from "@/components/recurring/RecurringFormModal";
 import { useDeleteRecurring, usePostRecurring, useRecurring } from "@/hooks/useRecurring";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import type { RecurringTransaction } from "@/types";
 
 export function RecurringPage() {
   const { t } = useTranslation();
-  const { data: items, isLoading } = useRecurring();
+  const { data: items, isLoading, isError } = useRecurring();
+  const displayState = queryDisplayState(items !== undefined, isLoading, isError);
   const deleteRecurring = useDeleteRecurring();
   const postRecurring = usePostRecurring();
 
@@ -48,9 +51,15 @@ export function RecurringPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          <QueryStateNotice
+            state={displayState}
+            unavailableText={t("recurring.unavailable")}
+            staleText={t("recurring.stale")}
+            className="mb-3"
+          />
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : (
+          ) : displayState === "unavailable" ? null : (
             <RecurringList
               items={items ?? []}
               onPost={handlePost}

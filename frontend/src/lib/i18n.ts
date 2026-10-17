@@ -559,6 +559,10 @@ const ru = {
   "reports.noDataForPeriod": "Нет данных за выбранный период.",
   "reports.categoryRankingTitle": "Топ категорий за период",
   "reports.noRankingData": "Нет расходов за выбранный период.",
+  "reports.unavailable": "Report data is unavailable right now. This does not mean there were no expenses in the period.",
+  "reports.stale": "Could not refresh the report. Showing the last loaded version.",
+  "reports.unavailable": "Данные отчёта сейчас недоступны. Это не означает, что расходов за период нет.",
+  "reports.stale": "Не удалось обновить отчёт. Показана последняя загруженная версия.",
 
   "settings.language": "Язык",
   "settings.languageRussian": "Русский",

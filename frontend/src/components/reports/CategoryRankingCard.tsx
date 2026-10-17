@@ -11,6 +11,8 @@ import type { CategoryRankingItem } from "@/types";
 interface CategoryRankingCardProps {
   items: CategoryRankingItem[];
   isLoading: boolean;
+  /** Request failed with no cached data: show "—" instead of an empty ranking. */
+  unavailable?: boolean;
   selectedCategoryId: number | null;
   onSelectCategory: (categoryId: number) => void;
 }
@@ -20,7 +22,7 @@ interface CategoryRankingCardProps {
  * detail chart below (locked to one category), this is "which category
  * costs the most" across the whole range at once. Clicking a row drills
  * into that category in the detail chart/transaction list below. */
-export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSelectCategory }: CategoryRankingCardProps) {
+export function CategoryRankingCard({ items, isLoading, unavailable = false, selectedCategoryId, onSelectCategory }: CategoryRankingCardProps) {
   const { t } = useTranslation();
   // The subcategory breakdown lives in a modal, not expanded inline — a
   // category with many subcategories would otherwise push the whole ranking
@@ -35,6 +37,8 @@ export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSe
       <CardContent>
         {isLoading ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
+        ) : unavailable ? (
+          <p className="py-10 text-center text-sm text-text-muted">—</p>
         ) : items.length === 0 ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("reports.noRankingData")}</p>
         ) : (

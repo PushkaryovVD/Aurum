@@ -8,6 +8,8 @@ import type { CategorySpendingReport } from "@/types";
 interface CategorySpendingChartProps {
   report: CategorySpendingReport | undefined;
   isLoading: boolean;
+  /** Request failed with no cached data: show "—" instead of an empty period. */
+  unavailable?: boolean;
 }
 
 function monthKey(year: number, month: number): string {
@@ -51,7 +53,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
   );
 }
 
-export function CategorySpendingChart({ report, isLoading }: CategorySpendingChartProps) {
+export function CategorySpendingChart({ report, isLoading, unavailable = false }: CategorySpendingChartProps) {
   const { t, language } = useTranslation();
   const chartData = report?.series.map((point) => ({
     key: monthKey(point.year, point.month),
@@ -65,7 +67,7 @@ export function CategorySpendingChart({ report, isLoading }: CategorySpendingCha
         <div>
           <CardTitle>{report ? translateCategoryName(report.category_name) : t("reports.defaultChartTitle")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
-            {isLoading || !report ? "…" : formatCurrency(report.total_amount)}
+            {unavailable ? "—" : isLoading || !report ? "…" : formatCurrency(report.total_amount)}
           </p>
           {report && (
             <p className="mt-1 text-sm text-text-muted">
@@ -77,9 +79,9 @@ export function CategorySpendingChart({ report, isLoading }: CategorySpendingCha
       </CardHeader>
       <CardContent>
         <div className="h-56 w-full sm:h-64">
-          {isLoading || !report || chartData.length === 0 ? (
+          {isLoading || unavailable || !report || chartData.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-text-muted">
-              {isLoading ? t("common.loading") : t("reports.noDataForPeriod")}
+              {isLoading ? t("common.loading") : unavailable ? "—" : t("reports.noDataForPeriod")}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">

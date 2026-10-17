@@ -13,11 +13,20 @@ import { useCategoryRanking, useCategorySpendingReport } from "@/hooks/useReport
 import { useDeleteTransaction, useTransactions, useTransactionYears } from "@/hooks/useTransactions";
 import type { TransactionSort } from "@/api/transactions";
 import { computeRange, type CustomYearRange, type RangePreset } from "@/lib/dateRange";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState, type QueryDisplayState } from "@/lib/queryDisplayState";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import type { Transaction } from "@/types";
 
 const PAGE_SIZE = 20;
+
+/** Worst state of several queries feeding one block: any failure without data wins over stale. */
+function combineStates(...states: QueryDisplayState[]): QueryDisplayState {
+  if (states.includes("unavailable")) return "unavailable";
+  if (states.includes("stale")) return "stale";
+  return "ready";
+}
 
 export function ReportsPage() {
   const { t, language } = useTranslation();
@@ -49,9 +58,9 @@ export function ReportsPage() {
   }, [categories, categoryId]);
 
   const { startDate, endDate } = computeRange(range, customRange);
-  const { data: ranking, isLoading: isRankingLoading } = useCategoryRanking("expense", startDate, endDate);
-  const { data: report, isLoading: isReportLoading } = useCategorySpendingReport(categoryId, startDate, endDate);
-  const { data: transactions, isLoading: isTransactionsLoading } = useTransactions({
+  const { data: ranking, isLoading: isRankingLoading, isError: isRankingError } = useCategoryRanking("expense", startDate, endDate);
+  const { data: report, isLoading: isReportLoading, isError: isReportError } = useCategorySpendingReport(categoryId, startDate, endDate);
+  const { data: transactions, isLoading: isTransactionsLoading, isError: isTransactionsError } = useTransactions({
     category_id: categoryId ?? undefined,
     start_date: startDate,
     end_date: endDate,
@@ -59,6 +68,9 @@ export function ReportsPage() {
     page,
     page_size: PAGE_SIZE,
   });
+  const reportState = queryDisplayState(report !== undefined, isReportLoading, isReportError);
+  const rankingState = queryDisplayState(ranking !== undefined, isRankingLoading, isRankingError);
+  const transactionsState = queryDisplayState(transactions !== undefined, isTransactionsLoading, isTransactionsError);
   const deleteTransaction = useDeleteTransaction();
 
   // Hierarchical within each group (a subcategory right under its own
@@ -143,11 +155,18 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <CategorySpendingChart report={report} isLoading={isReportLoading} />
+      <QueryStateNotice
+        state={combineStates(reportState, rankingState)}
+        unavailableText={t("reports.unavailable")}
+        staleText={t("reports.stale")}
+      />
+
+      <CategorySpendingChart report={report} isLoading={isReportLoading} unavailable={reportState === "unavailable"} />
 
       <CategoryRankingCard
         items={ranking?.items ?? []}
         isLoading={isRankingLoading}
+        unavailable={rankingState === "unavailable"}
         selectedCategoryId={categoryId}
         onSelectCategory={(id) => {
           setCategoryId(id);
@@ -175,9 +194,15 @@ export function ReportsPage() {
             <option value="amount_desc">{t("transactions.sortAmountDesc")}</option>
             <option value="amount_asc">{t("transactions.sortAmountAsc")}</option>
           </Select>
-          {isTransactionsLoading ? (
+          <QueryStateNotice
+            state={transactionsState}
+            unavailableText={t("transactions.unavailable")}
+            staleText={t("transactions.stale")}
+            className="mb-3"
+          />
+          {transactionsState === "loading" ? (
             <p className="py-12 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : (
+          ) : transactionsState === "unavailable" ? null : (
             <TransactionsTable items={transactions?.items ?? []} onEdit={handleEdit} onDelete={handleDelete} />
           )}
 

@@ -9,6 +9,8 @@ import type { NetWorthRange, NetWorthSummary } from "@/types";
 interface NetWorthChartProps {
   summary: NetWorthSummary | undefined;
   isLoading: boolean;
+  /** Request failed with no cached data: show "—" instead of a confirmed zero. */
+  unavailable?: boolean;
   range: NetWorthRange;
   onRangeChange: (range: NetWorthRange) => void;
 }
@@ -50,7 +52,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
   );
 }
 
-export function NetWorthChart({ summary, isLoading, range, onRangeChange }: NetWorthChartProps) {
+export function NetWorthChart({ summary, isLoading, unavailable = false, range, onRangeChange }: NetWorthChartProps) {
   const { t } = useTranslation();
   const isPositive = summary ? Number(summary.change_amount) >= 0 : true;
   const trendColor = isPositive ? "var(--success)" : "var(--danger)";
@@ -63,7 +65,7 @@ export function NetWorthChart({ summary, isLoading, range, onRangeChange }: NetW
         <div>
           <CardTitle>{t("nav.netWorth")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
-            {isLoading ? "…" : formatCurrency(summary?.current ?? 0)}
+            {isLoading ? "…" : unavailable ? "—" : formatCurrency(summary?.current ?? 0)}
           </p>
           {summary && (
             <p
@@ -81,9 +83,9 @@ export function NetWorthChart({ summary, isLoading, range, onRangeChange }: NetW
       </CardHeader>
       <CardContent>
         <div className="h-56 w-full sm:h-64">
-          {isLoading || chartData.length === 0 ? (
+          {isLoading || unavailable || chartData.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-text-muted">
-              {isLoading ? t("common.loading") : t("netWorth.noChartData")}
+              {isLoading ? t("common.loading") : unavailable ? "—" : t("netWorth.noChartData")}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">

@@ -170,6 +170,10 @@ const ru = {
 
   "netWorth.periodSuffix": "за период",
   "netWorth.noChartData": "Пока нет данных для графика.",
+  "netWorth.unavailable": "Данные о капитале сейчас недоступны. Это не означает, что активов или капитала нет.",
+  "netWorth.stale": "Не удалось обновить данные о капитале. Показана последняя загруженная версия.",
+  "netWorth.assetsUnavailable": "Список активов сейчас недоступен. Это не означает, что активов нет.",
+  "netWorth.assetsStale": "Не удалось обновить список активов. Показана последняя загруженная версия.",
   "netWorth.assetsTitlePrefix": "Активы",
   "netWorth.myAssetsTitle": "Мои активы",
   "netWorth.confirmDeleteAsset": "Удалить актив «{{name}}»?",
@@ -1061,6 +1065,10 @@ const en: Record<keyof typeof ru, string> = {
 
   "netWorth.periodSuffix": "over period",
   "netWorth.noChartData": "No data for the chart yet.",
+  "netWorth.unavailable": "Net worth data is unavailable right now. This does not mean there are no assets or capital.",
+  "netWorth.stale": "Could not refresh net worth data. Showing the last loaded version.",
+  "netWorth.assetsUnavailable": "The asset list is unavailable right now. This does not mean there are no assets.",
+  "netWorth.assetsStale": "Could not refresh the asset list. Showing the last loaded version.",
   "netWorth.assetsTitlePrefix": "Assets",
   "netWorth.myAssetsTitle": "My assets",
   "netWorth.confirmDeleteAsset": "Delete asset “{{name}}”?",

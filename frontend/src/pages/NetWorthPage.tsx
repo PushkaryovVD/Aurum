@@ -8,11 +8,13 @@ import { CapitalRoleSummaryCard } from "@/components/networth/CapitalRoleSummary
 import { RiskAllocationCard } from "@/components/networth/RiskAllocationCard";
 import { AssetsTable } from "@/components/networth/AssetsTable";
 import { AssetFormModal } from "@/components/networth/AssetFormModal";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { AlertBanner } from "@/components/insights/AlertBanner";
 import { useNetWorthSummary } from "@/hooks/useNetWorth";
 import { useAcceptAssetProjection, useAssetRevaluationReminders, useAssets, useDeleteAsset } from "@/hooks/useAssets";
 import { formatCurrency, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import type { Asset, AssetRevaluationReminder, NetWorthRange } from "@/types";
 
 interface AssetRevaluationReminderCardProps {
@@ -51,8 +53,10 @@ export function NetWorthPage() {
   // briefly outpaces recorded income, which reads as decline even though
   // the long-run trend is up — 5y is long enough to make that trend visible.
   const [range, setRange] = useState<NetWorthRange>("5y");
-  const { data: summary, isLoading: isSummaryLoading } = useNetWorthSummary(range);
-  const { data: assets, isLoading: isAssetsLoading } = useAssets();
+  const { data: summary, isLoading: isSummaryLoading, isError: isSummaryError } = useNetWorthSummary(range);
+  const { data: assets, isLoading: isAssetsLoading, isError: isAssetsError } = useAssets();
+  const summaryState = queryDisplayState(summary !== undefined, isSummaryLoading, isSummaryError);
+  const assetsState = queryDisplayState(assets !== undefined, isAssetsLoading, isAssetsError);
   const { data: revaluationReminders } = useAssetRevaluationReminders();
   const deleteAsset = useDeleteAsset();
   const acceptProjection = useAcceptAssetProjection();
@@ -100,13 +104,26 @@ export function NetWorthPage() {
         />
       ))}
 
-      <NetWorthChart summary={summary} isLoading={isSummaryLoading} range={range} onRangeChange={setRange} />
+      <QueryStateNotice state={summaryState} unavailableText={t("netWorth.unavailable")} staleText={t("netWorth.stale")} />
 
-      <AssetAllocationCard breakdown={summary?.breakdown ?? []} isLoading={isSummaryLoading} />
+      <NetWorthChart
+        summary={summary}
+        isLoading={summaryState === "loading"}
+        unavailable={summaryState === "unavailable"}
+        range={range}
+        onRangeChange={setRange}
+      />
 
-      <CapitalRoleSummaryCard roles={summary?.capital_roles ?? []} isLoading={isSummaryLoading} />
+      {/* Without data the breakdown cards would render as an empty portfolio, so they are hidden. */}
+      {summaryState !== "unavailable" && (
+        <>
+          <AssetAllocationCard breakdown={summary?.breakdown ?? []} isLoading={isSummaryLoading} />
 
-      <RiskAllocationCard riskLevels={summary?.risk_levels ?? []} isLoading={isSummaryLoading} />
+          <CapitalRoleSummaryCard roles={summary?.capital_roles ?? []} isLoading={isSummaryLoading} />
+
+          <RiskAllocationCard riskLevels={summary?.risk_levels ?? []} isLoading={isSummaryLoading} />
+        </>
+      )}
 
       <Card>
         <CardHeader>
@@ -117,8 +134,13 @@ export function NetWorthPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isAssetsLoading ? (
+          {assetsState === "stale" && (
+            <QueryStateNotice state="stale" unavailableText="" staleText={t("netWorth.assetsStale")} />
+          )}
+          {assetsState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
+          ) : assetsState === "unavailable" ? (
+            <QueryStateNotice state="unavailable" unavailableText={t("netWorth.assetsUnavailable")} staleText="" />
           ) : (
             <AssetsTable items={assets ?? []} onEdit={openEditModal} onDelete={handleDelete} />
           )}

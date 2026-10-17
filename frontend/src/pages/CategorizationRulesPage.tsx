@@ -13,14 +13,18 @@ import {
   useUpdateCategorizationRule,
 } from "@/hooks/useCategorizationRules";
 import { translateCategoryName } from "@/lib/categoryLabels";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import { TRANSACTION_TYPE_KEYS } from "@/lib/transactionLabels";
 import { cn } from "@/lib/utils";
 import type { CategorizationRule, RuleApplyResult } from "@/types";
 
 export function CategorizationRulesPage() {
   const { t } = useTranslation();
-  const { data: rules = [], isLoading } = useCategorizationRules();
+  const { data: rulesData, isLoading, isError } = useCategorizationRules();
+  const rules = rulesData ?? [];
+  const displayState = queryDisplayState(rulesData !== undefined, isLoading, isError);
   const { data: accounts = [] } = useAccounts();
   const updateRule = useUpdateCategorizationRule();
   const deleteRule = useDeleteCategorizationRule();
@@ -105,9 +109,15 @@ export function CategorizationRulesPage() {
         <CardContent className="space-y-4">
           <p className="text-sm text-text-secondary">{t("rules.subtitle")}</p>
 
-          {isLoading ? (
+          <QueryStateNotice
+            state={displayState}
+            unavailableText={t("rules.unavailable")}
+            staleText={t("rules.stale")}
+          />
+
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : rules.length === 0 ? (
+          ) : displayState === "unavailable" ? null : rules.length === 0 ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("rules.empty")}</p>
           ) : (
             <ul className="rounded-lg border border-border px-3">

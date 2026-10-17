@@ -6,12 +6,15 @@ import { GoalList } from "@/components/goals/GoalList";
 import { GoalFormModal } from "@/components/goals/GoalFormModal";
 import { GoalContributionModal } from "@/components/goals/GoalContributionModal";
 import { useDeleteGoal, useGoals } from "@/hooks/useGoals";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import type { Goal } from "@/types";
 
 export function GoalsPage() {
   const { t } = useTranslation();
-  const { data: goals, isLoading } = useGoals();
+  const { data: goals, isLoading, isError } = useGoals();
+  const displayState = queryDisplayState(goals !== undefined, isLoading, isError);
   const deleteGoal = useDeleteGoal();
 
   const [formOpen, setFormOpen] = useState(false);
@@ -51,9 +54,15 @@ export function GoalsPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          <QueryStateNotice
+            state={displayState}
+            unavailableText={t("goal.unavailable")}
+            staleText={t("goal.stale")}
+            className="mb-3"
+          />
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : (
+          ) : displayState === "unavailable" ? null : (
             <GoalList
               items={goals ?? []}
               onContribute={openContributionModal}

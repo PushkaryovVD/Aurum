@@ -12,7 +12,9 @@ import { useTransactions, useDeleteTransaction, useTransactionYears } from "@/ho
 import { useCategories } from "@/hooks/useCategories";
 import { useTags } from "@/hooks/useTags";
 import type { TransactionSort } from "@/api/transactions";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import type { Transaction, TransactionType } from "@/types";
 
@@ -81,6 +83,7 @@ export function TransactionsPage() {
     page,
     page_size: PAGE_SIZE,
   });
+  const displayState = queryDisplayState(data !== undefined, isLoading, isError);
   const deleteTransaction = useDeleteTransaction();
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
@@ -268,10 +271,14 @@ export function TransactionsPage() {
           {data && <span className="text-xs text-text-muted">{t("common.totalCount", { count: data.total })}</span>}
         </CardHeader>
         <CardContent>
-          {isError && <p className="py-6 text-center text-sm text-danger">{t("transactions.failedToLoad")}</p>}
-          {isLoading ? (
+          <QueryStateNotice
+            state={displayState}
+            unavailableText={t("transactions.unavailable")}
+            staleText={t("transactions.stale")}
+          />
+          {displayState === "loading" ? (
             <p className="py-12 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : (
+          ) : displayState === "unavailable" ? null : (
             <TransactionsTable
               items={data?.items ?? []}
               onEdit={openEditModal}

@@ -2,11 +2,13 @@ import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis } from "rech
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatCurrency, formatSignedCurrency, getIntlLocale } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
+import type { QueryDisplayState } from "@/lib/queryDisplayState";
 import type { CashFlowResponse } from "@/types";
 
 interface CashFlowChartProps {
   cashFlow: CashFlowResponse | undefined;
-  isLoading: boolean;
+  /** Distinguishes "still loading" and "request failed" from a genuinely empty period. */
+  state: QueryDisplayState;
 }
 
 function monthKey(year: number, month: number): string {
@@ -72,8 +74,10 @@ function ChartTooltip({
   );
 }
 
-export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
+export function CashFlowChart({ cashFlow, state }: CashFlowChartProps) {
   const { t } = useTranslation();
+  const isLoading = state === "loading";
+  const unavailable = state === "unavailable";
   const incomeLabel = t("cashFlow.income");
   const expenseLabel = t("cashFlow.expense");
   const netLabel = t("cashFlow.net");
@@ -93,7 +97,7 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
         <div>
           <CardTitle>{t("nav.cashFlow")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
-            {isLoading || !cashFlow ? "…" : formatSignedCurrency(cashFlow.total_net)}
+            {unavailable ? "—" : isLoading || !cashFlow ? "…" : formatSignedCurrency(cashFlow.total_net)}
           </p>
           {cashFlow && (
             <p className="mt-1 text-sm">
@@ -112,7 +116,11 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
         <div className="h-56 w-full sm:h-64">
           {isLoading || !cashFlow || chartData.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-text-muted">
-              {isLoading ? t("common.loading") : t("cashFlow.noData")}
+              {unavailable
+                ? t("cashFlow.unavailable")
+                : isLoading
+                  ? t("common.loading")
+                  : t("cashFlow.noData")}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">

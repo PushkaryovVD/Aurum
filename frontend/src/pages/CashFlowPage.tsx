@@ -6,6 +6,7 @@ import { useCashFlow } from "@/hooks/useCashFlow";
 import { useTransactionYears } from "@/hooks/useTransactions";
 import { computeRange, type CustomYearRange, type RangePreset } from "@/lib/dateRange";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 
 export function CashFlowPage() {
   const { t } = useTranslation();
@@ -25,7 +26,8 @@ export function CashFlowPage() {
   ];
 
   const { startDate, endDate } = computeRange(range, customRange);
-  const { data: cashFlow, isLoading } = useCashFlow(startDate, endDate);
+  const { data: cashFlow, isLoading, isError } = useCashFlow(startDate, endDate);
+  const displayState = queryDisplayState(cashFlow !== undefined, isLoading, isError);
 
   return (
     <div className="space-y-5">
@@ -41,7 +43,13 @@ export function CashFlowPage() {
         )}
       </div>
 
-      <CashFlowChart cashFlow={cashFlow} isLoading={isLoading} />
+      {displayState === "stale" && (
+        <p className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning" role="status">
+          {t("cashFlow.stale")}
+        </p>
+      )}
+
+      <CashFlowChart cashFlow={cashFlow} state={displayState} />
     </div>
   );
 }

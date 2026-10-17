@@ -811,6 +811,8 @@ const ru = {
   "cashFlow.expense": "Расход",
   "cashFlow.net": "Баланс",
   "cashFlow.noData": "Нет данных за выбранный период.",
+  "cashFlow.unavailable": "Данные сейчас недоступны. Это не означает, что операций за период нет.",
+  "cashFlow.stale": "Не удалось обновить данные. Показана последняя загруженная версия.",
 
   // Default seeded categories (backend/app/db/seed.py) — translateCategoryName()
   // matches on the exact seeded English name and falls through unchanged
@@ -1700,6 +1702,8 @@ const en: Record<keyof typeof ru, string> = {
   "cashFlow.expense": "Expense",
   "cashFlow.net": "Net",
   "cashFlow.noData": "No data for the selected period.",
+  "cashFlow.unavailable": "Data is unavailable right now. This does not mean there were no transactions in the period.",
+  "cashFlow.stale": "Could not refresh the data. Showing the last loaded version.",
 
   "category.housingUtilities": "Housing & Utilities",
   "category.groceries": "Groceries",

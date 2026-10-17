@@ -8,7 +8,9 @@ import {
   useCreateSecurityTrade, useDeleteSecurityDividend, useDeleteSecurityTrade,
   useInvestmentPortfolios, useInvestmentPositions, useSetSecurityPrice,
 } from "@/hooks/useInvestments";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import { TradernetCard } from "@/components/investments/TradernetCard";
 
 const field = "h-9 w-full rounded-lg border border-border bg-surface-0 px-3 text-sm text-text-primary";
@@ -18,9 +20,15 @@ const number = (value: string | null, currency: string) => value === null ? "—
 
 export function InvestmentsPage() {
   const { t } = useTranslation();
-  const { data: accounts = [] } = useAccounts();
-  const { data: portfolios = [] } = useInvestmentPortfolios();
-  const { data: positions = [], isLoading } = useInvestmentPositions();
+  const { data: accountsData, isError: isAccountsError } = useAccounts();
+  const accounts = accountsData ?? [];
+  const { data: portfoliosData, isLoading: isPortfoliosLoading, isError: isPortfoliosError } = useInvestmentPortfolios();
+  const portfolios = portfoliosData ?? [];
+  const { data: positionsData, isLoading, isError: isPositionsError } = useInvestmentPositions();
+  const positions = positionsData ?? [];
+  const positionsState = queryDisplayState(positionsData !== undefined, isLoading, isPositionsError);
+  const accountsState = queryDisplayState(accountsData !== undefined, false, isAccountsError);
+  const portfoliosState = queryDisplayState(portfoliosData !== undefined, isPortfoliosLoading, isPortfoliosError);
   const portfolioMutation = useCreateInvestmentPortfolio();
   const securityMutation = useCreateSecurity();
   const tradeMutation = useCreateSecurityTrade();
@@ -54,7 +62,10 @@ export function InvestmentsPage() {
   return <div className="space-y-5">
     <TradernetCard />
     <Card><CardHeader><CardTitle>{t("nav.investments")}</CardTitle></CardHeader><CardContent>
-      {!investmentAccounts.length && <p className="mb-4 text-sm text-warning">{t("investments.needAccount")}</p>}
+      {/* "Create an account" is only true once the account list actually loaded. */}
+      {accountsState === "unavailable" && <QueryStateNotice state={accountsState} unavailableText={t("account.unavailable")} staleText="" className="mb-4" />}
+      {portfoliosState === "unavailable" && <QueryStateNotice state={portfoliosState} unavailableText={t("investments.portfoliosUnavailable")} staleText="" className="mb-4" />}
+      {accountsState !== "unavailable" && !investmentAccounts.length && <p className="mb-4 text-sm text-warning">{t("investments.needAccount")}</p>}
       <div className="grid gap-4 lg:grid-cols-2">
         <form className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]" onSubmit={submitPortfolio}>
           <input className={field} name="name" required placeholder={t("investments.portfolioName")} />
@@ -75,7 +86,8 @@ export function InvestmentsPage() {
 
     <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
       <Card><CardHeader><CardTitle>{t("investments.positions")}</CardTitle></CardHeader><CardContent>
-        {isLoading ? <p>{t("common.loading")}</p> : !positions.length ? <p className="text-sm text-text-muted">{t("investments.empty")}</p> :
+        <QueryStateNotice state={positionsState} unavailableText={t("investments.unavailable")} staleText={t("investments.stale")} className="mb-3" />
+        {positionsState === "loading" ? <p>{t("common.loading")}</p> : positionsState === "unavailable" ? null : !positions.length ? <p className="text-sm text-text-muted">{t("investments.empty")}</p> :
         <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-text-muted"><th className="py-2">Ticker</th><th>{t("investments.quantity")}</th><th>{t("investments.average")}</th><th>{t("investments.value")}</th><th>{t("investments.result")}</th></tr></thead><tbody>{positions.map(row => <tr key={row.asset_id} onClick={() => setSelected(row.asset_id)} className="cursor-pointer border-t border-border hover:bg-surface-2"><td className="py-3 font-medium">{row.ticker}<div className="text-xs text-text-muted">{row.name}</div></td><td>{Number(row.quantity)}</td><td>{number(row.average_cost, row.currency)}</td><td>{number(row.current_value, row.currency)}</td><td className={Number(row.total_return) >= 0 ? "text-success" : "text-danger"}>{number(row.total_return, row.currency)}</td></tr>)}</tbody></table></div>}
       </CardContent></Card>
 

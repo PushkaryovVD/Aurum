@@ -20,8 +20,10 @@ import {
   useUpdateCryptoHolding,
   useUpdateCryptoHoldingRisk,
 } from "@/hooks/useCrypto";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { getIntlLocale } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import type { CryptoHolding, CryptoPortfolio, CryptoRange, CryptoTransaction, RiskLevel } from "@/types";
 
 function formatSyncedAt(iso: string): string {
@@ -41,9 +43,11 @@ export function CryptoPage() {
   // null = "All portfolios" tab.
   const [portfolioFilter, setPortfolioFilter] = useState<number | null>(null);
   const { data: portfolios } = useCryptoPortfolios();
-  const { data, isLoading } = useCryptoHoldings(portfolioFilter);
-  const { data: history, isLoading: isHistoryLoading } = useCryptoHistory(range, portfolioFilter);
+  const { data, isLoading, isError } = useCryptoHoldings(portfolioFilter);
+  const { data: history, isLoading: isHistoryLoading, isError: isHistoryError } = useCryptoHistory(range, portfolioFilter);
   const { data: performance90d, isLoading: isPerformance90dLoading } = useCrypto90dPerformance(range, portfolioFilter);
+  const holdingsState = queryDisplayState(data !== undefined, isLoading, isError);
+  const historyState = queryDisplayState(history !== undefined, isHistoryLoading, isHistoryError);
   const refresh = useRefreshCryptoPrices();
   const deleteHolding = useDeleteCryptoHolding();
   const updateRisk = useUpdateCryptoHoldingRisk();
@@ -118,26 +122,36 @@ export function CryptoPage() {
         onEdit={openEditPortfolioModal}
       />
 
-      <CryptoOverviewCard
-        totalValue={totalValue}
-        history={history}
-        isHistoryLoading={isHistoryLoading}
-        range={range}
-        onRangeChange={setRange}
-        holdings={holdings}
-        isHoldingsLoading={isLoading}
-        hidden={hidden}
-        onToggleHidden={() => setHidden((prev) => !prev)}
-      />
+      <QueryStateNotice state={holdingsState} unavailableText={t("crypto.unavailable")} staleText={t("crypto.stale")} />
+      {historyState === "unavailable" && (
+        <QueryStateNotice state={historyState} unavailableText={t("crypto.historyUnavailable")} staleText="" />
+      )}
 
-      <CryptoStatsRow
-        holdings={holdings}
-        isLoading={isLoading}
-        hidden={hidden}
-        range={range}
-        performance90d={performance90dByAsset}
-        isPerformance90dLoading={isPerformance90dLoading}
-      />
+      {/* Without holdings the totals and allocation would read as an empty portfolio, so they are hidden. */}
+      {holdingsState !== "unavailable" && (
+        <>
+          <CryptoOverviewCard
+            totalValue={totalValue}
+            history={history}
+            isHistoryLoading={isHistoryLoading}
+            range={range}
+            onRangeChange={setRange}
+            holdings={holdings}
+            isHoldingsLoading={isLoading}
+            hidden={hidden}
+            onToggleHidden={() => setHidden((prev) => !prev)}
+          />
+
+          <CryptoStatsRow
+            holdings={holdings}
+            isLoading={isLoading}
+            hidden={hidden}
+            range={range}
+            performance90d={performance90dByAsset}
+            isPerformance90dLoading={isPerformance90dLoading}
+          />
+        </>
+      )}
 
       <Card>
         <CardHeader className="flex-col items-stretch gap-3 sm:flex-row sm:items-center">
@@ -161,8 +175,10 @@ export function CryptoPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {holdingsState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
+          ) : holdingsState === "unavailable" ? (
+            <p className="py-10 text-center text-sm text-text-muted">—</p>
           ) : (
             <>
               {data?.error_key && <p className="mb-3 text-sm text-danger">{t(`crypto.syncError.${data.error_key}`)}</p>}

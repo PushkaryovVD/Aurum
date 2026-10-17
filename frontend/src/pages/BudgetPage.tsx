@@ -10,7 +10,9 @@ import { BudgetFormModal } from "@/components/budget/BudgetFormModal";
 import { ContextualHelp } from "@/components/help/ContextualHelp";
 import { useBudgets, useBudgetStatus, useDeleteBudget } from "@/hooks/useBudgets";
 import { useTransactionYears } from "@/hooks/useTransactions";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { Budget, BudgetStatus } from "@/types";
 
@@ -22,7 +24,8 @@ export function BudgetPage() {
   const { data: years } = useTransactionYears();
 
   const { data: budgets } = useBudgets();
-  const { data: status, isLoading } = useBudgetStatus(year, month);
+  const { data: status, isLoading, isError } = useBudgetStatus(year, month);
+  const displayState = queryDisplayState(status !== undefined, isLoading, isError);
   const deleteBudget = useDeleteBudget();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -72,9 +75,15 @@ export function BudgetPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          <QueryStateNotice
+            state={displayState}
+            unavailableText={t("budget.unavailable")}
+            staleText={t("budget.stale")}
+            className="mb-3"
+          />
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : (
+          ) : displayState === "unavailable" ? null : (
             <BudgetList items={status?.items ?? []} onEdit={openEditModal} onDelete={handleDelete} />
           )}
         </CardContent>

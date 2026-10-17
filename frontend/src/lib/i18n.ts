@@ -641,6 +641,8 @@ const ru = {
   "insights.idleCash": "На {{count}} счетах лежит крупная сумма без движения {{days}}+ дней — возможно, эти деньги стоит куда-то вложить",
 
   "budget.empty": "Бюджетов пока нет. Задайте лимит для категории расходов, чтобы отслеживать её здесь.",
+  "budget.unavailable": "Данные бюджета сейчас недоступны. Это не означает, что бюджетов нет или лимиты не превышены.",
+  "budget.stale": "Не удалось обновить бюджет. Показана последняя загруженная версия.",
   "budget.remaining": "{{amount}} осталось",
   "budget.overBy": "Превышен на {{amount}}",
   "budget.confirmDelete": "Удалить бюджет для «{{name}}»?",
@@ -1544,6 +1546,8 @@ const en: Record<keyof typeof ru, string> = {
   "insights.idleCash": "{{count}} accounts are holding a large balance with no activity for {{days}}+ days — that money might be worth putting to work",
 
   "budget.empty": "No budgets yet. Set a limit for an expense category to start tracking it here.",
+  "budget.unavailable": "Budget data is unavailable right now. This does not mean there are no budgets or that no limits are exceeded.",
+  "budget.stale": "Could not refresh the budget. Showing the last loaded version.",
   "budget.remaining": "{{amount}} left",
   "budget.overBy": "Over by {{amount}}",
   "budget.confirmDelete": "Delete the budget for “{{name}}”?",

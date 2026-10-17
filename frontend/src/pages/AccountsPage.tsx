@@ -5,13 +5,16 @@ import { Button } from "@/components/ui/Button";
 import { AccountList } from "@/components/accounts/AccountList";
 import { AccountFormModal } from "@/components/accounts/AccountFormModal";
 import { useAccounts, useDeleteAccount, useUpdateAccount } from "@/hooks/useAccounts";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import type { AccountWithBalance } from "@/types";
 
 export function AccountsPage() {
   const { t } = useTranslation();
   const [showArchived, setShowArchived] = useState(false);
-  const { data: accounts, isLoading } = useAccounts(showArchived);
+  const { data: accounts, isLoading, isError } = useAccounts(showArchived);
+  const displayState = queryDisplayState(accounts !== undefined, isLoading, isError);
   const updateAccount = useUpdateAccount();
   const deleteAccount = useDeleteAccount();
 
@@ -60,9 +63,15 @@ export function AccountsPage() {
             />
             {t("account.showArchived")}
           </label>
-          {isLoading ? (
+          <QueryStateNotice
+            state={displayState}
+            unavailableText={t("account.unavailable")}
+            staleText={t("account.stale")}
+            className="mb-3"
+          />
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : (
+          ) : displayState === "unavailable" ? null : (
             <AccountList
               items={accounts ?? []}
               onEdit={openEditModal}

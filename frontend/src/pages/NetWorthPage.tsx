@@ -135,7 +135,7 @@ export function NetWorthPage() {
         </CardHeader>
         <CardContent>
           {assetsState === "stale" && (
-            <QueryStateNotice state="stale" unavailableText="" staleText={t("netWorth.assetsStale")} />
+            <QueryStateNotice state="stale" unavailableText="" staleText={t("netWorth.assetsStale")} className="mb-3" />
           )}
           {assetsState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>

@@ -275,6 +275,7 @@ export function TransactionsPage() {
             state={displayState}
             unavailableText={t("transactions.unavailable")}
             staleText={t("transactions.stale")}
+            className="mb-3"
           />
           {displayState === "loading" ? (
             <p className="py-12 text-center text-sm text-text-muted">{t("common.loading")}</p>

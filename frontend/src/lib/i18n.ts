@@ -771,6 +771,8 @@ const ru = {
 
   "account.empty": "Счетов пока нет. Добавьте первый — например, текущий счёт или наличные.",
   "account.showArchived": "Показывать архивные",
+  "account.unavailable": "Список счетов сейчас недоступен. Это не означает, что счетов нет.",
+  "account.stale": "Не удалось обновить список счетов. Показана последняя загруженная версия.",
   "account.archivedBadge": "архив",
   "account.archiveLabel": "Архивировать",
   "account.unarchiveLabel": "Вернуть из архива",
@@ -1668,6 +1670,8 @@ const en: Record<keyof typeof ru, string> = {
 
   "account.empty": "No accounts yet. Add your first one — a checking account or cash, for example.",
   "account.showArchived": "Show archived",
+  "account.unavailable": "The account list is unavailable right now. This does not mean there are no accounts.",
+  "account.stale": "Could not refresh the account list. Showing the last loaded version.",
   "account.archivedBadge": "archived",
   "account.archiveLabel": "Archive",
   "account.unarchiveLabel": "Unarchive",

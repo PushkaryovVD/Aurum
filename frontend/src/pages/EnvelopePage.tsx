@@ -14,6 +14,7 @@ import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useCategories } from "@/hooks/useCategories";
 import {
   useCloseMonth,
@@ -28,6 +29,7 @@ import {
 } from "@/hooks/useEnvelopes";
 import { useTransactionYears } from "@/hooks/useTransactions";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import type { EnvelopeItem } from "@/types";
 
 export function EnvelopePage() {
@@ -45,6 +47,7 @@ export function EnvelopePage() {
   const { data: monthSummaries } = useEnvelopeMonths();
   const { data: categories = [] } = useCategories();
   const { data: envelopeMonth, isLoading, isError } = useEnvelopeMonth(year, month);
+  const displayState = queryDisplayState(envelopeMonth !== undefined, isLoading, isError);
   const { data: audit = [] } = useEnvelopeAudit(year, month, envelopeMonth?.tracking_start !== null);
   const openMonth = useOpenEnvelopeMonth(year, month);
   const setAllocation = useSetAllocation(year, month);
@@ -104,12 +107,15 @@ export function EnvelopePage() {
         <YearSelector years={years} year={year} onChange={setYear} />
       </div>
 
-      {isLoading ? (
+      {displayState === "loading" ? (
         <p className="py-12 text-center text-sm text-text-muted">{t("common.loading")}</p>
-      ) : isError || !envelopeMonth ? (
-        <p className="rounded-lg border border-danger/30 bg-danger/10 p-4 text-sm text-danger">{t("envelope.error.load")}</p>
+      ) : !envelopeMonth ? (
+        <p className="rounded-lg border border-danger/30 bg-danger/10 p-4 text-sm text-danger" role="alert">
+          {displayState === "unavailable" ? t("envelope.unavailable") : t("envelope.error.load")}
+        </p>
       ) : (
         <>
+          <QueryStateNotice state={displayState} unavailableText={t("envelope.unavailable")} staleText={t("envelope.stale")} />
           <AvailableToAssignCard month={envelopeMonth} />
           <EnvelopeWarnings warnings={envelopeMonth.warnings} />
           <p className="rounded-lg border border-border bg-surface-1 p-3 text-sm text-text-muted">{t("envelope.continuityHint")}</p>

@@ -625,6 +625,7 @@ const ru = {
   "backup.footerWarning":
     "Восстановление полностью заменяет текущие данные содержимым файла — это нельзя отменить.",
   "settings.version": "Aurum v{{version}}",
+  "settings.unavailable": "Настройки сейчас недоступны. Показанные значения не отражают сохранённые настройки, изменить их можно после восстановления связи.",
   "telegram.title": "Telegram Mini App",
   "telegram.description": "Привяжите Telegram для быстрого ввода транзакций сообщениями. Mini App можно подключить отдельно.",
   "telegram.notConfigured": "Интеграция не настроена на сервере. Укажите новый токен бота в .env.",
@@ -1544,6 +1545,7 @@ const en: Record<keyof typeof ru, string> = {
   "backup.footerWarning":
     "Restoring completely replaces your current data with the file's contents — this cannot be undone.",
   "settings.version": "Aurum v{{version}}",
+  "settings.unavailable": "Settings are unavailable right now. Shown values do not reflect the saved settings; they can be changed once the connection is restored.",
   "telegram.title": "Telegram Mini App",
   "telegram.description": "Link Telegram for quick transaction entry by message. The Mini App can be enabled separately.",
   "telegram.notConfigured": "The integration is not configured on the server. Add a fresh bot token to .env.",

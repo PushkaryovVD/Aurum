@@ -17,7 +17,7 @@ export function CurrencyCard() {
       <CardContent className="space-y-2">
         <Select
           value={settings?.currency ?? ""}
-          disabled={isLoading || updateSettings.isPending}
+          disabled={isLoading || !settings || updateSettings.isPending}
           onChange={(event) => updateSettings.mutate({ currency: event.target.value })}
           className="max-w-xs"
         >

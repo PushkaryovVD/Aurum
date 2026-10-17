@@ -93,6 +93,7 @@ export function AlertThresholdsCard() {
               step={1}
               value={cashFlowMonths}
               onChange={(event) => setCashFlowMonths(event.target.value)}
+              disabled={!settings}
               onBlur={commitCashFlowMonths}
             />
           </div>
@@ -106,6 +107,7 @@ export function AlertThresholdsCard() {
               step={1}
               value={netWorthMonths}
               onChange={(event) => setNetWorthMonths(event.target.value)}
+              disabled={!settings}
               onBlur={commitNetWorthMonths}
             />
           </div>
@@ -119,6 +121,7 @@ export function AlertThresholdsCard() {
               step={1}
               value={riskyPercent}
               onChange={(event) => setRiskyPercent(event.target.value)}
+              disabled={!settings}
               onBlur={commitRiskyPercent}
             />
           </div>
@@ -131,6 +134,7 @@ export function AlertThresholdsCard() {
               step={0.01}
               value={idleCashAmount}
               onChange={(event) => setIdleCashAmount(event.target.value)}
+              disabled={!settings}
               onBlur={commitIdleCashAmount}
             />
           </div>
@@ -144,6 +148,7 @@ export function AlertThresholdsCard() {
               step={1}
               value={idleCashDays}
               onChange={(event) => setIdleCashDays(event.target.value)}
+              disabled={!settings}
               onBlur={commitIdleCashDays}
             />
           </div>

@@ -735,6 +735,8 @@ const ru = {
   "envelope.error.available": "Нельзя распределить больше денег, чем сейчас доступно.",
 
   "advice.empty": "Пока нет советов — недостаточно данных, или всё в порядке.",
+  "advice.unavailable": "Советы сейчас недоступны. Это не означает, что поводов для рекомендаций нет.",
+  "advice.stale": "Не удалось обновить советы. Показана последняя загруженная версия.",
   "advice.risingCategory":
     "Траты на {{category}} выросли на {{percent}}% по сравнению со средним за последние 3 месяца: {{current}} против {{average}}.",
   "advice.unbudgetedTopCategory":
@@ -1646,6 +1648,8 @@ const en: Record<keyof typeof ru, string> = {
   "envelope.error.available": "You cannot assign more money than is currently available.",
 
   "advice.empty": "No advice right now — not enough data, or everything looks fine.",
+  "advice.unavailable": "Advice is unavailable right now. This does not mean there is nothing to recommend.",
+  "advice.stale": "Could not refresh the advice. Showing the last loaded version.",
   "advice.risingCategory":
     "Spending on {{category}} is up {{percent}}% vs. the average of the last 3 months: {{current}} vs {{average}}.",
   "advice.unbudgetedTopCategory":

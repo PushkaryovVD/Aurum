@@ -2,7 +2,9 @@ import { Lightbulb, TrendingUp, TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { useAdvice } from "@/hooks/useAdvice";
 import { formatCurrency } from "@/lib/format";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { AdviceItem } from "@/types";
 
@@ -47,7 +49,8 @@ function adviceMessage(item: AdviceItem, t: ReturnType<typeof useTranslation>["t
 
 export function AdvicePage() {
   const { t } = useTranslation();
-  const { data, isLoading } = useAdvice();
+  const { data, isLoading, isError } = useAdvice();
+  const displayState = queryDisplayState(data !== undefined, isLoading, isError);
   const items = data?.items ?? [];
 
   return (
@@ -57,9 +60,15 @@ export function AdvicePage() {
           <CardTitle>{t("nav.advice")}</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          <QueryStateNotice
+            state={displayState}
+            unavailableText={t("advice.unavailable")}
+            staleText={t("advice.stale")}
+            className="mb-3"
+          />
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : items.length === 0 ? (
+          ) : displayState === "unavailable" ? null : items.length === 0 ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("advice.empty")}</p>
           ) : (
             <div className="space-y-2">

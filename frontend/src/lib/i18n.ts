@@ -795,6 +795,8 @@ const ru = {
   "account.form.saveError": "Не удалось сохранить счёт. Проверьте данные и попробуйте снова.",
 
   "category.expenseSectionTitle": "Категории расходов",
+  "category.unavailable": "Список категорий сейчас недоступен. Это не означает, что категорий нет.",
+  "category.stale": "Не удалось обновить список категорий. Показана последняя загруженная версия.",
   "category.incomeSectionTitle": "Категории доходов",
   "category.empty": "Категорий пока нет.",
   "category.defaultBadge": "стандартная",
@@ -1694,6 +1696,8 @@ const en: Record<keyof typeof ru, string> = {
   "account.form.saveError": "Failed to save the account. Check the data and try again.",
 
   "category.expenseSectionTitle": "Expense categories",
+  "category.unavailable": "The category list is unavailable right now. This does not mean there are no categories.",
+  "category.stale": "Could not refresh the category list. Showing the last loaded version.",
   "category.incomeSectionTitle": "Income categories",
   "category.empty": "No categories yet.",
   "category.defaultBadge": "default",

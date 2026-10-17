@@ -6,7 +6,9 @@ import { CategoryFormModal } from "@/components/categories/CategoryFormModal";
 import { CategoryList } from "@/components/categories/CategoryList";
 import { useCategories, useDeleteCategory } from "@/hooks/useCategories";
 import { translateCategoryName } from "@/lib/categoryLabels";
+import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
 import { useTranslation } from "@/lib/i18n";
+import { queryDisplayState } from "@/lib/queryDisplayState";
 import type { Category, CategoryKind } from "@/types";
 
 // Alphabetical by displayed (translated) name — same locale-aware sort
@@ -19,7 +21,8 @@ function byName(language: string) {
 
 export function CategoriesPage() {
   const { t, language } = useTranslation();
-  const { data: categories, isLoading } = useCategories();
+  const { data: categories, isLoading, isError } = useCategories();
+  const displayState = queryDisplayState(categories !== undefined, isLoading, isError);
   const deleteCategory = useDeleteCategory();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -55,6 +58,12 @@ export function CategoriesPage() {
 
   return (
     <div className="space-y-5">
+      <QueryStateNotice
+        state={displayState}
+        unavailableText={t("category.unavailable")}
+        staleText={t("category.stale")}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>{t("category.expenseSectionTitle")}</CardTitle>
@@ -64,8 +73,10 @@ export function CategoriesPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
+          ) : displayState === "unavailable" ? (
+            <p className="py-10 text-center text-sm text-text-muted">—</p>
           ) : (
             <CategoryList items={expenseCategories} onEdit={openEditModal} onDelete={handleDelete} />
           )}
@@ -81,8 +92,10 @@ export function CategoriesPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
+          ) : displayState === "unavailable" ? (
+            <p className="py-10 text-center text-sm text-text-muted">—</p>
           ) : (
             <CategoryList items={incomeCategories} onEdit={openEditModal} onDelete={handleDelete} />
           )}

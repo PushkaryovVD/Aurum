@@ -29,12 +29,6 @@
 - **Why it matters:** mobile users download code for unrelated financial screens before opening their chosen workflow.
 - **Suggested direction:** review route-level lazy loading and loading/error boundaries, then measure the resulting initial bundle rather than suppressing the warning.
 
-## Restore `@/` alias resolution in the Vite development server
-
-- **Problem:** `npm run dev` currently fails during dependency scanning because Vite does not resolve the TypeScript `@/` path alias, even though the production build succeeds.
-- **Why it matters:** local browser development and exploratory QA cannot reliably use the dev server and must fall back to a production preview.
-- **Suggested direction:** configure an explicit Vite `resolve.alias` (or a maintained TypeScript-paths plugin), then verify both `npm run dev` and `npm run build` from a clean checkout.
-
 ## Refresh pinned Docker GitHub Actions for their Node.js runtime migration
 
 - **Problem:** the successful GHCR image workflow emitted GitHub's October 3, 2026 warning that the pinned Docker login, metadata, and build-push actions still target deprecated Node.js 20 and are currently forced onto Node.js 24 runners.

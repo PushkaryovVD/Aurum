@@ -23,12 +23,6 @@
 - **Why it matters:** broader linked fixtures will detect unintended changes in future migrations; scoped installations cannot treat downgrade as a general rollback because restoring global uniqueness may reject scoped duplicates.
 - **Suggested direction:** add representative linked records for untouched families, an old-head no-op upgrade fixture, and populated NULL-only downgrade preservation tests. Keep these separate from auth activation and ownership backfill.
 
-## Split the frontend bundle by route
-
-- **Problem:** the frontend production build warns that the main JavaScript chunk exceeds the recommended size.
-- **Why it matters:** mobile users download code for unrelated financial screens before opening their chosen workflow.
-- **Suggested direction:** review route-level lazy loading and loading/error boundaries, then measure the resulting initial bundle rather than suppressing the warning.
-
 ## Refresh pinned Docker GitHub Actions for their Node.js runtime migration
 
 - **Problem:** the successful GHCR image workflow emitted GitHub's October 3, 2026 warning that the pinned Docker login, metadata, and build-push actions still target deprecated Node.js 20 and are currently forced onto Node.js 24 runners.

@@ -127,6 +127,8 @@ const ru = {
   "topbar.workspace": "Рабочее пространство",
 
   "common.loading": "Загрузка…",
+  "route.loadFailed": "Не удалось загрузить раздел. Проверьте соединение и обновите страницу.",
+  "route.reload": "Обновить страницу",
   "common.expand": "Развернуть",
   "common.collapse": "Свернуть",
   "common.back": "Назад",
@@ -1049,6 +1051,8 @@ const en: Record<keyof typeof ru, string> = {
   "topbar.workspace": "Workspace",
 
   "common.loading": "Loading…",
+  "route.loadFailed": "Could not load this section. Check your connection and reload the page.",
+  "route.reload": "Reload page",
   "common.expand": "Expand",
   "common.collapse": "Collapse",
   "common.back": "Back",

@@ -20,7 +20,7 @@ transaction_tags = Table(
     # Carries scope explicitly for review and future NOT NULL hardening.
     # The core-scope migration derives it from both parents on secondary
     # INSERTs and rejects mixed namespaces at the database boundary.
-    Column("workspace_id", UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True),
+    Column("workspace_id", UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True, index=True),
 )
 
 

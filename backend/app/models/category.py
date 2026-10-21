@@ -34,7 +34,7 @@ class Category(Base):
     # parent that itself has a parent) — a subcategory ("Alcohol" under
     # "Groceries"). SET NULL so deleting a parent turns its children back
     # into top-level categories instead of cascading the delete.
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="category")
     parent: Mapped["Category | None"] = relationship(remote_side=[id], back_populates="children")

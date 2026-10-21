@@ -16,6 +16,8 @@ class EnvelopeMonth(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("workspace_id", "year", "month", name="uq_envelope_month_workspace"),
         Index("ix_envelope_months_workspace_id", "workspace_id"),
+        # Legacy NULL namespace keeps its own uniqueness (a nullable-leading UNIQUE cannot).
+        Index("uq_envelope_month_unscoped", "year", "month", unique=True, postgresql_where=text("workspace_id IS NULL")),
         CheckConstraint("year BETWEEN 2000 AND 2100", name="ck_envelope_month_year"),
         CheckConstraint("month BETWEEN 1 AND 12", name="ck_envelope_month_number"),
     )
@@ -43,6 +45,10 @@ class EnvelopeAllocation(Base, TimestampMixin):
         CheckConstraint("planned_amount >= 0", name="ck_envelope_planned_nonnegative"),
         Index("ix_envelope_allocations_year_month", "year", "month"),
         Index("ix_envelope_allocations_workspace_id", "workspace_id"),
+        Index(
+            "uq_envelope_month_category_unscoped", "year", "month", "category_id",
+            unique=True, postgresql_where=text("workspace_id IS NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

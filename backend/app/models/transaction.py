@@ -100,7 +100,7 @@ class TransactionSplit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     # Nullable only for the temporary auth-disabled compatibility mode.
     workspace_id: Mapped[PythonUUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)

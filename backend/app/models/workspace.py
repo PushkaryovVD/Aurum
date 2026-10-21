@@ -160,6 +160,7 @@ class WorkspaceMembership(Base, TimestampMixin):
             initially="DEFERRED",
         ),
         nullable=False,
+        index=True,
     )
     user_id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True),
@@ -171,6 +172,7 @@ class WorkspaceMembership(Base, TimestampMixin):
             initially="DEFERRED",
         ),
         nullable=False,
+        index=True,
     )
     role: Mapped[WorkspaceRole] = mapped_column(
         Enum(
@@ -183,8 +185,8 @@ class WorkspaceMembership(Base, TimestampMixin):
         ),
         nullable=False,
     )
-    joined_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
-    revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class WorkspaceInvitation(Base, TimestampMixin):

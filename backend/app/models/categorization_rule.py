@@ -36,7 +36,7 @@ class CategorizationRule(Base, TimestampMixin):
     )
     # Lower runs first. Kept dense (0, 1, 2 …) by the service, so reordering is
     # a plain swap rather than a fractional-index scheme.
-    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Shown in the rules list, and in the "matched by …" hint next to a
     # transaction, so a rule is recognisable without reading its pattern.

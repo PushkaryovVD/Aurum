@@ -97,8 +97,8 @@ before integrating it. Existing local design changes must be preserved.
 Halyk and broker trades imports remain fixture-blocked; their absence must be
 explicit in the release and final assessment, not labelled as completed.
 
-1. Contextual help and examples across Aurum (`t_0a8482a8` → QA `t_ca2a37e4`).
-2. Responsive source-document preview during statement review
+1. **Completed:** contextual help and examples across Aurum (`t_0a8482a8` → QA `t_ca2a37e4`).
+2. **Completed** (`d9487e5`): responsive source-document preview during statement review
    (`t_e2fe89eb` → QA `t_9b7ef5f1`).
 3. Investments import from the broker trades report — needs a fixture (see above).
 4. Complete `feature/kz-bank-statements` with Halyk after a redacted fixture is available.

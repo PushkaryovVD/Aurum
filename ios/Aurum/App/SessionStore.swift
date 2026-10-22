@@ -23,6 +23,8 @@ final class SessionStore {
     private(set) var phase: Phase = .launching
     private(set) var server: ServerAddress?
     private(set) var client: APIClient?
+    /// The finance data layer over `client`; recreated together with it.
+    private(set) var repository: RemoteRepository?
     private(set) var identity: IdentitySession?
     /// Set when a data request reported an expired session, so the login
     /// screen can say why the user is there.
@@ -91,6 +93,7 @@ final class SessionStore {
         ServerAddress.clearSaved()
         server = nil
         client = nil
+        repository = nil
         phase = .serverSetup
     }
 
@@ -182,6 +185,7 @@ final class SessionStore {
             self?.handleUnauthorized()
         }
         self.client = client
+        self.repository = RemoteRepository(client: client)
         return client
     }
 

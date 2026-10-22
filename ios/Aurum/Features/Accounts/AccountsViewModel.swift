@@ -5,12 +5,15 @@ import Observation
 @Observable
 final class AccountsViewModel {
     private(set) var accounts = RemoteContent<[AccountWithBalance]>()
+    /// Archived accounts are hidden unless asked for (they still count in
+    /// the Overview's total balance, as on the server).
+    private(set) var showsArchived = false
 
-    private let client: APIClient
+    private let repository: any AccountRepository
     private var generation = 0
 
-    init(client: APIClient) {
-        self.client = client
+    init(repository: any AccountRepository) {
+        self.repository = repository
     }
 
     func loadIfNeeded() async {
@@ -23,7 +26,7 @@ final class AccountsViewModel {
         let token = generation
         accounts.beginLoading()
         do {
-            let result = try await client.accounts()
+            let result = try await repository.accounts(includeArchived: showsArchived)
             guard token == generation else { return }
             accounts.succeed(result)
         } catch {
@@ -34,6 +37,12 @@ final class AccountsViewModel {
                 accounts.fail(error.displayMessage)
             }
         }
+    }
+
+    func setShowsArchived(_ value: Bool) async {
+        guard value != showsArchived else { return }
+        showsArchived = value
+        await load()
     }
 
     /// Accounts grouped by currency — balances in different currencies are

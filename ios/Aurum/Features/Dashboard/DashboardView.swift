@@ -4,9 +4,11 @@ import SwiftUI
 /// the biggest spending categories.
 struct DashboardView: View {
     @State private var model: DashboardViewModel
+    private let events: LedgerEvents
 
-    init(client: APIClient) {
-        _model = State(initialValue: DashboardViewModel(client: client))
+    init(repository: any FinanceRepository) {
+        _model = State(initialValue: DashboardViewModel(repository: repository))
+        events = repository.events
     }
 
     var body: some View {
@@ -38,6 +40,11 @@ struct DashboardView: View {
             .navigationTitle(Text("tab.overview"))
             .refreshable { await model.load() }
             .task { await model.loadIfNeeded() }
+            // An operation added/edited/deleted on another tab changes this
+            // month's numbers; refresh instead of showing outdated totals.
+            .onChange(of: events.revision) {
+                Task { await model.load() }
+            }
         }
     }
 }
@@ -87,6 +94,17 @@ private struct DashboardContent: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: Theme.Spacing.m) { metricCards }
                 VStack(spacing: Theme.Spacing.m) { metricCards }
+            }
+
+            if let excluded = summary.excludedCurrencies, !excluded.isEmpty {
+                Label {
+                    Text(L10n.format("dashboard.excludedCurrencies", excluded.joined(separator: ", ")))
+                } icon: {
+                    Image(systemName: "exclamationmark.circle")
+                }
+                .font(.footnote)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             SpendingCard(items: summary.spendingByCategory, currency: reportingCurrency)
@@ -226,7 +244,7 @@ private struct CategoryShareRow: View {
                     .fill(tint)
                     .frame(width: 10, height: 10)
                     .accessibilityHidden(true)
-                Text(item.name)
+                Text(CategoryNames.display(item.name))
                     .font(.subheadline)
                     .lineLimit(2)
                 Spacer(minLength: Theme.Spacing.s)

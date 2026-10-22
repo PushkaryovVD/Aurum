@@ -66,6 +66,32 @@ enum DecimalParsing {
         return value
     }
 
+    /// Like `parseUserAmount`, but for a balance: zero and a leading minus
+    /// (also the typographic "−") are allowed. An empty field reads as zero.
+    static func parseUserSignedAmount(_ text: String, maxFractionDigits: Int = 2) -> Decimal? {
+        var trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return 0 }
+        var negative = false
+        if let first = trimmed.first, first == "-" || first == "\u{2212}" {
+            negative = true
+            trimmed.removeFirst()
+        }
+        var cleaned = ""
+        for character in trimmed {
+            if character == "," {
+                cleaned.append(".")
+            } else if character == " " || character == "\u{00A0}" || character == "\u{202F}" {
+                continue
+            } else {
+                cleaned.append(character)
+            }
+        }
+        guard isPlainNumber(cleaned, allowSign: false, maxFractionDigits: maxFractionDigits),
+              let value = Decimal(string: cleaned, locale: posix)
+        else { return nil }
+        return negative ? -value : value
+    }
+
     /// The canonical wire representation ("2650.5"), always with a dot.
     static func wireString(_ value: Decimal) -> String {
         // Decimal's description is locale-independent (always a dot).

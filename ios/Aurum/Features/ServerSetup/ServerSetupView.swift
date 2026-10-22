@@ -3,6 +3,7 @@ import SwiftUI
 /// Step 1: where is the user's Aurum server? Verified with GET
 /// /api/auth/status before it is saved.
 struct ServerSetupView: View {
+    @Environment(AppModel.self) private var app
     @Environment(SessionStore.self) private var session
     @State private var model = ServerSetupViewModel()
     @FocusState private var fieldFocused: Bool
@@ -67,6 +68,16 @@ struct ServerSetupView: View {
                         .frame(minHeight: 44)
                     }
                     .disabled(!model.canSubmit)
+                }
+
+                // No server at hand: the device-only mode needs none.
+                Section {
+                    Button("mode.useLocal") {
+                        app.choose(.local)
+                    }
+                    .disabled(model.isChecking)
+                } footer: {
+                    Text("mode.useLocal.footer")
                 }
             }
             .navigationTitle(Text("server.title"))

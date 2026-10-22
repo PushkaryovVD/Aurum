@@ -1,12 +1,27 @@
 import SwiftUI
 
-/// "Accounts": every active account with its live balance, grouped by
-/// currency with a per-currency subtotal.
+/// "Accounts": every active account (archived ones on request) with its live
+/// balance, grouped by currency with a per-currency subtotal. Tapping an
+/// account edits it; "+" adds one (both modes, editors only).
 struct AccountsView: View {
     @State private var model: AccountsViewModel
+    @State private var editor: EditorTarget?
+    @State private var showArchived = false
+    private let repository: any FinanceRepository
+    private let events: LedgerEvents
+    private let canEdit: Bool
 
-    init(client: APIClient) {
-        _model = State(initialValue: AccountsViewModel(client: client))
+    /// Which account the editor sheet is open for (nil account = new one).
+    private struct EditorTarget: Identifiable {
+        let account: AccountWithBalance?
+        var id: Int { account?.id ?? -1 }
+    }
+
+    init(repository: any FinanceRepository, canEdit: Bool) {
+        _model = State(initialValue: AccountsViewModel(repository: repository))
+        self.repository = repository
+        self.events = repository.events
+        self.canEdit = canEdit
     }
 
     var body: some View {
@@ -27,7 +42,49 @@ struct AccountsView: View {
                 }
             }
             .navigationTitle(Text("tab.accounts"))
+            .toolbar { toolbar }
+            .sheet(item: $editor) { target in
+                AccountEditorView(
+                    repository: repository,
+                    account: target.account,
+                    // A new device account starts in the Overview's currency.
+                    defaultCurrency: (repository as? LocalRepository)?.reportingCurrency
+                        ?? LocalRepository.defaultReportingCurrency
+                )
+            }
             .task { await model.loadIfNeeded() }
+            .onChange(of: events.revision) {
+                Task { await model.load() }
+            }
+            .onChange(of: showArchived) {
+                Task { await model.setShowsArchived(showArchived) }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Menu {
+                Toggle(isOn: $showArchived) {
+                    Label("accounts.showArchived", systemImage: "archivebox")
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel(Text("accounts.filter"))
+        }
+        // Viewers cannot write (the API answers 403), so no add button.
+        ToolbarItem(placement: .primaryAction) {
+            if canEdit {
+                Button {
+                    editor = EditorTarget(account: nil)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel(Text("accounts.add"))
+            }
         }
     }
 
@@ -44,7 +101,17 @@ struct AccountsView: View {
             ForEach(AccountsViewModel.groups(accounts)) { group in
                 Section {
                     ForEach(group.accounts) { account in
-                        AccountRow(account: account)
+                        if canEdit {
+                            Button {
+                                editor = EditorTarget(account: account)
+                            } label: {
+                                AccountRow(account: account)
+                            }
+                            .tint(.primary)
+                            .accessibilityHint(Text("accounts.editHint"))
+                        } else {
+                            AccountRow(account: account)
+                        }
                     }
                 } header: {
                     Text(group.currency)
@@ -80,6 +147,11 @@ private struct AccountRow: View {
         }
     }
 
+    private var subtitle: String {
+        let type = L10n.text("account.type.\(account.type)", fallback: account.type)
+        return account.isArchived ? type + " · " + L10n.text("accounts.archived") : type
+    }
+
     var body: some View {
         HStack(spacing: Theme.Spacing.m) {
             Image(systemName: symbol)
@@ -93,7 +165,7 @@ private struct AccountRow: View {
                 Text(account.name)
                     .font(.body)
                     .lineLimit(2)
-                Text(L10n.text("account.type.\(account.type)", fallback: account.type))
+                Text(subtitle)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

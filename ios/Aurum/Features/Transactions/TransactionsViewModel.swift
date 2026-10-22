@@ -1,7 +1,8 @@
 import Foundation
 import Observation
 
-/// Paged, filterable list of operations (GET /api/transactions).
+/// Paged, filterable list of operations (GET /api/transactions on the
+/// server, the same query on the device store).
 @MainActor
 @Observable
 final class TransactionsViewModel {
@@ -16,12 +17,16 @@ final class TransactionsViewModel {
     /// error — the rows already loaded stay valid.
     private(set) var loadMoreError: String?
 
-    private let client: APIClient
+    /// Account names by id, for the destination of a transfer (an operation
+    /// only carries its own account). Best effort: a failure leaves it empty.
+    private(set) var accountNames: [Int: String] = [:]
+
+    private let repository: any FinanceRepository
     private var loadedPages = 0
     private var generation = 0
 
-    init(client: APIClient) {
-        self.client = client
+    init(repository: any FinanceRepository) {
+        self.repository = repository
     }
 
     var hasMore: Bool {
@@ -66,11 +71,12 @@ final class TransactionsViewModel {
         list.beginLoading()
         loadMoreError = nil
         do {
-            let page = try await client.transactions(requested, page: 1, pageSize: Self.pageSize)
+            let page = try await repository.transactions(requested, page: 1, pageSize: Self.pageSize)
             guard token == generation else { return }
             total = page.total
             loadedPages = 1
             list.succeed(page.items)
+            await refreshAccountNames()
         } catch {
             guard token == generation else { return }
             if error.isCancellation {
@@ -79,6 +85,11 @@ final class TransactionsViewModel {
                 list.fail(error.displayMessage)
             }
         }
+    }
+
+    private func refreshAccountNames() async {
+        guard let accounts = try? await repository.accounts(includeArchived: true) else { return }
+        accountNames = Dictionary(accounts.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
     }
 
     func loadMore() async {
@@ -90,7 +101,7 @@ final class TransactionsViewModel {
         loadMoreError = nil
         defer { isLoadingMore = false }
         do {
-            let page = try await client.transactions(requested, page: nextPage, pageSize: Self.pageSize)
+            let page = try await repository.transactions(requested, page: nextPage, pageSize: Self.pageSize)
             guard token == generation else { return }
             // Rows can shift between pages if something was added meanwhile;
             // never show the same operation twice.

@@ -1,9 +1,11 @@
 import Foundation
 import Observation
 
-/// Form state and validation for a new income/expense operation, producing
-/// the backend's TransactionInput (see frontend/src/types TransactionInput
-/// and backend/app/schemas/transaction.py TransactionCreate).
+/// Form state and validation for an operation — a new one or an edit of an
+/// existing one; income, expense or a transfer between own accounts. It
+/// produces a storage-independent TransactionDraft; the repository turns it
+/// into the backend's TransactionInput / PATCH body (see frontend/src/types
+/// TransactionInput and backend/app/schemas/transaction.py) or a device row.
 @MainActor
 @Observable
 final class AddTransactionViewModel {
@@ -17,6 +19,11 @@ final class AddTransactionViewModel {
     var kind: TransactionKind = .expense
     var amountText = ""
     var accountID: Int?
+    /// Transfers: where the money goes.
+    var transferAccountID: Int?
+    /// Cross-currency transfers: what the destination was credited, in its
+    /// own currency.
+    var transferAmountText = ""
     /// Paid in a currency other than the account's (e.g. USD with a KZT card).
     var isForeignCurrency = false
     var currencyCode = ""
@@ -33,11 +40,24 @@ final class AddTransactionViewModel {
     /// covered in red.
     private(set) var showValidation = false
 
-    private let client: APIClient
+    /// The operation being edited; nil for a new one.
+    let editing: LedgerTransaction?
 
-    init(client: APIClient) {
-        self.client = client
+    private let repository: any FinanceRepository
+
+    init(repository: any FinanceRepository, editing: LedgerTransaction? = nil) {
+        self.repository = repository
+        self.editing = editing
+        if let editing {
+            prefill(from: editing)
+        }
     }
+
+    var isNew: Bool { editing == nil }
+
+    /// Split operations are edited on the web: this form has no split lines,
+    /// and saving it would have to drop them.
+    var isLockedSplit: Bool { !(editing?.splits.isEmpty ?? true) }
 
     // MARK: - Loading
 
@@ -49,12 +69,18 @@ final class AddTransactionViewModel {
     func load() async {
         reference.beginLoading()
         do {
-            let accounts = try await client.accounts()
-            let categories = try await client.categories()
-            let data = ReferenceData(accounts: accounts, categories: categories)
-            reference.succeed(data)
+            // Archived accounts are loaded too, but only offered when the
+            // edited operation already uses one.
+            let all = try await repository.accounts(includeArchived: true)
+            let categories = try await repository.categories()
+            let keep = Set([editing?.accountId, editing?.transferAccountId].compactMap { $0 })
+            let accounts = all.filter { !$0.isArchived || keep.contains($0.id) }
+            reference.succeed(ReferenceData(accounts: accounts, categories: categories))
             if accountID == nil || !accounts.contains(where: { $0.id == accountID }) {
                 accountID = accounts.first?.id
+            }
+            if let transferAccountID, !accounts.contains(where: { $0.id == transferAccountID }) {
+                self.transferAccountID = nil
             }
             dropCategoryIfMismatched()
         } catch {
@@ -74,12 +100,35 @@ final class AddTransactionViewModel {
         accounts.first { $0.id == accountID }
     }
 
+    var destinationAccount: AccountWithBalance? {
+        accounts.first { $0.id == transferAccountID }
+    }
+
+    /// Accounts a transfer can go to: every other one.
+    var destinationOptions: [AccountWithBalance] {
+        accounts.filter { $0.id != accountID }
+    }
+
     var accountCurrency: String { selectedAccount?.currency.uppercased() ?? "" }
+
+    var destinationCurrency: String { destinationAccount?.currency.uppercased() ?? "" }
+
+    /// A transfer between accounts in different currencies needs the
+    /// credited amount too (the server requires transfer_amount then).
+    var isCrossCurrencyTransfer: Bool {
+        kind == .transfer && destinationAccount != nil && destinationCurrency != accountCurrency
+    }
 
     /// Categories of the selected kind, parents followed by their children.
     var categoryOptions: [CategoryOption] {
-        guard let all = reference.value?.categories else { return [] }
-        let ofKind = all.filter { $0.kind == kind.rawValue }
+        guard kind != .transfer, let all = reference.value?.categories else { return [] }
+        var ofKind = all.filter { $0.kind == kind.rawValue }
+        // An income filed under an expense category is a refund on the
+        // server; keep that category selectable when editing such a row.
+        if kind == .income, let original = editing?.categoryId,
+           let category = all.first(where: { $0.id == original }), category.kind != kind.rawValue {
+            ofKind.append(category)
+        }
         let byOrder: (LedgerCategory, LedgerCategory) -> Bool = { lhs, rhs in
             if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
@@ -90,17 +139,18 @@ final class AddTransactionViewModel {
         let roots = ofKind.filter { $0.parentId == nil || !ids.contains($0.parentId ?? -1) }.sorted(by: byOrder)
         var result: [CategoryOption] = []
         for root in roots {
-            result.append(CategoryOption(id: root.id, title: root.name, isChild: false))
+            let rootName = CategoryNames.display(root.name)
+            result.append(CategoryOption(id: root.id, title: rootName, isChild: false))
             let children = ofKind.filter { $0.parentId == root.id }.sorted(by: byOrder)
             for child in children {
-                result.append(CategoryOption(id: child.id, title: root.name + " · " + child.name, isChild: true))
+                result.append(CategoryOption(id: child.id, title: rootName + " · " + CategoryNames.display(child.name), isChild: true))
             }
         }
         return result
     }
 
     private var effectiveForeignCurrency: String? {
-        guard isForeignCurrency else { return nil }
+        guard isForeignCurrency, kind != .transfer else { return nil }
         let code = currencyCode.trimmingCharacters(in: .whitespaces).uppercased()
         return code == accountCurrency ? nil : code
     }
@@ -113,7 +163,7 @@ final class AddTransactionViewModel {
     }
 
     var currencyError: String? {
-        guard showValidation, isForeignCurrency else { return nil }
+        guard showValidation, isForeignCurrency, kind != .transfer else { return nil }
         let code = currencyCode.trimmingCharacters(in: .whitespaces)
         let valid = code.count == 3 && code.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) && $0.isASCII }
         return valid ? nil : L10n.text("add.error.currency")
@@ -129,79 +179,122 @@ final class AddTransactionViewModel {
         return selectedAccount == nil ? L10n.text("add.error.account") : nil
     }
 
+    var destinationError: String? {
+        guard showValidation, kind == .transfer else { return nil }
+        guard let destination = destinationAccount else { return L10n.text("add.error.destination") }
+        return destination.id == accountID ? L10n.text("add.error.sameAccount") : nil
+    }
+
+    var transferAmountError: String? {
+        guard showValidation, isCrossCurrencyTransfer else { return nil }
+        return DecimalParsing.parseUserAmount(transferAmountText) == nil ? L10n.text("add.error.transferAmount") : nil
+    }
+
     var descriptionError: String? {
         guard showValidation else { return nil }
         return resolvedDescription == nil ? L10n.text("add.error.description") : nil
     }
 
     /// Description is required by the backend; an empty one falls back to
-    /// the chosen category's name, which is what most people would type.
+    /// the chosen category's name (or "Transfer"), which is what most
+    /// people would type.
     private var resolvedDescription: String? {
         let typed = descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typed.isEmpty { return String(typed.prefix(255)) }
+        if kind == .transfer {
+            return L10n.text("type.transfer")
+        }
         if let categoryID, let category = reference.value?.categories.first(where: { $0.id == categoryID }) {
-            return category.name
+            return CategoryNames.display(category.name)
         }
         return nil
     }
 
     // MARK: - Save
 
-    /// Returns true when the operation was created.
-    func save() async -> Bool {
+    /// Returns the stored operation, or nil when it was not saved.
+    func save() async -> LedgerTransaction? {
         showValidation = true
         saveError = nil
-        guard let input = makeInput() else { return false }
+        guard !isLockedSplit, let draft = makeDraft() else { return nil }
         isSaving = true
         defer { isSaving = false }
         do {
-            _ = try await client.createTransaction(input)
-            return true
+            if let editing {
+                return try await repository.updateTransaction(id: editing.id, draft)
+            }
+            return try await repository.createTransaction(draft)
         } catch {
             if !error.isCancellation {
                 saveError = error.displayMessage
             }
-            return false
+            return nil
         }
     }
 
-    private func makeInput() -> TransactionInput? {
+    private func makeDraft() -> TransactionDraft? {
         guard amountError == nil, accountError == nil, currencyError == nil,
-              foreignAmountError == nil, descriptionError == nil,
+              foreignAmountError == nil, destinationError == nil,
+              transferAmountError == nil, descriptionError == nil,
               let account = selectedAccount,
               let debit = DecimalParsing.parseUserAmount(amountText),
               let description = resolvedDescription
         else { return nil }
 
-        var currency: String?
-        var transactionAmount: APIDecimal?
+        var foreignCurrency: String?
+        var foreignAmount: Decimal?
         if let foreign = effectiveForeignCurrency {
             guard let paid = DecimalParsing.parseUserAmount(foreignAmountText) else { return nil }
-            currency = foreign
-            transactionAmount = APIDecimal(paid)
+            foreignCurrency = foreign
+            foreignAmount = paid
+        }
+
+        var transferAccount: Int?
+        var credited: Decimal?
+        if kind == .transfer {
+            guard let destination = destinationAccount else { return nil }
+            transferAccount = destination.id
+            if isCrossCurrencyTransfer {
+                guard let amount = DecimalParsing.parseUserAmount(transferAmountText) else { return nil }
+                credited = amount
+            }
         }
 
         // Never send a category that does not belong to the chosen kind.
         let category = categoryOptions.contains(where: { $0.id == categoryID }) ? categoryID : nil
 
-        return TransactionInput(
-            accountId: account.id,
-            categoryId: category,
-            transferAccountId: nil,
-            type: kind.rawValue,
-            amount: APIDecimal(debit),
-            currency: currency,
-            transactionAmount: transactionAmount,
+        return TransactionDraft(
+            kind: kind,
+            accountID: account.id,
+            accountCurrency: account.currency.uppercased(),
+            categoryID: kind == .transfer ? nil : category,
+            transferAccountID: transferAccount,
+            amount: debit,
+            foreignCurrency: foreignCurrency,
+            foreignAmount: foreignAmount,
+            transferAmount: credited,
             description: description,
-            notes: nil,
-            date: APIDate.string(from: date),
-            tagIds: []
+            date: APIDate.string(from: date)
         )
     }
 
-    /// A category of the other kind would be rejected by the backend.
+    /// A category of the other kind would be rejected by the backend, and a
+    /// transfer carries none at all.
     func kindDidChange() {
+        if kind == .transfer {
+            isForeignCurrency = false
+            categoryID = nil
+        }
         dropCategoryIfMismatched()
+    }
+
+    /// The source changed: a transfer cannot go to the same account, and a
+    /// credited amount typed for another pair of currencies no longer fits.
+    func accountDidChange() {
+        if transferAccountID == accountID {
+            transferAccountID = nil
+        }
+        transferAmountText = ""
     }
 
     private func dropCategoryIfMismatched() {
@@ -209,6 +302,24 @@ final class AddTransactionViewModel {
         if !categoryOptions.contains(where: { $0.id == categoryID }) {
             self.categoryID = nil
         }
+    }
+
+    private func prefill(from transaction: LedgerTransaction) {
+        kind = transaction.kind ?? .expense
+        accountID = transaction.accountId
+        amountText = DecimalParsing.wireString(transaction.amount.value)
+        if transaction.isForeignCurrency, kind != .transfer {
+            isForeignCurrency = true
+            currencyCode = transaction.currency.uppercased()
+            foreignAmountText = DecimalParsing.wireString(transaction.transactionAmount.value)
+        }
+        transferAccountID = transaction.transferAccountId
+        if let credited = transaction.transferAmount?.value, credited != transaction.amount.value {
+            transferAmountText = DecimalParsing.wireString(credited)
+        }
+        categoryID = transaction.categoryId
+        date = APIDate.parse(transaction.date) ?? Date()
+        descriptionText = transaction.description
     }
 }
 

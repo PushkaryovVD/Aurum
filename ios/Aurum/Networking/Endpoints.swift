@@ -74,6 +74,24 @@ extension APIClient {
     func createTransaction(_ input: TransactionInput) async throws -> LedgerTransaction {
         try await send(.post, "/transactions", body: input)
     }
+
+    /// PATCH /api/transactions/{id} — fields in the body replace the stored
+    /// ones; tags and splits are never sent, so the server leaves them as is.
+    func updateTransaction(id: Int, _ patch: TransactionPatch) async throws -> LedgerTransaction {
+        try await send(.patch, "/transactions/\(id)", body: patch)
+    }
+
+    func deleteTransaction(id: Int) async throws {
+        try await sendWithoutResponse(.delete, "/transactions/\(id)")
+    }
+
+    func createAccount(_ body: AccountCreateBody) async throws -> AccountWithBalance {
+        try await send(.post, "/accounts", body: body)
+    }
+
+    func updateAccount(id: Int, _ body: AccountPatchBody) async throws -> AccountWithBalance {
+        try await send(.patch, "/accounts/\(id)", body: body)
+    }
 }
 
 /// What the Operations list is currently showing.

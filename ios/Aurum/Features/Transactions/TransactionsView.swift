@@ -2,18 +2,20 @@ import SwiftUI
 
 /// "Operations": month-filtered, searchable, paged list with pull-to-refresh.
 struct TransactionsView: View {
-    let client: APIClient
+    let repository: any FinanceRepository
     let canEdit: Bool
 
     @State private var model: TransactionsViewModel
     @State private var month: MonthRef? = MonthRef.current()
     @State private var searchText = ""
     @State private var isAdding = false
+    private let events: LedgerEvents
 
-    init(client: APIClient, canEdit: Bool) {
-        self.client = client
+    init(repository: any FinanceRepository, canEdit: Bool) {
+        self.repository = repository
         self.canEdit = canEdit
-        _model = State(initialValue: TransactionsViewModel(client: client))
+        self.events = repository.events
+        _model = State(initialValue: TransactionsViewModel(repository: repository))
     }
 
     private var requestedFilter: TransactionFilter {
@@ -25,7 +27,12 @@ struct TransactionsView: View {
             content
                 .navigationTitle(Text("tab.transactions"))
                 .navigationDestination(for: LedgerTransaction.self) { transaction in
-                    TransactionDetailView(transaction: transaction)
+                    TransactionDetailView(
+                        transaction: transaction,
+                        repository: repository,
+                        canEdit: canEdit,
+                        accountNames: model.accountNames
+                    )
                 }
                 .searchable(text: $searchText, prompt: Text("transactions.search"))
                 .safeAreaInset(edge: .top, spacing: 0) {
@@ -46,9 +53,13 @@ struct TransactionsView: View {
                     }
                 }
                 .sheet(isPresented: $isAdding) {
-                    AddTransactionView(client: client) {
-                        Task { await model.reload() }
-                    }
+                    // The list refreshes through the ledger events below.
+                    AddTransactionView(repository: repository) { _ in }
+                }
+                // Any write (here, in a detail screen, on another tab)
+                // reloads the current page.
+                .onChange(of: events.revision) {
+                    Task { await model.reload() }
                 }
                 .task(id: requestedFilter) {
                     // Debounce typing: only a changed search waits; month

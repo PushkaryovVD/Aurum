@@ -42,7 +42,7 @@ struct TransactionRow: View {
     private var subtitle: String {
         var parts: [String] = []
         if let category = transaction.category?.name {
-            parts.append(category)
+            parts.append(CategoryNames.display(category))
         } else if transaction.kind == .transfer {
             parts.append(L10n.text("type.transfer"))
         } else if !transaction.splits.isEmpty {

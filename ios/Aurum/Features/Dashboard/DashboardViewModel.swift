@@ -7,12 +7,12 @@ final class DashboardViewModel {
     private(set) var month = MonthRef.current()
     private(set) var summary = RemoteContent<DashboardSummary>()
 
-    private let client: APIClient
+    private let repository: any DashboardRepository
     /// Guards against an older month's response landing after a newer one.
     private var generation = 0
 
-    init(client: APIClient) {
-        self.client = client
+    init(repository: any DashboardRepository) {
+        self.repository = repository
     }
 
     var canGoForward: Bool { !month.isCurrentOrFuture }
@@ -28,7 +28,7 @@ final class DashboardViewModel {
         let requested = month
         summary.beginLoading()
         do {
-            let result = try await client.dashboardSummary(month: requested)
+            let result = try await repository.dashboardSummary(month: requested)
             guard token == generation else { return }
             summary.succeed(result)
         } catch {

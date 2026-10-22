@@ -25,6 +25,10 @@ struct AccountWithBalance: Decodable, Sendable, Hashable, Identifiable {
     /// In the account's own currency.
     let balance: APIDecimal
     let transactionCount: Int?
+    /// On-device mode only: the money the account held before its first
+    /// recorded operation (already included in `balance`). The server has no
+    /// such field, so it decodes as nil there.
+    let initialBalance: APIDecimal?
 }
 
 /// GET /api/categories (named LedgerCategory: `Category` is also an
@@ -121,6 +125,9 @@ struct TransactionInput: Encodable, Sendable {
     /// Only for a genuinely foreign-currency transaction.
     let currency: String?
     let transactionAmount: APIDecimal?
+    /// Transfers only: what the destination account was credited, in its own
+    /// currency (equal to `amount` for a same-currency transfer).
+    let transferAmount: APIDecimal?
     let description: String
     let notes: String?
     /// "YYYY-MM-DD"
@@ -178,4 +185,9 @@ struct DashboardSummary: Decodable, Sendable {
     let spendingByCategory: [CategoryBreakdownItem]
     /// All-time rather than month-scoped: the money currently in the accounts.
     let balance: BalanceSummary
+    /// On-device mode only: account currencies whose operations could not be
+    /// counted in the month's income/spending because the device has no
+    /// exchange rate for them (the server's analogue is a row without a KZT
+    /// snapshot, which it also leaves out). nil/empty = nothing left out.
+    let excludedCurrencies: [String]?
 }

@@ -16,7 +16,7 @@ export function Topbar({ mobileNavOpen, onOpenMobileNav }: TopbarProps) {
   const activeItem = NAV_ITEMS.find((item) => (item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to)));
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-14 items-center gap-3 border-b border-border bg-surface-0/95 px-3 backdrop-blur sm:px-6 lg:px-8">
+    <header className="pt-safe sticky top-0 z-30 flex min-h-14 items-center gap-3 border-b border-border bg-surface-0/95 px-3 backdrop-blur sm:px-6 lg:px-8">
       <button
         type="button"
         onClick={onOpenMobileNav}

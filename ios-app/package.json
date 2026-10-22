@@ -1,0 +1,17 @@
+{
+  "name": "aurum-ios",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Native iOS shell (Capacitor) around the self-hosted Aurum web app",
+  "scripts": {
+    "sync": "cap sync ios",
+    "open": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
+}

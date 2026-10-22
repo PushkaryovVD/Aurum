@@ -175,6 +175,18 @@ body {
   line-height: var(--line-height-body);
 }
 
+/* Notch / home-indicator insets for the native iOS shell (viewport-fit=cover).
+   env() is 0 in ordinary browsers, so this changes nothing outside the app. */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
 * {
   border-color: var(--color-border);
 }

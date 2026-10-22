@@ -36,6 +36,17 @@ def auth_settings() -> Settings:
     )
 
 
+def _with_static_proxy(settings: Settings) -> Settings:
+    """Opt in to CIDR-based proxy trust. The defaults deliberately trust nobody
+    (the deployment uses a shared secret), so tests of the CIDR path state it."""
+    return settings.model_copy(
+        update={
+            "auth_trusted_proxy_cidrs": "172.31.254.3/32",
+            "auth_loopback_client_cidrs": "127.0.0.0/8,::1/128,172.31.254.1/32",
+        }
+    )
+
+
 @pytest_asyncio.fixture
 async def auth_client(test_sessionmaker, auth_settings) -> AsyncGenerator[AsyncClient, None]:
     auth_app = create_app(auth_settings)
@@ -315,7 +326,7 @@ async def test_login_accepts_https_marker_only_from_trusted_internal_proxy(
     test_sessionmaker, auth_settings
 ):
     await _bootstrap_user(test_sessionmaker)
-    auth_app = create_app(auth_settings)
+    auth_app = create_app(_with_static_proxy(auth_settings))
 
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         async with test_sessionmaker() as session:
@@ -342,7 +353,7 @@ async def test_trusted_tls_proxy_preserves_distinct_client_rate_limit_buckets(
     test_sessionmaker, auth_settings
 ):
     await _bootstrap_user(test_sessionmaker)
-    auth_app = create_app(auth_settings)
+    auth_app = create_app(_with_static_proxy(auth_settings))
 
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         async with test_sessionmaker() as session:
@@ -401,7 +412,7 @@ async def test_login_allows_default_nginx_chain_only_for_host_loopback_client(
     test_sessionmaker, auth_settings
 ):
     await _bootstrap_user(test_sessionmaker)
-    auth_app = create_app(auth_settings)
+    auth_app = create_app(_with_static_proxy(auth_settings))
 
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         async with test_sessionmaker() as session:

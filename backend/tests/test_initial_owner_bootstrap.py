@@ -14,7 +14,7 @@ from app.models.settings import AppSettings
 from app.models.workspace import User, Workspace, WorkspaceMembership, WorkspaceRole
 from app.services.workspace_service import issue_initial_owner_bootstrap_code
 # Pytest discovers imported decorated fixtures in this module's namespace.
-from tests.test_auth_api import HMAC_SECRET, _bootstrap_user, auth_client, auth_settings
+from tests.test_auth_api import HMAC_SECRET, _bootstrap_user, _with_static_proxy, auth_client, auth_settings
 
 ORIGIN_HEADERS = {"Origin": "https://test"}
 PAYLOAD = {
@@ -274,7 +274,7 @@ async def test_bootstrap_allows_default_nginx_chain_for_host_loopback_client(
     test_sessionmaker, auth_settings
 ):
     code = await _issue_code(test_sessionmaker)
-    auth_app = create_app(auth_settings)
+    auth_app = create_app(_with_static_proxy(auth_settings))
 
     async def override_get_session():
         async with test_sessionmaker() as session:

@@ -1,0 +1,80 @@
+name: Build iOS app
+
+# Builds an unsigned .ipa of the native SwiftUI client on a GitHub-hosted
+# macOS runner, so the app can be developed without a Mac. The artifact is
+# signed on the user's own machine (e.g. Sideloadly with a free Apple ID);
+# no Apple credentials or certificates are stored in this repository.
+on:
+  push:
+    branches: [develop, feature/ios-native]
+    paths:
+      - ios/**
+      - .github/workflows/ios-build.yml
+  pull_request:
+    paths:
+      - ios/**
+      - .github/workflows/ios-build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build unsigned archive
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Aurum.xcodeproj \
+            -scheme Aurum \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Aurum.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Package unsigned .ipa
+        run: |
+          APP="$RUNNER_TEMP/Aurum.xcarchive/Products/Applications/Aurum.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry Aurum-unsigned.ipa Payload)
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Aurum-unsigned-ipa
+          path: ${{ runner.temp }}/ipa/Aurum-unsigned.ipa
+          retention-days: 14
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          retention-days: 7

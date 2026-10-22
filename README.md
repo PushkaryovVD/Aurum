@@ -187,7 +187,7 @@ Your data lives in a Docker named volume (`aurum_pgdata`), not in the repo folde
 
 ### iOS app
 
-A native iOS shell around your own Aurum instance lives in [`ios-app/`](ios-app/README.md). Open it in Xcode on a Mac; the server address is supplied at build time and never stored in the repo.
+A native SwiftUI client for your own Aurum instance lives in [`ios/`](ios/README.md). It is built on GitHub Actions macOS runners and can be installed from Windows with a free Apple ID; the server address is entered in the app and never stored in the repo.
 
 ## 🔌 API
 

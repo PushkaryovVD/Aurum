@@ -6,12 +6,6 @@
 - **Why it matters:** unexpected zoom can disrupt the mobile sign-in layout and make controls harder to reach.
 - **Suggested direction:** apply explicit 16px-or-larger input text without conflicting shared utilities, and verify focus behavior on a real iOS browser.
 
-## Exercise aborted and late authentication requests explicitly
-
-- **Problem:** auth tests cover pending-request finance gating, but do not explicitly simulate unmount during status, session login/readback, and logout requests.
-- **Why it matters:** a late response must not update an obsolete identity view or retain sensitive cached data.
-- **Suggested direction:** add focused deferred-fetch tests asserting abort signals and suppression of late responses after unmount; keep network/session material memory-only.
-
 ## Explicit legacy ownership migration remains a separate deliverable
 
 - **Current boundary:** populated legacy upgrades preserve financial rows in the `NULL` workspace namespace; they do not create an initial owner or transfer records. Compatibility tests cover repeated upgrades/startup seeds and transactional rejection of an already scoped budget category.

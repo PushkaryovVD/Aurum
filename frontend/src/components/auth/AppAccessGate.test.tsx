@@ -276,3 +276,70 @@ it("a confirmed session can be rechecked and expiry cannot open finance", async 
   expect(container.textContent).not.toContain("Session confirmed");
   expect(finance).not.toHaveBeenCalled();
 });
+
+// --- Aborted and late requests: a response that arrives after unmount must not
+// update an obsolete identity view, open finance, or leave sensitive cache behind.
+function deferred() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+const signalOf = (fetcher: ReturnType<typeof vi.fn>, call: number) => (fetcher.mock.calls[call][1] as RequestInit).signal as AbortSignal;
+async function unmountNow() {
+  await act(async () => { root.unmount(); });
+  container.remove();
+  // afterEach must not unmount a second time.
+  root = undefined as unknown as Root;
+}
+async function settle() { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); }
+
+it("unmount during the status request aborts it and ignores the late response", async () => {
+  const late = deferred(); const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const fetcher = vi.fn().mockReturnValueOnce(late.promise);
+  vi.stubGlobal("fetch", fetcher); await render("/login");
+  await unmountNow();
+  expect(signalOf(fetcher, 0).aborted).toBe(true);
+  late.resolve(reply(readyRequired)); await settle();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(finance).not.toHaveBeenCalled();
+  expect(errors).not.toHaveBeenCalled();
+});
+it("unmount during session readback aborts it and a late session cannot open finance", async () => {
+  const late = deferred(); const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(readyRequired)).mockReturnValueOnce(late.promise);
+  vi.stubGlobal("fetch", fetcher); await render("/login");
+  expect(fetcher.mock.calls[1][0]).toBe("/api/auth/me");
+  await unmountNow();
+  expect(signalOf(fetcher, 1).aborted).toBe(true);
+  late.resolve(reply(session)); await settle();
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(finance).not.toHaveBeenCalled();
+  expect(errors).not.toHaveBeenCalled();
+});
+it("unmount during sign-in aborts it and a late login cannot open finance", async () => {
+  const late = deferred(); const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  // Any stray follow-up readback would claim a valid session, so finance staying closed is meaningful.
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(readyRequired)).mockResolvedValueOnce(reply({}, 401)).mockReturnValueOnce(late.promise)
+    .mockImplementation(() => Promise.resolve(reply(session)));
+  vi.stubGlobal("fetch", fetcher); await render("/login"); await submitCredentials();
+  expect(fetcher.mock.calls[2][0]).toBe("/api/auth/session");
+  await unmountNow();
+  expect(signalOf(fetcher, 2).aborted).toBe(true);
+  late.resolve(reply(session)); await settle();
+  expect(finance).not.toHaveBeenCalled();
+  expect(errors).not.toHaveBeenCalled();
+});
+it("unmount during sign-out aborts it and leaves the cleared cache empty", async () => {
+  const late = deferred(); const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(required)).mockResolvedValueOnce(reply(session)).mockReturnValueOnce(late.promise)
+    .mockImplementation(() => Promise.resolve(reply({}, 401)));
+  vi.stubGlobal("fetch", fetcher); await render("/login"); client.setQueryData(["private-test"], "test-only");
+  await act(async () => { Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Sign out")!.click(); });
+  expect(fetcher.mock.calls[2][1]).toMatchObject({ method: "DELETE" });
+  await unmountNow();
+  expect(signalOf(fetcher, 2).aborted).toBe(true);
+  late.resolve(new Response(null, { status: 204 })); await settle();
+  expect(client.getQueryData(["private-test"])).toBeUndefined();
+  expect(finance).not.toHaveBeenCalled();
+  expect(errors).not.toHaveBeenCalled();
+});

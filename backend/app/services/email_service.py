@@ -1,4 +1,4 @@
-"""Outgoing mail (currently only workspace invitations).
+"""Outgoing mail: workspace invitations and password-reset links.
 
 Sending is best effort: an invitation is valid whether or not the e-mail went
 out, and the inviter always gets the link to share by other means. SMTP runs
@@ -115,15 +115,83 @@ def _send_blocking(settings: Settings, message: EmailMessage) -> None:
         client.send_message(message)
 
 
+async def _deliver(settings: Settings, message: EmailMessage, kind: str) -> bool:
+    """Returns True only when the SMTP server accepted the message."""
+    try:
+        await asyncio.to_thread(_send_blocking, settings, message)
+    except (OSError, smtplib.SMTPException) as exc:
+        # The exception text never contains the password; tokens are not logged.
+        logger.warning("%s e-mail was not sent: %s", kind, type(exc).__name__)
+        return False
+    return True
+
+
 async def send_invitation_email(settings: Settings, invite: InvitationEmail) -> bool:
     """Returns True only when the SMTP server accepted the message."""
     if not settings.smtp_enabled or not looks_like_email(invite.recipient):
         return False
-    message = build_invitation_message(settings, invite)
-    try:
-        await asyncio.to_thread(_send_blocking, settings, message)
-    except (OSError, smtplib.SMTPException) as exc:
-        # The exception text never contains the password; the token is not logged.
-        logger.warning("Invitation e-mail was not sent: %s", type(exc).__name__)
+    return await _deliver(settings, build_invitation_message(settings, invite), "Invitation")
+
+
+def password_reset_link(base_url: str, token: str) -> str:
+    return f"{base_url.rstrip('/')}/reset-password#token={quote(token, safe='')}"
+
+
+@dataclass(frozen=True)
+class PasswordResetEmail:
+    recipient: str
+    display_name: str
+    link: str
+    expires_at: datetime
+
+
+def build_password_reset_message(settings: Settings, reset: PasswordResetEmail) -> EmailMessage:
+    expires = reset.expires_at.strftime("%Y-%m-%d %H:%M UTC")
+    message = EmailMessage()
+    message["Subject"] = "Восстановление пароля Aurum / Aurum password reset"
+    message["From"] = settings.smtp_sender
+    message["To"] = reset.recipient
+    message.set_content(
+        f"Здравствуйте, {reset.display_name}!\n\n"
+        "Кто-то запросил сброс пароля для вашего аккаунта Aurum. Чтобы задать новый пароль, "
+        f"откройте ссылку:\n{reset.link}\n\n"
+        f"Ссылка действует до {expires} и перестаёт работать после смены пароля. "
+        "После сброса все ваши сеансы будут завершены.\n"
+        "Если вы не запрашивали сброс, просто проигнорируйте письмо — пароль не изменится.\n\n"
+        "---\n\n"
+        f"Hello {reset.display_name},\n\n"
+        f"Someone asked to reset the password of your Aurum account. To set a new one, open:\n{reset.link}\n\n"
+        f"The link is valid until {expires} and stops working once the password changes. "
+        "Resetting signs you out everywhere.\n"
+        "If you did not ask for this, ignore this e-mail and your password stays the same.\n"
+    )
+    link = escape(reset.link, quote=True)
+    name = escape(reset.display_name)
+    button = (
+        f'<p><a href="{link}" style="display:inline-block;padding:12px 20px;border-radius:8px;'
+        f'background:#111;color:#fff;text-decoration:none">{{label}}</a></p>'
+    )
+    message.add_alternative(
+        "<!doctype html><html><body style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
+        "line-height:1.5;color:#111\">"
+        f"<p>Здравствуйте, {name}!</p>"
+        "<p>Кто-то запросил сброс пароля для вашего аккаунта Aurum.</p>"
+        + button.format(label="Задать новый пароль")
+        + f"<p style=\"color:#666;font-size:13px\">Ссылка действует до {expires}. Если вы не запрашивали "
+        "сброс, проигнорируйте письмо — пароль не изменится.</p>"
+        "<hr style=\"border:none;border-top:1px solid #ddd\">"
+        f"<p>Hello {name}, someone asked to reset your Aurum password.</p>"
+        + button.format(label="Set a new password")
+        + f"<p style=\"color:#666;font-size:13px\">Valid until {expires}. If you did not ask for this, "
+        "ignore this e-mail.</p>"
+        f"<p style=\"color:#666;font-size:12px;word-break:break-all\">{link}</p>"
+        "</body></html>",
+        subtype="html",
+    )
+    return message
+
+
+async def send_password_reset_email(settings: Settings, reset: PasswordResetEmail) -> bool:
+    if not settings.smtp_enabled or not looks_like_email(reset.recipient):
         return False
-    return True
+    return await _deliver(settings, build_password_reset_message(settings, reset), "Password reset")

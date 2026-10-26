@@ -38,6 +38,7 @@ class _ReadinessSession:
 async def test_status_reports_database_backed_finance_readiness(required, ready, environment, allow_http, transport):
     app = FastAPI()
     app.state.settings = SimpleNamespace(
+        smtp_enabled=False,
         app_auth_required=required,
         environment=environment,
         allow_insecure_http=allow_http,
@@ -59,6 +60,7 @@ async def test_status_reports_database_backed_finance_readiness(required, ready,
         "session_transport": transport,
         "initial_owner_bootstrap_required": required,
         "initial_owner_bootstrap_available": False,
+        "password_reset_available": False,
     }
 
 
@@ -66,6 +68,7 @@ async def test_status_reports_database_backed_finance_readiness(required, ready,
 async def test_required_auth_readiness_checks_workspace_identity_constraints_and_triggers():
     app = FastAPI()
     app.state.settings = SimpleNamespace(
+        smtp_enabled=False,
         app_auth_required=True,
         environment="development",
         allow_insecure_http=False,
@@ -95,6 +98,7 @@ async def test_required_auth_readiness_checks_workspace_identity_constraints_and
 async def test_initial_owner_endpoint_is_unavailable_when_application_auth_is_disabled():
     app = FastAPI()
     app.state.settings = SimpleNamespace(
+        smtp_enabled=False,
         app_auth_required=False,
         environment="development",
         allow_insecure_http=False,

@@ -391,3 +391,56 @@ it("sign-in offers invitation sign-up and can return to sign-in", async () => {
   await act(async () => { buttons().find((button) => button.textContent === "Back to sign-in")!.click(); });
   expect(container.textContent).not.toContain("Sign up with an invitation");
 });
+
+// --- Password recovery by e-mail.
+const resetReady = { ...required, password_reset_available: true };
+function fillAndSubmit(fields: Record<string, string>) {
+  const form = container.querySelector("form")!;
+  for (const [name, value] of Object.entries(fields)) form.querySelector<HTMLInputElement>(`[name="${name}"]`)!.value = value;
+  return act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+}
+it("offers 'Forgot password?' only when the server can mail reset links", async () => {
+  window.history.replaceState(null, "", "/login");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(required)).mockResolvedValue(reply({}, 401)));
+  await render("/login");
+  expect(container.textContent).not.toContain("Forgot password?");
+});
+it("requests a reset link and shows the same reply whether or not the account exists", async () => {
+  window.history.replaceState(null, "", "/login");
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(resetReady)).mockResolvedValueOnce(reply({}, 401))
+    .mockResolvedValueOnce(reply({ detail: "generic" }, 202));
+  vi.stubGlobal("fetch", fetcher); await render("/login");
+  await act(async () => { Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Forgot password?")!.click(); });
+  expect(container.textContent).toContain("Reset password");
+  await fillAndSubmit({ identifier: "owner@example.com" });
+  expect(fetcher.mock.calls[2][0]).toBe("/api/auth/password-reset/request");
+  expect(fetcher.mock.calls[2][1]).toMatchObject({ method: "POST", body: JSON.stringify({ identifier: "owner@example.com" }) });
+  expect(container.textContent).toContain("If an account with this e-mail exists");
+});
+it("a reset link sets a new password, then returns to sign-in", async () => {
+  window.history.replaceState(null, "", "/reset-password#token=test-only-reset");
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(resetReady)).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    .mockResolvedValueOnce(reply(resetReady)).mockResolvedValue(reply({}, 401));
+  vi.stubGlobal("fetch", fetcher); await render("/reset-password");
+  // The token leaves the address bar immediately.
+  expect(window.location.hash).toBe("");
+  await fillAndSubmit({ password: "new test-only password", password_repeat: "another test-only value" });
+  expect(container.textContent).toContain("The passwords do not match");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await fillAndSubmit({ password: "new test-only password", password_repeat: "new test-only password" });
+  expect(fetcher.mock.calls[1][0]).toBe("/api/auth/password-reset/confirm");
+  expect(fetcher.mock.calls[1][1]).toMatchObject({ method: "POST", body: JSON.stringify({ token: "test-only-reset", password: "new test-only password" }) });
+  expect(container.textContent).toContain("Password changed");
+  await act(async () => { Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Sign in")!.click(); });
+  expect(fetcher.mock.calls[2][0]).toBe("/api/auth/status");
+  expect(container.textContent).not.toContain("Password changed");
+});
+it("an expired or used reset link is reported and the form is locked", async () => {
+  window.history.replaceState(null, "", "/reset-password#token=test-only-used");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(resetReady)).mockResolvedValueOnce(reply({ detail: "invalid" }, 400)));
+  await render("/reset-password");
+  await fillAndSubmit({ password: "new test-only password", password_repeat: "new test-only password" });
+  expect(container.textContent).toContain("This link is not valid");
+  expect(container.querySelector<HTMLInputElement>('[name="password"]')!.disabled).toBe(true);
+  expect(finance).not.toHaveBeenCalled();
+});

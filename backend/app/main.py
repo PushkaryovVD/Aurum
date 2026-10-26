@@ -23,6 +23,7 @@ from app.api.routes import (
     insights,
     investments,
     net_worth,
+    password_reset,
     recurring,
     reports,
     settings as settings_routes,
@@ -103,6 +104,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         )
 
     configured_app.include_router(auth.router, prefix="/api")
+    configured_app.include_router(password_reset.router, prefix="/api")
     configured_app.include_router(telegram.router, prefix="/api")
     configured_app.include_router(workspaces.router, prefix="/api")
     protected = [Depends(require_finance_access)]

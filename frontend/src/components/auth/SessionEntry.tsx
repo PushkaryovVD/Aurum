@@ -20,11 +20,14 @@ export function SessionEntry({
   status,
   onFinanceAccessGranted,
   onInvitation,
+  onForgotPassword,
 }: {
   status: AppAuthStatus;
   onFinanceAccessGranted: (session: IdentitySession) => void;
   /** Opens account creation for a person who received an invitation. */
   onInvitation?: () => void;
+  /** Present only when the server can e-mail password-reset links. */
+  onForgotPassword?: () => void;
 }) {
   const { t } = useTranslation();
   const client = useQueryClient();
@@ -146,6 +149,7 @@ export function SessionEntry({
         <label className="block text-sm" htmlFor="entry-password">{t("entry.password")}<input id="entry-password" name="password" type="password" autoComplete="current-password" required maxLength={1024} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
         <button type="submit" disabled={!enabled} className={cn(entryButton, "w-full bg-text-primary text-surface-1 hover:bg-text-secondary")}>{busy ? t("entry.signingIn") : t("entry.signIn")}</button>
       </form>
+      {onForgotPassword && <button type="button" disabled={busy} className="mt-3 inline-flex min-h-11 items-center text-sm text-text-secondary underline underline-offset-4 hover:text-text-primary focus-visible:outline-2 focus-visible:outline-focus" onClick={onForgotPassword}>{t("entry.forgotPassword")}</button>}
       <p className="mt-5 text-xs leading-relaxed text-text-muted">{t("entry.bootstrap")}</p>
       {onInvitation && <button type="button" disabled={busy} className={`${entryButton} mt-3 w-full`} onClick={onInvitation}>{t("entry.inviteOpen")}</button>}
     </>}

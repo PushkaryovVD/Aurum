@@ -78,6 +78,8 @@ async def read_auth_status(
         "initial_owner_bootstrap_available": await initial_owner_bootstrap_available(
             session, app_auth_required=settings.app_auth_required
         ),
+        # "Forgot password?" is offered only when reset links can be mailed.
+        "password_reset_available": settings.app_auth_required and settings.smtp_enabled,
     }
 
 

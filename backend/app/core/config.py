@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     auth_invitation_max_attempts: int = Field(default=10, ge=1, le=100)
     auth_invitation_window_seconds: int = Field(default=900, ge=60, le=86400)
     auth_invitation_block_seconds: int = Field(default=900, ge=60, le=86400)
+    # Lifetime of an e-mailed password-reset link.
+    auth_password_reset_ttl_seconds: int = Field(default=1800, ge=300, le=86400)
     initial_owner_bootstrap_ttl_seconds: int = Field(default=900, ge=60, le=86400)
 
     @model_validator(mode="after")

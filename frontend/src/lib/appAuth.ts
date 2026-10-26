@@ -4,6 +4,8 @@ export interface AppAuthStatus {
   session_transport: "https" | "https_or_loopback" | "http_or_https";
   initial_owner_bootstrap_required: boolean;
   initial_owner_bootstrap_available: boolean;
+  /** Optional for older servers; true when reset links can be e-mailed. */
+  password_reset_available?: boolean;
 }
 
 export function parseAuthStatus(value: unknown): AppAuthStatus {
@@ -14,6 +16,7 @@ export function parseAuthStatus(value: unknown): AppAuthStatus {
       (!status.app_auth_required && !status.finance_access_ready) ||
       typeof status.initial_owner_bootstrap_required !== "boolean" ||
       typeof status.initial_owner_bootstrap_available !== "boolean" ||
+      (status.password_reset_available !== undefined && typeof status.password_reset_available !== "boolean") ||
       (status.session_transport !== "https" &&
        status.session_transport !== "https_or_loopback" &&
        status.session_transport !== "http_or_https")) {

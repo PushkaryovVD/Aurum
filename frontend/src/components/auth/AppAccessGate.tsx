@@ -4,6 +4,7 @@ import { useTranslation } from "@/lib/i18n";
 import { readAuthStatus, type AppAuthStatus } from "@/lib/appAuth";
 import { AppReturnLink, EntryFrame, entryButton, entryControl } from "./EntryFrame";
 import { InitialOwnerBootstrap } from "./InitialOwnerBootstrap";
+import { InvitationSignup, takeInvitationFromHash } from "./InvitationSignup";
 import { SessionEntry } from "./SessionEntry";
 import { WorkspaceProvider } from "@/contexts/WorkspaceContext";
 import { setApiSessionContext } from "@/api/client";
@@ -16,6 +17,11 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<IdentitySession | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // An invitation link (/login#invite=CODE) opens account creation directly.
+  const [invitation, setInvitation] = useState<{ token: string | null } | null>(() => {
+    const token = takeInvitationFromHash();
+    return token ? { token } : null;
+  });
   const grantFinanceAccess = useCallback((verified: IdentitySession) => {
     setApiSessionContext({ csrfToken: verified.csrf_token, workspaceId: verified.active_workspace.id });
     setSession(verified);
@@ -41,7 +47,17 @@ export function AppAccessGate({ children }: { children: ReactNode }) {
   );
   if (status.app_auth_required) {
     if (status.finance_access_ready && session) return <WorkspaceProvider session={session} onSessionEnded={endSession}>{children}</WorkspaceProvider>;
-    return <EntryFrame><SessionEntry status={status} onFinanceAccessGranted={grantFinanceAccess} /></EntryFrame>;
+    if (invitation && !session) return (
+      <EntryFrame>
+        <InvitationSignup
+          status={status}
+          initialToken={invitation.token}
+          onComplete={() => { setStatus(null); setInvitation(null); setAttempt((value) => value + 1); }}
+          onCancel={() => setInvitation(null)}
+        />
+      </EntryFrame>
+    );
+    return <EntryFrame><SessionEntry status={status} onFinanceAccessGranted={grantFinanceAccess} onInvitation={() => setInvitation({ token: null })} /></EntryFrame>;
   }
   if (!matchPath("/login", location.pathname)) return (
     <>

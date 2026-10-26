@@ -10,6 +10,7 @@ import {
   updateWorkspaceMember,
   type WorkspaceInvitation,
 } from "@/api/workspaces";
+import { invitationLink } from "@/components/auth/InvitationSignup";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Input, Label, Select } from "@/components/ui/Input";
@@ -93,7 +94,15 @@ export function WorkspaceCard() {
           <div><Label htmlFor="invite-role">{t("workspace.memberRole")}</Label><Select id="invite-role" name="role" className="min-h-11"><option value="editor">{t("workspace.role.editor")}</option><option value="viewer">{t("workspace.role.viewer")}</option></Select></div>
           <Button className="self-end" disabled={invite.isPending}>{t("workspace.invite")}</Button>
         </form>
-        {issued && <div className="rounded-lg border border-warning/40 bg-warning/10 p-3"><p className="text-sm font-medium">{t("workspace.tokenOnce")}</p><code className="mt-2 block break-all text-xs">{issued.token}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => void navigator.clipboard?.writeText(issued.token)}>{t("workspace.copy")}</Button></div>}
+        {issued && <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
+          <p className="text-sm font-medium">{t("workspace.tokenOnce")}</p>
+          <p className="mt-2 text-xs text-text-secondary">{t("workspace.inviteLinkHint")}</p>
+          <code className="mt-2 block break-all text-xs">{invitationLink(issued.token)}</code>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" onClick={() => void navigator.clipboard?.writeText(invitationLink(issued.token))}>{t("workspace.copyLink")}</Button>
+            <Button type="button" variant="secondary" onClick={() => void navigator.clipboard?.writeText(issued.token)}>{t("workspace.copy")}</Button>
+          </div>
+        </div>}
       </section>}
       {error && <p className="text-sm text-danger" role="alert">{t("workspace.actionError")}</p>}
     </CardContent>

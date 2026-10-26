@@ -29,9 +29,12 @@ async function currentSession(signal: AbortSignal): Promise<IdentitySession | nu
 export function SessionEntry({
   status,
   onFinanceAccessGranted,
+  onInvitation,
 }: {
   status: AppAuthStatus;
   onFinanceAccessGranted: (session: IdentitySession) => void;
+  /** Opens account creation for a person who received an invitation. */
+  onInvitation?: () => void;
 }) {
   const { t } = useTranslation();
   const client = useQueryClient();
@@ -154,6 +157,7 @@ export function SessionEntry({
         <button type="submit" disabled={!enabled} className={cn(entryButton, "w-full bg-text-primary text-surface-1 hover:bg-text-secondary")}>{busy ? t("entry.signingIn") : t("entry.signIn")}</button>
       </form>
       <p className="mt-5 text-xs leading-relaxed text-text-muted">{t("entry.bootstrap")}</p>
+      {onInvitation && <button type="button" disabled={busy} className={`${entryButton} mt-3 w-full`} onClick={onInvitation}>{t("entry.inviteOpen")}</button>}
     </>}
     {allowed && (phase === "error" || phase === "session") && <button type="button" disabled={busy} className={`${entryButton} mt-5 w-full`} onClick={() => { setBusy(false); setAttempt(attempt + 1); }}>{t("entry.retry")}</button>}
   </>;

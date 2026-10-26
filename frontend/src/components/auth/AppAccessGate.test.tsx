@@ -162,7 +162,7 @@ it("login uses real session contract, verifies cookie via me, and stores no cred
     .mockResolvedValueOnce(reply(session)).mockResolvedValueOnce(reply(session));
   vi.stubGlobal("fetch", fetcher);
   await render("/login");
-  expect(container.textContent).toContain("administrator account bootstrap is not ready");
+  expect(container.textContent).toContain("Ask a workspace owner to send you an invitation");
   await submitCredentials();
   expect(fetcher.mock.calls[2][0]).toBe("/api/auth/session");
   expect(fetcher.mock.calls[2][1]).toMatchObject({ method: "POST", credentials: "same-origin", cache: "no-store", body: JSON.stringify({ identifier: "test-only", password: "test-only-password" }) });
@@ -342,4 +342,52 @@ it("unmount during sign-out aborts it and leaves the cleared cache empty", async
   expect(client.getQueryData(["private-test"])).toBeUndefined();
   expect(finance).not.toHaveBeenCalled();
   expect(errors).not.toHaveBeenCalled();
+});
+
+// --- Invitation sign-up: the only way a new person creates an account.
+it("an invitation link opens sign-up, posts the real contract and then verifies the session", async () => {
+  window.history.replaceState(null, "", "/login#invite=test-only-invite");
+  const persist = vi.spyOn(Storage.prototype, "setItem");
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(required)).mockResolvedValueOnce(reply(session))
+    .mockResolvedValueOnce(reply(required)).mockResolvedValueOnce(reply(session));
+  vi.stubGlobal("fetch", fetcher); await render("/login");
+  // The code is taken out of the address bar so it is not kept in history.
+  expect(window.location.hash).toBe("");
+  expect(container.textContent).toContain("Sign up with an invitation");
+  const form = container.querySelector("form")!;
+  expect(form.querySelector<HTMLInputElement>('[name="token"]')!.value).toBe("test-only-invite");
+  form.querySelector<HTMLInputElement>('[name="display_name"]')!.value = "Test person";
+  form.querySelector<HTMLInputElement>('[name="identifier"]')!.value = "test-invitee";
+  form.querySelector<HTMLInputElement>('[name="password"]')!.value = "test-only-password";
+  await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  expect(fetcher.mock.calls[1][0]).toBe("/api/auth/invitations/accept");
+  expect(fetcher.mock.calls[1][1]).toMatchObject({ method: "POST", credentials: "same-origin", cache: "no-store", body: JSON.stringify({ token: "test-only-invite", identifier: "test-invitee", display_name: "Test person", password: "test-only-password" }) });
+  // Account creation alone is not trusted: status and the cookie session are re-read.
+  expect(fetcher.mock.calls[2][0]).toBe("/api/auth/status");
+  expect(fetcher.mock.calls[3][0]).toBe("/api/auth/me");
+  expect(container.textContent).toContain("Session confirmed");
+  expect(persist).not.toHaveBeenCalled();
+});
+it("a rejected invitation is reported honestly and clears the password", async () => {
+  window.history.replaceState(null, "", "/login#invite=test-only-invite");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(required)).mockResolvedValueOnce(reply({ detail: "Invitation is not available" }, 404)));
+  await render("/login");
+  const form = container.querySelector("form")!;
+  form.querySelector<HTMLInputElement>('[name="display_name"]')!.value = "Test person";
+  form.querySelector<HTMLInputElement>('[name="identifier"]')!.value = "test-invitee";
+  form.querySelector<HTMLInputElement>('[name="password"]')!.value = "test-only-password";
+  await act(async () => { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  expect(container.textContent).toContain("Could not create the account");
+  expect(form.querySelector<HTMLInputElement>('[name="password"]')!.value).toBe("");
+  expect(finance).not.toHaveBeenCalled();
+});
+it("sign-in offers invitation sign-up and can return to sign-in", async () => {
+  window.history.replaceState(null, "", "/login");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(required)).mockResolvedValue(reply({}, 401)));
+  await render("/login");
+  const buttons = () => Array.from(container.querySelectorAll("button"));
+  await act(async () => { buttons().find((button) => button.textContent === "I have an invitation")!.click(); });
+  expect(container.textContent).toContain("Sign up with an invitation");
+  await act(async () => { buttons().find((button) => button.textContent === "Back to sign-in")!.click(); });
+  expect(container.textContent).not.toContain("Sign up with an invitation");
 });

@@ -148,6 +148,7 @@ async def test_login_is_generic_rehashes_and_emits_only_secure_session_contract(
         "id": str(user_id),
         "identifier": "owner@example.com",
         "display_name": "Private owner",
+        "is_admin": False,
     }
     assert body["active_workspace"]["id"] == str(workspace_id)
     assert body["workspaces"] == [body["active_workspace"]]

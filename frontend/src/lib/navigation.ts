@@ -11,6 +11,7 @@ import {
   PieChart,
   Repeat,
   Settings,
+  ShieldCheck,
   Tags,
   Target,
   TrendingUp,
@@ -26,6 +27,8 @@ export interface NavItem {
   to: string;
   icon: LucideIcon;
   disabled?: boolean;
+  /** Shown only to installation administrators; the server enforces access. */
+  adminOnly?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -48,4 +51,10 @@ export const NAV_ITEMS: NavItem[] = [
   { labelKey: "nav.advice", to: "/advice", icon: Lightbulb },
   { labelKey: "nav.help", to: "/help", icon: CircleHelp },
   { labelKey: "nav.settings", to: "/settings", icon: Settings },
+  { labelKey: "nav.admin", to: "/admin", icon: ShieldCheck, adminOnly: true },
 ];
+
+/** Navigation entries the current identity may see. */
+export function visibleNavItems(isAdmin: boolean): NavItem[] {
+  return NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+}

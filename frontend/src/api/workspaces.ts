@@ -36,3 +36,6 @@ export const createWorkspaceInvitation = (workspaceId: string, recipient: string
 export const acceptWorkspaceInvitation = (token: string) =>
   api.post<IdentitySession>("/workspaces/invitations/accept", { token });
 export const fetchIdentitySession = () => api.get<IdentitySession>("/auth/me");
+/** Permanently deletes a household the caller owns; the exact name confirms intent. */
+export const deleteHouseholdWorkspace = (workspaceId: string, confirmName: string) =>
+  api.post<void>(`/workspaces/${workspaceId}/delete`, { confirm_name: confirmName });

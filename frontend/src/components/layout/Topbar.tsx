@@ -37,7 +37,10 @@ export function Topbar({ mobileNavOpen, onOpenMobileNav }: TopbarProps) {
           onChange={(event) => void workspace.switchWorkspace(event.target.value)}
           className="min-h-11 max-w-48 truncate rounded-md border border-border bg-surface-1 px-3 text-sm text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:cursor-default disabled:opacity-80"
         >
-          {workspace.workspaces.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}
+          {/* A blocked space stays listed (so its absence is explained) but cannot be chosen. */}
+          {workspace.workspaces.map((item) => <option key={item.id} value={item.id} disabled={item.status === "blocked" && item.id !== workspace.activeWorkspace.id}>
+            {item.status === "blocked" ? `${item.display_name} · ${t("workspace.status.blocked")}` : item.display_name}
+          </option>)}
         </select>
       </label>}
     </header>

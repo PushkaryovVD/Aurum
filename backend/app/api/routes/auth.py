@@ -30,7 +30,7 @@ from app.core.identity import (
     valid_normalized_identifier,
 )
 from app.models.auth import SecurityAuditEvent
-from app.models.workspace import User, UserStatus, Workspace, WorkspaceMembership
+from app.models.workspace import User, UserStatus, Workspace, WorkspaceMembership, WorkspaceStatus
 from app.schemas.auth import (
     AuthSessionResponse,
     AuthenticatedUser,
@@ -299,6 +299,7 @@ async def _session_response(
             display_name=workspace.display_name,
             kind=workspace.kind,
             role=membership.role,
+            status=workspace.status,
         )
         for membership, workspace in rows
     ]
@@ -306,6 +307,13 @@ async def _session_response(
 
     if requested_workspace is None:
         active_id = user.personal_workspace_id
+        default = by_id.get(active_id)
+        if default is not None and default.status == WorkspaceStatus.BLOCKED:
+            # A blocked personal space must not hide the spaces still open to the user.
+            active_id = next(
+                (summary.id for summary in summaries if summary.status == WorkspaceStatus.ACTIVE),
+                active_id,
+            )
     else:
         try:
             active_id = UUID(requested_workspace)
@@ -321,6 +329,7 @@ async def _session_response(
             id=user.id,
             identifier=user.normalized_login,
             display_name=user.display_name,
+            is_admin=user.is_admin,
         ),
         workspaces=summaries,
         active_workspace=active_workspace,

@@ -12,13 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.db.session import get_db
 from app.models.auth import UserSession
-from app.models.workspace import User, Workspace, WorkspaceMembership, WorkspaceRole
+from app.models.workspace import User, Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceStatus
 from app.security.auth import enforce_csrf
 from app.services.auth_session_service import AuthSessionService
 
 DbSession = AsyncSession
 SESSION_COOKIE_NAME = "aurum_session"
 CSRF_HEADER_NAME = "X-CSRF-Token"
+# 423 Locked tells the client the workspace exists but an administrator froze it.
+WORKSPACE_BLOCKED_STATUS = 423
+WORKSPACE_BLOCKED_DETAIL = "Workspace is blocked"
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -147,7 +150,7 @@ def credential_transport_allowed(request: Request, settings: Settings) -> bool:
     )
 
 
-WORKSPACE_SECURITY_REVISION = "fa4d6e8b123"
+WORKSPACE_SECURITY_REVISION = "b3d5f7a9c142"
 
 
 async def finance_access_ready(session: AsyncSession, settings: Settings) -> bool:
@@ -263,4 +266,20 @@ async def get_request_workspace(
     if row is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
     membership, workspace = row
+    if workspace.status == WorkspaceStatus.BLOCKED:
+        # Rows are kept intact; no member reads or writes them while blocked.
+        raise HTTPException(status_code=WORKSPACE_BLOCKED_STATUS, detail=WORKSPACE_BLOCKED_DETAIL)
     return RequestWorkspace(user=authenticated.user, workspace=workspace, membership=membership)
+
+
+async def require_installation_admin(
+    authenticated: AuthenticatedSession = Depends(require_authenticated_session),
+) -> AuthenticatedSession:
+    """Allow installation administration only to active admin identities.
+
+    Admin rights cover users and workspaces as containers; they never grant
+    access to any workspace's financial rows.
+    """
+    if not authenticated.user.is_admin:
+        raise HTTPException(status_code=403, detail="Administrator role required")
+    return authenticated

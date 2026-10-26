@@ -4,6 +4,7 @@ import {
   acceptWorkspaceInvitation,
   createWorkspace,
   createWorkspaceInvitation,
+  deleteHouseholdWorkspace,
   fetchIdentitySession,
   fetchWorkspaceMembers,
   removeWorkspaceMember,
@@ -11,6 +12,7 @@ import {
   type WorkspaceInvitation,
 } from "@/api/workspaces";
 import { invitationLink } from "@/components/auth/InvitationSignup";
+import { DeleteWorkspaceDialog } from "@/components/workspace/DeleteWorkspaceDialog";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Input, Label, Select } from "@/components/ui/Input";
@@ -23,6 +25,7 @@ export function WorkspaceCard() {
   const workspace = useWorkspace();
   const queryClient = useQueryClient();
   const [issued, setIssued] = useState<WorkspaceInvitation | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const active = workspace?.activeWorkspace;
   const canAdminister = active?.kind === "household" && active.role === "owner";
   // Invitations grant access to a family space; only its owner may issue them.
@@ -54,6 +57,13 @@ export function WorkspaceCard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workspace-members", active?.id] }),
   });
   const signOut = useMutation({ mutationFn: () => workspace!.signOut() });
+  const removeWorkspace = useMutation({
+    mutationFn: ({ id, confirmName }: { id: string; confirmName: string }) => deleteHouseholdWorkspace(id, confirmName),
+    onSuccess: async (_value, { id }) => {
+      setDeleteOpen(false);
+      await workspace?.dropWorkspace(id);
+    },
+  });
 
   if (!workspace || !active) return null;
   const submit = (handler: (data: FormData) => void) => (event: FormEvent<HTMLFormElement>) => {
@@ -122,6 +132,17 @@ export function WorkspaceCard() {
           </li>)}
         </ul>
       </section>}
+      {canAdminister && <section className="space-y-3 border-t border-border pt-5">
+        <p className="text-sm text-text-secondary">{t("workspace.delete.warning", { name: active.display_name })}</p>
+        <Button type="button" variant="danger" className="w-full sm:w-auto" onClick={() => { removeWorkspace.reset(); setDeleteOpen(true); }}>{t("workspace.delete.button")}</Button>
+      </section>}
+      <DeleteWorkspaceDialog
+        workspace={deleteOpen && canAdminister ? active : null}
+        pending={removeWorkspace.isPending}
+        error={removeWorkspace.error ? removeWorkspace.error.message : null}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={(confirmName) => removeWorkspace.mutate({ id: active.id, confirmName })}
+      />
       {error && <p className="text-sm text-danger" role="alert">{t("workspace.actionError")}</p>}
     </CardContent>
   </Card>;

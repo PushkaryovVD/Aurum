@@ -6,6 +6,7 @@ from datetime import datetime
 from uuid import UUID as PythonUUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -27,6 +28,12 @@ from app.models.mixins import TimestampMixin
 class UserStatus(str, enum.Enum):
     ACTIVE = "active"
     DISABLED = "disabled"
+
+
+class WorkspaceStatus(str, enum.Enum):
+    # A blocked workspace keeps every row but no member can open it.
+    ACTIVE = "active"
+    BLOCKED = "blocked"
 
 
 class WorkspaceKind(str, enum.Enum):
@@ -71,6 +78,10 @@ class User(Base, TimestampMixin):
         nullable=False,
         default=UserStatus.ACTIVE,
     )
+    # Installation administrators manage users and workspaces, never finances.
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     personal_workspace_id: Mapped[PythonUUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(
@@ -113,6 +124,20 @@ class Workspace(Base, TimestampMixin):
         nullable=False,
     )
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[WorkspaceStatus] = mapped_column(
+        Enum(
+            WorkspaceStatus,
+            name="workspace_status",
+            native_enum=False,
+            length=10,
+            create_constraint=True,
+            values_callable=_enum_values,
+        ),
+        nullable=False,
+        default=WorkspaceStatus.ACTIVE,
+        server_default=WorkspaceStatus.ACTIVE.value,
+    )
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by_user_id: Mapped[PythonUUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(

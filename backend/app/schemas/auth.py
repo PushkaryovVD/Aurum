@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.workspace import WorkspaceKind, WorkspaceRole
+from app.models.workspace import WorkspaceKind, WorkspaceRole, WorkspaceStatus
 
 
 class LoginRequest(BaseModel):
@@ -24,6 +24,8 @@ class AuthenticatedUser(BaseModel):
     id: UUID
     identifier: str
     display_name: str
+    # Drives the installation-admin UI only; the server re-checks every call.
+    is_admin: bool = False
 
 
 class WorkspaceSummary(BaseModel):
@@ -31,6 +33,8 @@ class WorkspaceSummary(BaseModel):
     display_name: str
     kind: WorkspaceKind
     role: WorkspaceRole
+    # Blocked workspaces stay listed so the client can explain why they are closed.
+    status: WorkspaceStatus = WorkspaceStatus.ACTIVE
 
 
 class AuthSessionResponse(BaseModel):

@@ -1,7 +1,7 @@
 import { createContext, Fragment, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, setApiSessionContext } from "@/api/client";
-import type { IdentitySession, WorkspaceSummary } from "@/lib/authSession";
+import { api, setApiSessionContext, WORKSPACE_BLOCKED_EVENT } from "@/api/client";
+import type { IdentitySession, WorkspaceStatus, WorkspaceSummary } from "@/lib/authSession";
 
 interface WorkspaceContextValue {
   user: IdentitySession["user"];
@@ -10,6 +10,10 @@ interface WorkspaceContextValue {
   switching: boolean;
   switchWorkspace: (workspaceId: string) => Promise<void>;
   replaceSession: (session: IdentitySession) => Promise<void>;
+  /** Reflects an admin block/unblock without another server round trip. */
+  setWorkspaceStatus: (workspaceId: string, status: WorkspaceStatus) => void;
+  /** Forgets a deleted workspace and, if it was active, opens an open one. */
+  dropWorkspace: (workspaceId: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -26,6 +30,17 @@ export function WorkspaceProvider({ session, onSessionEnded, children }: { sessi
     return () => setApiSessionContext(null);
   }, [session]);
 
+  // A workspace can be blocked while it is open; finance calls then answer 423.
+  useEffect(() => {
+    const onBlocked = (event: Event) => {
+      const workspaceId = (event as CustomEvent<string>).detail;
+      setCurrentSession((current) => withStatus(current, workspaceId, "blocked"));
+      setActiveWorkspace((current) => (current.id === workspaceId ? { ...current, status: "blocked" } : current));
+    };
+    window.addEventListener(WORKSPACE_BLOCKED_EVENT, onBlocked);
+    return () => window.removeEventListener(WORKSPACE_BLOCKED_EVENT, onBlocked);
+  }, []);
+
   const value = useMemo<WorkspaceContextValue>(() => ({
     user: currentSession.user,
     workspaces: currentSession.workspaces,
@@ -35,6 +50,7 @@ export function WorkspaceProvider({ session, onSessionEnded, children }: { sessi
       if (workspaceId === activeWorkspace.id || switching) return;
       const next = currentSession.workspaces.find((workspace) => workspace.id === workspaceId);
       if (!next) throw new Error("Workspace is not available to this session");
+      if (next.status === "blocked") throw new Error("Workspace is blocked");
       setSwitching(true);
       try {
         await queryClient.cancelQueries();
@@ -52,6 +68,30 @@ export function WorkspaceProvider({ session, onSessionEnded, children }: { sessi
       setCurrentSession(nextSession);
       setActiveWorkspace(nextSession.active_workspace);
     },
+    setWorkspaceStatus(workspaceId, status) {
+      setCurrentSession((current) => withStatus(current, workspaceId, status));
+      setActiveWorkspace((current) => (current.id === workspaceId ? { ...current, status } : current));
+    },
+    async dropWorkspace(workspaceId) {
+      const remaining = currentSession.workspaces.filter((workspace) => workspace.id !== workspaceId);
+      if (remaining.length === currentSession.workspaces.length) return;
+      if (remaining.length === 0) {
+        onSessionEnded();
+        return;
+      }
+      const next = activeWorkspace.id === workspaceId
+        ? remaining.find((workspace) => workspace.kind === "personal" && workspace.status === "active")
+          ?? remaining.find((workspace) => workspace.status === "active")
+          ?? remaining[0]
+        : activeWorkspace;
+      if (next.id !== activeWorkspace.id) {
+        await queryClient.cancelQueries();
+        setApiSessionContext({ csrfToken: currentSession.csrf_token, workspaceId: next.id });
+        queryClient.clear();
+      }
+      setCurrentSession({ ...currentSession, workspaces: remaining, active_workspace: next });
+      setActiveWorkspace(next);
+    },
     async signOut() {
       await api.delete<void>("/auth/session");
       await queryClient.cancelQueries();
@@ -62,6 +102,11 @@ export function WorkspaceProvider({ session, onSessionEnded, children }: { sessi
   }), [activeWorkspace, currentSession, onSessionEnded, queryClient, switching]);
 
   return <WorkspaceContext.Provider value={value}><Fragment key={activeWorkspace.id}>{children}</Fragment></WorkspaceContext.Provider>;
+}
+
+function withStatus(session: IdentitySession, workspaceId: string, status: WorkspaceStatus): IdentitySession {
+  const update = (workspace: WorkspaceSummary) => (workspace.id === workspaceId ? { ...workspace, status } : workspace);
+  return { ...session, workspaces: session.workspaces.map(update), active_workspace: update(session.active_workspace) };
 }
 
 export function useWorkspace(): WorkspaceContextValue | null {

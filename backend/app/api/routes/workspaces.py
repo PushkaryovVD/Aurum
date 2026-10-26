@@ -14,6 +14,7 @@ from app.api.deps import (
     client_signal,
     get_app_settings,
     get_session,
+    request_origin,
     require_authenticated_session,
     resolve_authenticated_session,
 )
@@ -25,7 +26,7 @@ from app.api.routes.auth import (
 )
 from app.core.config import Settings
 from app.models.auth import SecurityAuditEvent, UserSession
-from app.models.workspace import User, WorkspaceMembership, WorkspaceRole
+from app.models.workspace import User, Workspace, WorkspaceMembership, WorkspaceRole
 from app.schemas.auth import AuthSessionResponse
 from app.schemas.workspace import (
     HouseholdCreate,
@@ -35,6 +36,7 @@ from app.schemas.workspace import (
     WorkspaceResponse,
 )
 from app.services.auth_rate_limit_service import AuthRateLimiter
+from app.services.email_service import InvitationEmail, invitation_link, send_invitation_email
 from app.services.workspace_service import (
     InvitationUnavailable,
     accept_for_existing_user,
@@ -300,6 +302,21 @@ async def issue_invitation(
         )
     )
     await session.commit()
+    # Mail goes out only after the invitation is durable; a failed send never
+    # undoes it, and the inviter still receives the shareable link.
+    workspace = await session.get(Workspace, record.workspace_id)
+    base_url = settings.public_url.strip() or request_origin(request, settings)
+    email_sent = await send_invitation_email(
+        settings,
+        InvitationEmail(
+            recipient=record.recipient_normalized,
+            workspace_name=workspace.display_name if workspace is not None else "Aurum",
+            inviter_name=authenticated.user.display_name,
+            role=str(getattr(record.role, "value", record.role)),
+            link=invitation_link(base_url, raw_token),
+            expires_at=record.expires_at,
+        ),
+    )
     return InvitationCreated(
         id=record.id,
         workspace_id=record.workspace_id,
@@ -307,6 +324,7 @@ async def issue_invitation(
         role=record.role,
         expires_at=record.expires_at,
         token=raw_token,
+        email_sent=email_sent,
     )
 
 

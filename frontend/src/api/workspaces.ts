@@ -19,6 +19,8 @@ export interface WorkspaceInvitation {
   role: WorkspaceRole;
   expires_at: string;
   token: string;
+  /** True when the server mailed the invitation to the recipient. */
+  email_sent?: boolean;
 }
 
 export const createWorkspace = (displayName: string) =>

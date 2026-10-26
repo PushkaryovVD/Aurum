@@ -54,6 +54,22 @@ class Settings(BaseSettings):
     telegram_init_data_max_age_seconds: int = Field(default=300, ge=30, le=3600)
     telegram_link_code_ttl_seconds: int = Field(default=600, ge=60, le=3600)
 
+    # Outgoing mail for invitations (optional). With Gmail use smtp.gmail.com,
+    # port 587 (STARTTLS) and an app password, never the account password.
+    # The password is a SecretStr and lives only in the private .env file.
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    # Sender address; defaults to smtp_username when blank.
+    smtp_from: str = ""
+    # "starttls" (port 587), "ssl" (port 465) or "none" (trusted relay only).
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    smtp_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    # Public address used in invitation links, e.g. http://192.168.1.16:3000.
+    # Blank means "the address the inviter is using right now".
+    public_url: str = ""
+
     # Swagger/ReDoc/openapi.json opt-in for legacy auth-disabled mode. The
     # docs_enabled property below always suppresses them when application auth
     # is required, regardless of this compatibility default.
@@ -180,6 +196,14 @@ class Settings(BaseSettings):
     def docs_enabled(self) -> bool:
         """Keep API metadata unavailable whenever application auth is enabled."""
         return self.enable_docs and not self.app_auth_required
+
+    @property
+    def smtp_enabled(self) -> bool:
+        return bool(self.smtp_host.strip() and (self.smtp_from.strip() or self.smtp_username.strip()))
+
+    @property
+    def smtp_sender(self) -> str:
+        return self.smtp_from.strip() or self.smtp_username.strip()
 
     @property
     def telegram_mini_app_enabled(self) -> bool:

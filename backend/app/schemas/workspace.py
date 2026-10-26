@@ -44,6 +44,8 @@ class InvitationCreated(BaseModel):
     role: WorkspaceRole
     expires_at: datetime
     token: str
+    # True only when the SMTP server accepted the invitation e-mail.
+    email_sent: bool = False
 
 
 class InvitationAccept(BaseModel):

@@ -747,3 +747,73 @@ async def test_unavailable_invitation_states_are_generic(
     )
     assert response.status_code == 404
     assert response.json() == GENERIC_INVITATION_ERROR
+
+
+async def test_invitation_is_mailed_with_link_when_smtp_is_configured(
+    test_sessionmaker, invitation_settings, monkeypatch
+):
+    # Fake transport: the test never talks to a real mail server.
+    sent = []
+    monkeypatch.setattr(
+        "app.services.email_service._send_blocking",
+        lambda settings, message: sent.append(message),
+    )
+    settings = invitation_settings.model_copy(
+        update={
+            "smtp_host": "smtp.test.invalid",
+            "smtp_username": "sender@example.com",
+            "public_url": "http://aurum.test:3000/",
+        }
+    )
+    application = create_app(settings)
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        async with test_sessionmaker() as session:
+            yield session
+
+    application.dependency_overrides[get_session] = override_get_session
+    await _bootstrap_user(test_sessionmaker)
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="https://test/api") as client:
+        csrf_token, _ = await _login(client, "owner@example.com")
+        household_id = await _create_household(client, csrf_token, "Family")
+        mailed = await _create_invitation(client, csrf_token, household_id, "member@example.com")
+        not_mailbox = await _create_invitation(client, csrf_token, household_id, "plain-login")
+
+    assert mailed["email_sent"] is True
+    assert not_mailbox["email_sent"] is False
+    assert len(sent) == 1
+    message = sent[0]
+    assert message["To"] == "member@example.com"
+    assert message["From"] == "sender@example.com"
+    body = message.get_body(preferencelist=("plain",)).get_content()
+    assert f"http://aurum.test:3000/login#invite={mailed['token']}" in body
+    assert "Family" in body
+
+
+async def test_failed_mail_delivery_still_issues_the_invitation(
+    test_sessionmaker, invitation_settings, monkeypatch
+):
+    def refuse(settings, message):
+        raise ConnectionRefusedError("smtp down")
+
+    monkeypatch.setattr("app.services.email_service._send_blocking", refuse)
+    settings = invitation_settings.model_copy(
+        update={"smtp_host": "smtp.test.invalid", "smtp_username": "sender@example.com"}
+    )
+    application = create_app(settings)
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        async with test_sessionmaker() as session:
+            yield session
+
+    application.dependency_overrides[get_session] = override_get_session
+    await _bootstrap_user(test_sessionmaker)
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="https://test/api") as client:
+        csrf_token, _ = await _login(client, "owner@example.com")
+        household_id = await _create_household(client, csrf_token)
+        invitation = await _create_invitation(client, csrf_token, household_id, "member@example.com")
+
+    assert invitation["email_sent"] is False
+    assert invitation["token"]
+    async with test_sessionmaker() as session:
+        assert (await session.execute(select(WorkspaceInvitation))).scalar_one().uses == 0

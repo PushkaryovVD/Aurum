@@ -98,6 +98,14 @@ services:
       AURUM_TRADERNET_API_SECRET_KEY: ${AURUM_TRADERNET_API_SECRET_KEY:-}
       AURUM_TELEGRAM_BOT_TOKEN: ${AURUM_TELEGRAM_BOT_TOKEN:-}
       AURUM_TELEGRAM_WEBAPP_URL: ${AURUM_TELEGRAM_WEBAPP_URL:-}
+      # Optional invitation e-mail (see .env.example).
+      AURUM_SMTP_HOST: ${AURUM_SMTP_HOST:-}
+      AURUM_SMTP_PORT: ${AURUM_SMTP_PORT:-587}
+      AURUM_SMTP_USERNAME: ${AURUM_SMTP_USERNAME:-}
+      AURUM_SMTP_PASSWORD: ${AURUM_SMTP_PASSWORD:-}
+      AURUM_SMTP_FROM: ${AURUM_SMTP_FROM:-}
+      AURUM_SMTP_SECURITY: ${AURUM_SMTP_SECURITY:-starttls}
+      AURUM_PUBLIC_URL: ${AURUM_PUBLIC_URL:-}
       AURUM_ENABLE_DOCS: ${AURUM_ENABLE_DOCS:-true}
       # The develop/test deployment must expose the first-owner ceremony
       # without asking the operator to edit CasaOS environment fields.

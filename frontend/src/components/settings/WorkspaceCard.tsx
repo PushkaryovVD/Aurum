@@ -95,6 +95,7 @@ export function WorkspaceCard() {
           <Button className="self-end" disabled={invite.isPending}>{t("workspace.invite")}</Button>
         </form>
         {issued && <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
+          {issued.email_sent && <p className="mb-2 text-sm font-medium text-success" role="status">{t("workspace.inviteEmailSent", { recipient: issued.recipient })}</p>}
           <p className="text-sm font-medium">{t("workspace.tokenOnce")}</p>
           <p className="mt-2 text-xs text-text-secondary">{t("workspace.inviteLinkHint")}</p>
           <code className="mt-2 block break-all text-xs">{invitationLink(issued.token)}</code>

@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { sessionTransportAllowed, type AppAuthStatus } from "@/lib/appAuth";
+import { cn } from "@/lib/utils";
 import { entryButton, entryControl } from "./EntryFrame";
 
 const RESET_PATH = "/reset-password";
@@ -17,7 +18,9 @@ export function takeResetTokenFromLocation(): string | null {
   return token || null;
 }
 
-const primaryButton = `${entryButton} w-full bg-text-primary text-surface-1 hover:bg-text-secondary`;
+// cn() resolves the conflicting background/text utilities of entryButton;
+// plain concatenation left a light button with light text in dark mode.
+const primaryButton = cn(entryButton, "w-full bg-text-primary text-surface-1 hover:bg-text-secondary");
 
 /** Step 1: ask for a reset link. The reply is the same whether or not the
  * account exists, so this screen never confirms that a login is registered. */

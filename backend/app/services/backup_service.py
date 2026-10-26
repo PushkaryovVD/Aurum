@@ -11,6 +11,7 @@ app half-restored.
 """
 import logging
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
@@ -60,28 +61,62 @@ logger = logging.getLogger(__name__)
 BACKUP_FORMAT_VERSION = 2
 
 
-async def build_backup(session: AsyncSession) -> BackupPayload:
-    accounts = (await session.execute(select(Account))).scalars().all()
-    categories = (await session.execute(select(Category))).scalars().all()
-    tags = (await session.execute(select(Tag))).scalars().all()
-    transactions = (await session.execute(select(Transaction).options(selectinload(Transaction.tags)))).scalars().all()
-    exchange_rates = (await session.execute(select(ExchangeRate))).scalars().all()
-    transaction_splits = (await session.execute(select(TransactionSplit))).scalars().all()
-    assets = (await session.execute(select(Asset))).scalars().all()
-    valuations = (await session.execute(select(AssetValuation))).scalars().all()
-    crypto_portfolios = (await session.execute(select(CryptoPortfolio))).scalars().all()
-    crypto_holdings = (await session.execute(select(CryptoHolding))).scalars().all()
-    crypto_transactions = (await session.execute(select(CryptoTransaction))).scalars().all()
-    budgets = (await session.execute(select(Budget))).scalars().all()
-    goals = (await session.execute(select(Goal))).scalars().all()
-    goal_contributions = (await session.execute(select(GoalContribution))).scalars().all()
-    recurring_transactions = (await session.execute(select(RecurringTransaction))).scalars().all()
-    app_settings = await session.get(AppSettings, 1)
-    investment_portfolios = (await session.execute(select(InvestmentPortfolio))).scalars().all()
-    securities = (await session.execute(select(Security))).scalars().all()
-    security_trades = (await session.execute(select(SecurityTrade))).scalars().all()
-    security_dividends = (await session.execute(select(SecurityDividend))).scalars().all()
-    security_prices = (await session.execute(select(SecurityPrice))).scalars().all()
+async def build_backup(session: AsyncSession, workspace_id: UUID | None = None) -> BackupPayload:
+    """Export the whole installation (legacy mode, ``workspace_id=None``) or
+    exactly one workspace. In the scoped form every row is either owned by the
+    workspace or hangs off one of its assets/goals, so nothing from another
+    workspace can leak in. Exchange rates are public reference data and are
+    included in both forms."""
+
+    async def rows(model, *, scoped: bool = True, query=None):
+        statement = query if query is not None else select(model)
+        if workspace_id is not None and scoped:
+            statement = statement.where(model.workspace_id == workspace_id)
+        return (await session.execute(statement)).scalars().all()
+
+    accounts = await rows(Account)
+    categories = await rows(Category)
+    tags = await rows(Tag)
+    transactions = await rows(Transaction, query=select(Transaction).options(selectinload(Transaction.tags)))
+    exchange_rates = await rows(ExchangeRate, scoped=False)
+    transaction_splits = await rows(TransactionSplit)
+    assets = await rows(Asset)
+    crypto_portfolios = await rows(CryptoPortfolio)
+    budgets = await rows(Budget)
+    goals = await rows(Goal)
+    recurring_transactions = await rows(RecurringTransaction)
+    investment_portfolios = await rows(InvestmentPortfolio)
+
+    # Children without their own workspace column are selected through the
+    # workspace's assets and goals.
+    asset_ids = [row.id for row in assets]
+    goal_ids = [row.id for row in goals]
+
+    def by_parent(model, column, ids):
+        if workspace_id is None:
+            return select(model)
+        return select(model).where(column.in_(ids))
+
+    valuations = await rows(AssetValuation, scoped=False, query=by_parent(AssetValuation, AssetValuation.asset_id, asset_ids))
+    crypto_holdings = await rows(CryptoHolding, scoped=False, query=by_parent(CryptoHolding, CryptoHolding.asset_id, asset_ids))
+    crypto_transactions = await rows(
+        CryptoTransaction, scoped=False, query=by_parent(CryptoTransaction, CryptoTransaction.asset_id, asset_ids)
+    )
+    goal_contributions = await rows(
+        GoalContribution, scoped=False, query=by_parent(GoalContribution, GoalContribution.goal_id, goal_ids)
+    )
+    securities = await rows(Security, scoped=False, query=by_parent(Security, Security.asset_id, asset_ids))
+    security_trades = await rows(SecurityTrade, scoped=False, query=by_parent(SecurityTrade, SecurityTrade.asset_id, asset_ids))
+    security_dividends = await rows(
+        SecurityDividend, scoped=False, query=by_parent(SecurityDividend, SecurityDividend.asset_id, asset_ids)
+    )
+    security_prices = await rows(SecurityPrice, scoped=False, query=by_parent(SecurityPrice, SecurityPrice.asset_id, asset_ids))
+    if workspace_id is None:
+        app_settings = await session.get(AppSettings, 1)
+    else:
+        app_settings = (
+            await session.execute(select(AppSettings).where(AppSettings.workspace_id == workspace_id))
+        ).scalar_one_or_none()
 
     return BackupPayload(
         aurum_backup_version=BACKUP_FORMAT_VERSION,

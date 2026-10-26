@@ -356,24 +356,70 @@ async def test_auth_disabled_keeps_legacy_unscoped_behavior_and_zero_decimal(
     assert Decimal(str(accounts[destination["id"]]["balance"])) == Decimal("0.00")
 
 
-async def test_workspace_mode_disables_installation_wide_backup(
+async def test_workspace_mode_exports_only_the_active_workspace_and_keeps_restore_closed(
     client: AsyncClient, workspace_client: AsyncClient, test_sessionmaker
 ):
     legacy_export = await client.get("/backup/export")
     assert legacy_export.status_code == 200
-    account_count = len((await client.get("/accounts")).json())
 
-    _, workspace_id = await _bootstrap_user(test_sessionmaker, "backup-owner@example.com")
+    _, own_workspace = await _bootstrap_user(test_sessionmaker, "backup-owner@example.com")
+    _, other_workspace = await _bootstrap_user(test_sessionmaker, "backup-other@example.com")
+    other_csrf = await _login(workspace_client, "backup-other@example.com")
+    other = await _create_core_records(workspace_client, other_csrf, other_workspace, "other")
     csrf = await _login(workspace_client, "backup-owner@example.com")
-    headers = _write_headers(csrf, workspace_id)
+    own = await _create_core_records(workspace_client, csrf, own_workspace, "own")
+    headers = _write_headers(csrf, own_workspace)
+    account_count = len((await client.get("/accounts")).json())
 
     export_response = await workspace_client.get("/backup/export", headers=headers)
     import_response = await workspace_client.post(
         "/backup/import", json=legacy_export.json(), headers=headers
     )
 
-    assert export_response.status_code == 503
+    assert export_response.status_code == 200, export_response.text
+    exported = export_response.json()
+    # Only this workspace: neither another user's rows nor legacy NULL-scope rows.
+    assert {row["id"] for row in exported["accounts"]} == {own["account"]["id"]}
+    assert {row["id"] for row in exported["transactions"]} == {own["transaction"]["id"]}
+    assert other["account"]["id"] not in {row["id"] for row in exported["accounts"]}
+    assert {row["name"] for row in exported["tags"]} == {"Tag own"}
+    # Restoring would replace data installation-wide, so it stays closed.
     assert import_response.status_code == 503
-    assert export_response.json() == {"detail": "Workspace backup unavailable"}
     assert import_response.json() == {"detail": "Workspace backup unavailable"}
     assert len((await client.get("/accounts")).json()) == account_count
+
+
+async def test_workspace_export_is_owner_only(workspace_client: AsyncClient, test_sessionmaker):
+    owner_id, _ = await _bootstrap_user(test_sessionmaker, "family-owner@example.com")
+    member_id, _ = await _bootstrap_user(test_sessionmaker, "family-member@example.com")
+    household = uuid4()
+    async with test_sessionmaker() as session:
+        await session.execute(
+            text(
+                """
+                INSERT INTO workspaces (id, kind, display_name, created_by_user_id)
+                VALUES (:workspace_id, 'household', 'Family', :owner_id)
+                """
+            ),
+            {"workspace_id": household, "owner_id": owner_id},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO workspace_memberships (id, workspace_id, user_id, role)
+                VALUES (:owner_membership, :workspace_id, :owner_id, 'owner'),
+                       (:member_membership, :workspace_id, :member_id, 'editor')
+                """
+            ),
+            {
+                "owner_membership": uuid4(),
+                "member_membership": uuid4(),
+                "workspace_id": household,
+                "owner_id": owner_id,
+                "member_id": member_id,
+            },
+        )
+        await session.commit()
+    csrf = await _login(workspace_client, "family-member@example.com")
+    response = await workspace_client.get("/backup/export", headers=_write_headers(csrf, household))
+    assert response.status_code == 403

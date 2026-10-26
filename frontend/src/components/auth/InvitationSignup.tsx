@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { sessionTransportAllowed, type AppAuthStatus } from "@/lib/appAuth";
+import { cn } from "@/lib/utils";
 import { entryButton, entryControl } from "./EntryFrame";
 
 const INVITE_HASH_PREFIX = "#invite=";
@@ -75,7 +76,7 @@ export function InvitationSignup({ status, initialToken, onComplete, onCancel }:
       <label className="block text-sm" htmlFor="invite-name">{t("entry.bootstrapName")}<input id="invite-name" name="display_name" autoComplete="name" required maxLength={100} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /></label>
       <label className="block text-sm" htmlFor="invite-identifier">{t("entry.identifier")}<input id="invite-identifier" name="identifier" autoComplete="username" required maxLength={320} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /><span className="mt-1 block text-xs text-text-muted">{t("entry.inviteIdentifierHint")}</span></label>
       <label className="block text-sm" htmlFor="invite-password">{t("entry.password")}<input id="invite-password" name="password" type="password" autoComplete="new-password" required minLength={12} maxLength={1024} disabled={!enabled} className={`${entryControl} mt-2 w-full`} /><span className="mt-1 block text-xs text-text-muted">{t("entry.invitePasswordHint")}</span></label>
-      <button type="submit" disabled={!enabled} className={`${entryButton} w-full bg-text-primary text-surface-1 hover:bg-text-secondary`}>{busy ? t("entry.inviteSubmitting") : t("entry.inviteSubmit")}</button>
+      <button type="submit" disabled={!enabled} className={cn(entryButton, "w-full bg-text-primary text-surface-1 hover:bg-text-secondary")}>{busy ? t("entry.inviteSubmitting") : t("entry.inviteSubmit")}</button>
     </form>
     <button type="button" disabled={busy} className={`${entryButton} mt-3 w-full`} onClick={onCancel}>{t("entry.inviteBack")}</button>
   </>;

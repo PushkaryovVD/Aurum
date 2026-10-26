@@ -20,7 +20,8 @@ from app.api.deps import (
 from app.api.routes.auth import _session_response, _set_session_cookie
 from app.core.config import Settings
 from app.models.auth import SecurityAuditEvent, TelegramIdentity
-from app.models.workspace import User, UserStatus, WorkspaceMembership
+from app.models.account import Account
+from app.models.workspace import User, UserStatus, Workspace, WorkspaceMembership
 from app.schemas.auth import AuthSessionResponse
 from app.schemas.telegram import TelegramLinkCodeResponse, TelegramMiniAppSessionRequest, TelegramStatusResponse
 from app.services.telegram_service import TelegramInitDataError, issue_link_code, validate_init_data
@@ -37,11 +38,21 @@ async def telegram_status(
     identity = (
         await session.execute(select(TelegramIdentity).where(TelegramIdentity.user_id == authenticated.user.id))
     ).scalar_one_or_none()
+    workspace = await session.get(Workspace, identity.default_workspace_id) if identity else None
+    account = None
+    if identity is not None and identity.default_account_id is not None:
+        account = await session.get(Account, identity.default_account_id)
+        # A stale pointer into another space is never shown as the target.
+        if account is None or account.workspace_id != identity.default_workspace_id or account.is_archived:
+            account = None
     return TelegramStatusResponse(
         configured=bool(settings.telegram_bot_token.get_secret_value()),
         mini_app_configured=settings.telegram_mini_app_enabled,
         linked=identity is not None,
         username=identity.telegram_username if identity else None,
+        workspace_name=workspace.display_name if workspace else None,
+        account_name=account.name if account else None,
+        account_currency=account.currency if account else None,
     )
 
 

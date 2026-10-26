@@ -25,6 +25,11 @@ from app.services.telegram_service import consume_link_code
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+ROLE_LABELS = {
+    WorkspaceRole.OWNER: "владелец",
+    WorkspaceRole.EDITOR: "редактор",
+    WorkspaceRole.VIEWER: "только просмотр",
+}
 TRANSACTION_RE = re.compile(r"^([+-])\s*(\d+(?:[.,]\d{1,2})?)\s+(.{1,255})$", re.DOTALL)
 
 
@@ -95,13 +100,92 @@ class TelegramBot:
             )
         ).one_or_none()
 
+    async def memberships(self, session, user_id: UUID) -> list[tuple[WorkspaceMembership, Workspace]]:
+        """Every space this Aurum user can currently open, personal first."""
+        rows = await session.execute(
+            select(WorkspaceMembership, Workspace)
+            .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
+            .where(WorkspaceMembership.user_id == user_id, WorkspaceMembership.revoked_at.is_(None))
+            .order_by(Workspace.kind.desc(), Workspace.display_name)
+        )
+        return [(membership, workspace) for membership, workspace in rows.all()]
+
+    async def send_space_picker(self, client: httpx.AsyncClient, chat_id: int, telegram_user_id: int) -> None:
+        async with AsyncSessionLocal() as session:
+            identity = (
+                await session.execute(
+                    select(TelegramIdentity).where(TelegramIdentity.telegram_user_id == telegram_user_id)
+                )
+            ).scalar_one_or_none()
+            if identity is None:
+                await self.send(client, chat_id, "Сначала привяжите аккаунт командой /link КОД.")
+                return
+            spaces = await self.memberships(session, identity.user_id)
+            current = identity.default_workspace_id
+        rows = [[{
+            "text": f"{'✓ ' if workspace.id == current else ''}{workspace.display_name} · {ROLE_LABELS[membership.role]}"[:64],
+            "callback_data": f"ws:{workspace.id.hex}",
+        }] for membership, workspace in spaces]
+        await self.api(client, "sendMessage", {
+            "chat_id": chat_id,
+            "text": "В какое пространство записывать транзакции? Mini App тоже будет открываться в нём.",
+            "reply_markup": {"inline_keyboard": rows},
+        })
+
+    async def select_space(self, telegram_user_id: int, workspace_hex: str) -> str:
+        async with AsyncSessionLocal() as session:
+            identity = (
+                await session.execute(
+                    select(TelegramIdentity).where(TelegramIdentity.telegram_user_id == telegram_user_id)
+                )
+            ).scalar_one_or_none()
+            if identity is None:
+                return "Сначала привяжите аккаунт командой /link КОД."
+            try:
+                workspace_id = UUID(hex=workspace_hex)
+            except ValueError:
+                return "Пространство недоступно"
+            # Membership is re-checked here: a stale button must not grant access.
+            chosen = next(
+                ((membership, workspace) for membership, workspace in await self.memberships(session, identity.user_id)
+                 if workspace.id == workspace_id),
+                None,
+            )
+            if chosen is None:
+                return "Пространство недоступно"
+            membership, workspace = chosen
+            if identity.default_workspace_id != workspace.id:
+                identity.default_workspace_id = workspace.id
+                identity.default_account_id = None
+            accounts = list((
+                await session.execute(
+                    select(Account)
+                    .where(Account.workspace_id == workspace.id, Account.is_archived.is_(False))
+                    .order_by(Account.id)
+                )
+            ).scalars())
+            if identity.default_account_id is None and len(accounts) == 1:
+                identity.default_account_id = accounts[0].id
+            await session.commit()
+            account = next((item for item in accounts if item.id == identity.default_account_id), None)
+        answer = f"Пространство: {workspace.display_name}"
+        if membership.role == WorkspaceRole.VIEWER:
+            answer += "\nЗдесь у вас только просмотр — записывать транзакции нельзя."
+        elif account is not None:
+            answer += f"\nСчёт: {account.name} · {account.currency}"
+        elif accounts:
+            answer += "\nВыберите счёт командой /accounts."
+        else:
+            answer += "\nВ этом пространстве пока нет счетов — создайте счёт в Aurum."
+        return answer
+
     async def send_account_picker(
         self,
         client: httpx.AsyncClient,
         chat_id: int,
         telegram_user_id: int,
         *,
-        prompt: str = "Выберите счёт для быстрых транзакций:",
+        prompt: str = "Выберите счёт для быстрых транзакций",
     ) -> None:
         async with AsyncSessionLocal() as session:
             linked = await self.linked_context(session, telegram_user_id)
@@ -120,7 +204,12 @@ class TelegramBot:
             )
             selected_id = identity.default_account_id
         if not accounts:
-            await self.send(client, chat_id, "В рабочей области нет активных счетов.", open_app=True)
+            await self.send(
+                client,
+                chat_id,
+                f"В пространстве «{workspace.display_name}» нет активных счетов. Сменить пространство: /space",
+                open_app=True,
+            )
             return
         rows = []
         for account in accounts:
@@ -131,7 +220,7 @@ class TelegramBot:
             }])
         await self.api(client, "sendMessage", {
             "chat_id": chat_id,
-            "text": prompt,
+            "text": f"{prompt} в пространстве «{workspace.display_name}»:",
             "reply_markup": {"inline_keyboard": rows},
         })
 
@@ -147,7 +236,11 @@ class TelegramBot:
                 return True
             identity, user, membership, workspace = linked
             if membership.role == WorkspaceRole.VIEWER:
-                await self.send(client, chat_id, "В этой рабочей области у вас доступ только для просмотра.")
+                await self.send(
+                    client,
+                    chat_id,
+                    f"В пространстве «{workspace.display_name}» у вас только просмотр. Выберите другое: /space",
+                )
                 return True
             accounts = list((
                 await session.execute(
@@ -171,7 +264,7 @@ class TelegramBot:
                     client,
                     chat_id,
                     sender_id,
-                    prompt="Сначала выберите счёт, затем отправьте транзакцию ещё раз:",
+                    prompt="Сначала выберите счёт, затем отправьте транзакцию ещё раз",
                 )
                 return True
             draft = TelegramTransactionDraft(
@@ -191,7 +284,11 @@ class TelegramBot:
         kind = "Расход" if tx_type == TransactionType.EXPENSE else "Доход"
         payload = {
             "chat_id": chat_id,
-            "text": f"{kind}: {amount} {account.currency}\n{description}\nСчёт: {account.name}\n\nЗаписать транзакцию?",
+            "text": (
+                f"{kind}: {amount} {account.currency}\n{description}\n"
+                f"Пространство: {workspace.display_name}\nСчёт: {account.name}\n\n"
+                "Записать транзакцию? Сменить: /space или /accounts"
+            ),
             "reply_markup": {"inline_keyboard": [[
                 {"text": "✅ Записать", "callback_data": f"tx:{draft.id.hex}:ok"},
                 {"text": "Отмена", "callback_data": f"tx:{draft.id.hex}:no"},
@@ -205,6 +302,19 @@ class TelegramBot:
         sender = callback.get("from") or {}
         data = str(callback.get("data") or "")
         if not isinstance(callback_id, str) or not isinstance(sender.get("id"), int):
+            return
+        space_match = re.fullmatch(r"ws:([0-9a-f]{32})", data)
+        if space_match is not None:
+            answer = await self.select_space(sender["id"], space_match.group(1))
+            await self.api(client, "answerCallbackQuery", {"callback_query_id": callback_id, "text": answer[:200]})
+            message = callback.get("message") or {}
+            chat = message.get("chat") or {}
+            if isinstance(chat.get("id"), int) and isinstance(message.get("message_id"), int):
+                await self.api(client, "editMessageText", {
+                    "chat_id": chat["id"],
+                    "message_id": message["message_id"],
+                    "text": answer,
+                })
             return
         account_match = re.fullmatch(r"acct:(\d+)", data)
         if account_match is not None:
@@ -341,17 +451,36 @@ class TelegramBot:
                 linked_text += " Mini App открывается без дополнительного пароля."
             await self.send(client, chat_id, linked_text, open_app=True)
             return
+        if text.lower().split("@", 1)[0] in {"/space", "/spaces", "/workspace"}:
+            await self.send_space_picker(client, chat_id, sender["id"])
+            return
         if text.lower().split("@", 1)[0] in {"/accounts", "/account"}:
             await self.send_account_picker(client, chat_id, sender["id"])
             return
         if await self.draft_from_message(client, chat_id, sender["id"], text):
             return
-        await self.send(
-            client,
-            chat_id,
-            "Быстрый ввод: отправьте «-2500 кофе» для расхода или «+500000 зарплата» для дохода. Счёт можно выбрать командой /accounts.\n\nЧтобы привязать аккаунт: откройте Настройки → Telegram в Aurum, создайте код и отправьте сюда /link КОД.",
-            open_app=True,
+        await self.send(client, chat_id, await self.help_text(sender["id"]), open_app=True)
+
+    async def help_text(self, telegram_user_id: int) -> str:
+        text = (
+            "Быстрый ввод: отправьте «-2500 кофе» для расхода или «+500000 зарплата» для дохода.\n"
+            "/space — выбрать пространство, /accounts — выбрать счёт."
         )
+        async with AsyncSessionLocal() as session:
+            linked = await self.linked_context(session, telegram_user_id)
+            if linked is None:
+                return text + (
+                    "\n\nЧтобы привязать аккаунт: откройте Настройки → Telegram в Aurum, "
+                    "создайте код и отправьте сюда /link КОД."
+                )
+            identity, _user, _membership, workspace = linked
+            account = await session.get(Account, identity.default_account_id) if identity.default_account_id else None
+        target = f"\n\nСейчас транзакции записываются в пространство «{workspace.display_name}»"
+        if account is not None and account.workspace_id == workspace.id and not account.is_archived:
+            target += f", счёт «{account.name} · {account.currency}»."
+        else:
+            target += ", счёт ещё не выбран (/accounts)."
+        return text + target
 
     async def run(self) -> None:
         offset = 0
@@ -366,6 +495,7 @@ class TelegramBot:
                         # existing bot back to this self-hosted worker.
                         await self.api(client, "deleteWebhook", {"drop_pending_updates": False})
                         await self.api(client, "setMyCommands", {"commands": [
+                            {"command": "space", "description": "Выбрать пространство для транзакций"},
                             {"command": "accounts", "description": "Выбрать счёт для транзакций"},
                             {"command": "start", "description": "Помощь и запуск Aurum"},
                         ]})

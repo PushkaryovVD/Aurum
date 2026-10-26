@@ -5,12 +5,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/api/client";
 import { exportBackup, importBackup } from "@/api/backup";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useTranslation } from "@/lib/i18n";
 
 export function BackupCard() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // With accounts enabled the backup covers one workspace and only its owner
+  // may export it; restoring is not available there (it would replace the
+  // whole installation). Without accounts the original behaviour is kept.
+  const workspace = useWorkspace();
+  const active = workspace?.activeWorkspace;
+  const scoped = Boolean(active);
+  const canExport = !scoped || active?.role === "owner";
 
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -22,7 +30,11 @@ export function BackupCard() {
     try {
       await exportBackup();
       setMessage({ kind: "success", text: t("backup.exportSuccess") });
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setMessage({ kind: "error", text: t("backup.ownerOnly") });
+        return;
+      }
       // Never surface error.message here — it's the raw backend/HTTP
       // response text (English, unlocalized), unlike every other error
       // path in the app, which always shows a translated fallback.
@@ -69,14 +81,16 @@ export function BackupCard() {
         <CardTitle>{t("backup.title")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-text-secondary">{t("backup.description")}</p>
+        <p className="text-sm text-text-secondary">
+          {scoped ? t("backup.scopedDescription", { workspace: active!.display_name }) : t("backup.description")}
+        </p>
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button onClick={handleExport} disabled={isExporting} className="sm:w-auto">
+          <Button onClick={handleExport} disabled={isExporting || !canExport} className="sm:w-auto">
             <Download size={16} />
             {isExporting ? t("backup.exporting") : t("backup.exportButton")}
           </Button>
-          <Button variant="secondary" onClick={handleImportClick} disabled={isImporting} className="sm:w-auto">
+          <Button variant="secondary" onClick={handleImportClick} disabled={isImporting || scoped} className="sm:w-auto">
             <Upload size={16} />
             {isImporting ? t("backup.importing") : t("backup.importButton")}
           </Button>
@@ -97,7 +111,10 @@ export function BackupCard() {
           <p className={`text-sm ${message.kind === "error" ? "text-danger" : "text-success"}`}>{message.text}</p>
         )}
 
-        <p className="text-xs text-text-muted">{t("backup.footerWarning")}</p>
+        {scoped && !canExport && <p className="text-sm text-text-muted">{t("backup.ownerOnly")}</p>}
+        {scoped
+          ? <p className="text-xs text-text-muted">{t("backup.scopedRestoreUnavailable")}</p>
+          : <p className="text-xs text-text-muted">{t("backup.footerWarning")}</p>}
       </CardContent>
     </Card>
   );

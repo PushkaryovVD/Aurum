@@ -38,6 +38,14 @@ export function TelegramCard() {
       {value?.linked && <p className="text-sm text-success">
         {t("telegram.linked", { username: value.username ? `@${value.username}` : t("telegram.account") })}
       </p>}
+      {value?.linked && value.workspace_name && <div className="rounded-lg border border-border bg-surface-2 p-3 text-sm">
+        <p className="font-medium text-text-primary">
+          {value.account_name
+            ? t("telegram.target", { workspace: value.workspace_name, account: `${value.account_name} · ${value.account_currency ?? ""}`.trim() })
+            : t("telegram.targetNoAccount", { workspace: value.workspace_name })}
+        </p>
+        <p className="mt-1 text-xs text-text-muted">{t("telegram.targetHint")}</p>
+      </div>}
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button
           type="button"

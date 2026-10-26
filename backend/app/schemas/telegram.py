@@ -9,6 +9,10 @@ class TelegramStatusResponse(BaseModel):
     mini_app_configured: bool
     linked: bool
     username: str | None = None
+    # Where bot quick entries and the Mini App land, so the user can see it.
+    workspace_name: str | None = None
+    account_name: str | None = None
+    account_currency: str | None = None
 
 
 class TelegramLinkCodeResponse(BaseModel):

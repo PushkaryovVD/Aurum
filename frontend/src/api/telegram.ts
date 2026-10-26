@@ -5,6 +5,10 @@ export interface TelegramStatus {
   mini_app_configured: boolean;
   linked: boolean;
   username: string | null;
+  /** Where bot quick entries and the Mini App currently land. */
+  workspace_name?: string | null;
+  account_name?: string | null;
+  account_currency?: string | null;
 }
 
 export interface TelegramLinkCode {

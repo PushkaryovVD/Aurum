@@ -37,7 +37,7 @@ it("renders an unavailable balance as unknown instead of zero", () => {
 
 it("does not present a failed category request as an empty month", () => {
   setLanguage("en");
-  const view = render(<SpendingByCategoryCard state="unavailable" />);
+  const view = render(<SpendingByCategoryCard currency="KZT" state="unavailable" />);
 
   expect(view.textContent).toContain("Data is currently unavailable");
   expect(view.textContent).not.toContain("No expenses yet this month");

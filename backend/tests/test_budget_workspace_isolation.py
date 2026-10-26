@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from tests.helpers import pin_reporting_currency
 from tests.test_core_workspace_isolation import (
     _bootstrap_user, _create_core_records, _login, _write_headers,
     workspace_auth_settings, workspace_client,
@@ -20,6 +21,8 @@ async def _two_scopes(client, maker):
         await session.execute(text("INSERT INTO workspace_memberships (id, workspace_id, user_id, role) VALUES (:id, :w, :u, 'owner')"), {"id": uuid4(), "w": household, "u": user})
         await session.commit()
     csrf = await _login(client, "budget-owner@example.com")
+    for scope in (personal, household):
+        await pin_reporting_currency(client, _write_headers(csrf, scope))
     first = await _create_core_records(client, csrf, personal, "personal")
     second = await _create_core_records(client, csrf, household, "household")
     return csrf, personal, household, first, second

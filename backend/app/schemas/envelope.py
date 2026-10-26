@@ -56,6 +56,11 @@ class EnvelopeStatus(BaseModel):
     year: int
     month: int
     tracking_start: MonthRef | None
+    # Every amount here is in this currency: allocations are typed in it, and
+    # ledger activity/income is converted into it from KZT at the official
+    # rate for each month's last day. A month with no rate counts as zero and
+    # sets fx_incomplete.
+    reporting_currency: str
     is_closed: bool
     has_ledger_drift: bool
     fx_incomplete: bool

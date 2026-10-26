@@ -117,7 +117,7 @@ export function EnvelopePage() {
         <>
           <QueryStateNotice state={displayState} unavailableText={t("envelope.unavailable")} staleText={t("envelope.stale")} />
           <AvailableToAssignCard month={envelopeMonth} />
-          <EnvelopeWarnings warnings={envelopeMonth.warnings} />
+          <EnvelopeWarnings warnings={envelopeMonth.warnings} currency={envelopeMonth.reporting_currency} />
           <p className="rounded-lg border border-border bg-surface-1 p-3 text-sm text-text-muted">{t("envelope.continuityHint")}</p>
 
           <Card>
@@ -136,7 +136,7 @@ export function EnvelopePage() {
               </div>
             </CardHeader>
             <CardContent>
-              <EnvelopeTable items={envelopeMonth.items} categories={categories} isClosed={envelopeMonth.is_closed} onAssign={editItem} onMove={moveItem} />
+              <EnvelopeTable items={envelopeMonth.items} categories={categories} isClosed={envelopeMonth.is_closed} currency={envelopeMonth.reporting_currency} onAssign={editItem} onMove={moveItem} />
             </CardContent>
           </Card>
 

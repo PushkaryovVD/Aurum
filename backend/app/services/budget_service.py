@@ -20,6 +20,7 @@ from app.models.enums import CategoryKind, TransactionType
 from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.budget import BudgetCreate, BudgetStatus, BudgetStatusResponse, BudgetUpdate
 from app.services.currency import split_amount_kzt, transaction_amount_kzt
+from app.services.reporting_currency import reporting_converter
 
 _EAGER = (selectinload(Budget.category),)
 
@@ -87,8 +88,9 @@ async def get_budget_status(session: AsyncSession, year: int, month: int, worksp
     start, end = _month_bounds(year, month)
 
     budgets = await list_budgets(session, workspace_id)
+    converter = await reporting_converter(session, workspace_id)
     if not budgets:
-        return BudgetStatusResponse(year=year, month=month, items=[])
+        return BudgetStatusResponse(year=year, month=month, reporting_currency=converter.currency, items=[])
 
     # A budget on a top-level category covers its subcategories too — the
     # same rollup the Dashboard breakdown and the category report already do
@@ -150,11 +152,19 @@ async def get_budget_status(session: AsyncSession, year: int, month: int, worksp
 
     items = []
     for budget in budgets:
-        spent = spent_by_category.get(budget.category_id, Decimal("0")) + sum(
+        spent_kzt = spent_by_category.get(budget.category_id, Decimal("0")) + sum(
             (spent_by_category.get(child_id, Decimal("0")) for child_id in children_by_parent[budget.category_id]),
             Decimal("0"),
         )
-        percent = float(spent / budget.monthly_limit * 100) if budget.monthly_limit else 0.0
+        # Limits are in the reporting currency, the ledger in KZT: convert the
+        # spend before comparing, never the other way round.
+        spent = await converter.convert_month(spent_kzt, year, month)
+        if spent is None:
+            remaining, percent, is_over_budget = None, None, False
+        else:
+            remaining = budget.monthly_limit - spent
+            percent = float(spent / budget.monthly_limit * 100) if budget.monthly_limit else 0.0
+            is_over_budget = spent > budget.monthly_limit
         items.append(
             BudgetStatus(
                 budget_id=budget.id,
@@ -164,10 +174,13 @@ async def get_budget_status(session: AsyncSession, year: int, month: int, worksp
                 category_icon=budget.category.icon,
                 monthly_limit=budget.monthly_limit,
                 spent=spent,
-                remaining=budget.monthly_limit - spent,
+                remaining=remaining,
                 percent=percent,
-                is_over_budget=spent > budget.monthly_limit,
+                is_over_budget=is_over_budget,
             )
         )
+    await converter.commit_fetched()
 
-    return BudgetStatusResponse(year=year, month=month, items=items)
+    return BudgetStatusResponse(
+        year=year, month=month, reporting_currency=converter.currency, incomplete=converter.incomplete, items=items
+    )

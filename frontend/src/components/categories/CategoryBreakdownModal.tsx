@@ -1,6 +1,6 @@
 import { Dialog } from "@/components/ui/Dialog";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+import { formatReportingAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 
@@ -9,7 +9,8 @@ interface CategoryBreakdownChild {
   name: string;
   color: string;
   icon: string | null;
-  amount: string;
+  // In `currency`; null when the backend had no rate to convert it.
+  amount: string | null;
 }
 
 interface CategoryBreakdownModalProps {
@@ -17,7 +18,9 @@ interface CategoryBreakdownModalProps {
   onClose: () => void;
   categoryId: number;
   categoryName: string;
-  totalAmount: string;
+  totalAmount: string | null;
+  /** The reporting currency the parent response says its amounts are in. */
+  currency: string;
   children: CategoryBreakdownChild[];
 }
 
@@ -34,6 +37,7 @@ export function CategoryBreakdownModal({
   categoryId,
   categoryName,
   totalAmount,
+  currency,
   children,
 }: CategoryBreakdownModalProps) {
   const { t } = useTranslation();
@@ -43,12 +47,12 @@ export function CategoryBreakdownModal({
     <Dialog open={open} onClose={onClose} title={translateCategoryName(categoryName)}>
       <div className="mb-3 flex items-center justify-between border-b border-gridline pb-3 text-sm">
         <span className="text-text-muted">{t("reports.categoryBreakdownTotalLabel")}</span>
-        <span className="font-semibold tabular-nums text-text-primary">{formatCurrency(totalAmount)}</span>
+        <span className="font-semibold tabular-nums text-text-primary">{formatReportingAmount(totalAmount, currency)}</span>
       </div>
       <ul className="divide-y divide-gridline">
         {children.map((child) => {
           const Icon = getCategoryIcon(child.icon);
-          const percent = total ? (Number(child.amount) / total) * 100 : 0;
+          const percent = total && child.amount !== null ? (Number(child.amount) / total) * 100 : null;
           const label = child.category_id === categoryId ? t("reports.directSpendLabel") : translateCategoryName(child.name);
           return (
             <li key={child.category_id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
@@ -60,10 +64,10 @@ export function CategoryBreakdownModal({
               </span>
               <span className="min-w-0 flex-1 truncate text-sm text-text-primary">{label}</span>
               <span className="w-9 shrink-0 text-right text-xs text-text-muted tabular-nums">
-                {percent.toFixed(0)}%
+                {percent === null ? "—" : `${percent.toFixed(0)}%`}
               </span>
               <span className="shrink-0 text-sm font-medium tabular-nums text-text-primary">
-                {formatCurrency(child.amount)}
+                {formatReportingAmount(child.amount, currency)}
               </span>
             </li>
           );

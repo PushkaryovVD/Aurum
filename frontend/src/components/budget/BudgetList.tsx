@@ -1,17 +1,19 @@
 import { Pencil, Trash2 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatReportingAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { BudgetStatus } from "@/types";
 
 interface BudgetListProps {
   items: BudgetStatus[];
+  /** BudgetStatusResponse.reporting_currency — limits and spend are both in it. */
+  currency: string;
   onEdit: (item: BudgetStatus) => void;
   onDelete: (item: BudgetStatus) => void;
 }
 
-export function BudgetList({ items, onEdit, onDelete }: BudgetListProps) {
+export function BudgetList({ items, currency, onEdit, onDelete }: BudgetListProps) {
   const { t } = useTranslation();
 
   if (items.length === 0) {
@@ -22,10 +24,12 @@ export function BudgetList({ items, onEdit, onDelete }: BudgetListProps) {
     <ul className="divide-y divide-gridline">
       {items.map((item) => {
         const Icon = getCategoryIcon(item.category_icon);
+        // null spend = the backend had no rate to convert it: unknown, not 0.
+        const known = item.spent !== null && item.remaining !== null && item.percent !== null;
         const spent = Number(item.spent);
         const limit = Number(item.monthly_limit);
         const barColor = item.is_over_budget ? "var(--danger)" : "var(--success)";
-        const fillPercent = Math.min(100, item.percent);
+        const fillPercent = known ? Math.min(100, item.percent ?? 0) : 0;
 
         return (
           <li key={item.budget_id} className="py-3">
@@ -40,7 +44,8 @@ export function BudgetList({ items, onEdit, onDelete }: BudgetListProps) {
                 {translateCategoryName(item.category_name)}
               </span>
               <span className="shrink-0 text-sm tabular-nums text-text-primary">
-                {formatCurrency(spent)} <span className="text-text-muted">/ {formatCurrency(limit)}</span>
+                {formatReportingAmount(item.spent, currency)}{" "}
+                <span className="text-text-muted">/ {formatCurrency(limit, currency)}</span>
               </span>
               <span className="flex shrink-0 gap-1">
                 <button
@@ -69,13 +74,15 @@ export function BudgetList({ items, onEdit, onDelete }: BudgetListProps) {
                 />
               </span>
               <span className="w-10 shrink-0 text-right text-xs tabular-nums text-text-muted">
-                {item.percent.toFixed(0)}%
+                {known ? `${(item.percent ?? 0).toFixed(0)}%` : "—"}
               </span>
             </div>
             <p className="mt-1 pl-12 text-xs" style={{ color: item.is_over_budget ? "var(--danger)" : "var(--text-muted)" }}>
-              {item.is_over_budget
-                ? t("budget.overBy", { amount: formatCurrency(spent - limit) })
-                : t("budget.remaining", { amount: formatCurrency(limit - spent) })}
+              {!known
+                ? t("dashboard.balanceMissingRate")
+                : item.is_over_budget
+                  ? t("budget.overBy", { amount: formatCurrency(spent - limit, currency) })
+                  : t("budget.remaining", { amount: formatCurrency(limit - spent, currency) })}
             </p>
           </li>
         );

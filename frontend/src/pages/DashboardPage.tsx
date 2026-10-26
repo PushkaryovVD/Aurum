@@ -9,7 +9,8 @@ import { AlertBanner } from "@/components/insights/AlertBanner";
 import { Page, PageHeader } from "@/components/ui/Page";
 import { useDashboardSummary } from "@/hooks/useDashboard";
 import { useTransactionYears } from "@/hooks/useTransactions";
-import { formatCurrency, formatSignedCurrency } from "@/lib/format";
+import { formatReportingAmount, formatSignedReportingAmount } from "@/lib/format";
+import { ReportingCurrencyNote } from "@/components/ui/ReportingCurrencyNote";
 import { useTranslation } from "@/lib/i18n";
 import { queryDisplayState } from "@/lib/queryDisplayState";
 
@@ -25,7 +26,7 @@ function formatPercent(value: number): string {
 }
 
 export function DashboardPage() {
-  const { t, language } = useTranslation();
+  const { t, language, currency } = useTranslation();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -35,7 +36,13 @@ export function DashboardPage() {
   const displayState = queryDisplayState(data !== undefined, isLoading, isError);
   const unavailable = displayState === "unavailable";
   const pending = displayState === "loading" || unavailable;
-  const rate = data ? savingsRate(Number(data.real_income), Number(data.net)) : null;
+  // The month figures are in the currency the backend reports them in — the
+  // settings value is only a fallback while the first response is loading.
+  const reportingCurrency = data?.reporting_currency ?? currency;
+  const rate =
+    data && data.real_income !== null && data.net !== null
+      ? savingsRate(Number(data.real_income), Number(data.net))
+      : null;
   const lastUpdated = dataUpdatedAt > 0
     ? new Intl.DateTimeFormat(language === "ru" ? "ru-RU" : "en-US", {
         hour: "2-digit",
@@ -75,21 +82,21 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 gap-3 min-[375px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatCard
           label={t("dashboard.statRealIncomeLabel")}
-          value={pending ? (unavailable ? "—" : "…") : formatCurrency(data!.real_income)}
+          value={pending ? (unavailable ? "—" : "…") : formatReportingAmount(data!.real_income, reportingCurrency)}
           caption={t("dashboard.statRealIncomeCaption")}
           tone="success"
         />
         <StatCard
           label={t("dashboard.statSpentLabel")}
-          value={pending ? (unavailable ? "—" : "…") : formatCurrency(data!.spent)}
+          value={pending ? (unavailable ? "—" : "…") : formatReportingAmount(data!.spent, reportingCurrency)}
           caption={t("dashboard.statSpentCaption")}
           tone="danger"
         />
         <StatCard
           label={t("dashboard.statNetLabel")}
-          value={pending ? (unavailable ? "—" : "…") : formatSignedCurrency(data!.net)}
+          value={pending ? (unavailable ? "—" : "…") : formatSignedReportingAmount(data!.net, reportingCurrency)}
           caption={t("dashboard.statNetCaption")}
-          tone={!data ? "default" : Number(data.net) >= 0 ? "success" : "danger"}
+          tone={!data || data.net === null ? "default" : Number(data.net) >= 0 ? "success" : "danger"}
         />
         <StatCard
           label={t("dashboard.statSavingsRateLabel")}
@@ -99,8 +106,10 @@ export function DashboardPage() {
         />
       </div>
 
+      {data && <ReportingCurrencyNote currency={data.reporting_currency} incomplete={data.incomplete} className="-mt-1" />}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <SpendingByCategoryCard items={data?.spending_by_category} state={displayState} />
+        <SpendingByCategoryCard items={data?.spending_by_category} currency={reportingCurrency} state={displayState} />
         <RecentTransactionsCard year={year} month={month} />
       </div>
     </Page>

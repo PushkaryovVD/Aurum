@@ -24,6 +24,7 @@ from app.services.account_service import account_balances
 from app.services.category_rollup import rollup_spending_by_top_level_category
 from app.services.currency import transaction_amount_kzt
 from app.services.exchange_rate_service import get_exchange_rate
+from app.services.reporting_currency import reporting_converter
 from app.services.settings_service import get_or_create_app_settings
 
 # Categorical slots are capped at 8 (dataviz skill: a 9th series folds into "Other",
@@ -174,17 +175,26 @@ async def get_dashboard_summary(
 
     top_rows, rest_rows = rows[:MAX_CHART_SLICES], rows[MAX_CHART_SLICES:]
 
+    # Every sum above is in KZT; the page reports in the workspace currency.
+    # Each total converts once, at the official rate for the month's last day
+    # (today while the month is still running) — KZT reporting passes through.
+    converter = await reporting_converter(session, context.workspace_id)
+
+    async def _reporting(amount: Decimal) -> Decimal | None:
+        return await converter.convert_month(amount, year, month)
+
     def _percent(amount: Decimal) -> float:
+        # A ratio of two KZT sums — exact in any reporting currency.
         return float(amount / spent * 100) if spent else 0.0
 
     spending_by_category = [
         CategoryBreakdownItem(
             category_id=row.category_id, name=row.name, color=row.color, icon=row.icon,
-            amount=row.amount, percent=_percent(row.amount),
+            amount=await _reporting(row.amount), percent=_percent(row.amount),
             children=[
                 CategoryBreakdownChildItem(
                     category_id=child.category_id, name=child.name, color=child.color, icon=child.icon,
-                    amount=child.amount,
+                    amount=await _reporting(child.amount),
                 )
                 for child in row.children
             ],
@@ -197,23 +207,37 @@ async def get_dashboard_summary(
         spending_by_category.append(
             CategoryBreakdownItem(
                 category_id=None, name="Other", color=OTHER_SLICE_COLOR, icon="more-horizontal",
-                amount=other_amount, percent=_percent(other_amount),
+                amount=await _reporting(other_amount), percent=_percent(other_amount),
             )
         )
 
+    real_income_reporting = await _reporting(real_income)
+    spent_reporting = await _reporting(spent)
+    # Net is the difference of the two figures the page shows, so the three
+    # cards always add up to the cent.
+    net_reporting = (
+        real_income_reporting - spent_reporting
+        if real_income_reporting is not None and spent_reporting is not None
+        else None
+    )
+    transferred_out_reporting = await _reporting(transferred_out)
+
     # All-time, not month-scoped — the money actually sitting in the accounts.
     balance = await get_balance_summary(session, date.today(), context)
-    # get_balance_summary may have cached a freshly fetched official rate; this
-    # is a GET, but that write is the same one the /exchange-rates route makes.
+    # get_balance_summary (or the converter) may have cached a freshly fetched
+    # official rate; this is a GET, but that write is the same one the
+    # /exchange-rates route makes.
     await session.commit()
 
     return DashboardSummary(
         year=year,
         month=month,
-        real_income=real_income,
-        spent=spent,
-        net=real_income - spent,
-        transferred_out=transferred_out,
+        reporting_currency=converter.currency,
+        incomplete=converter.incomplete,
+        real_income=real_income_reporting,
+        spent=spent_reporting,
+        net=net_reporting,
+        transferred_out=transferred_out_reporting,
         spending_by_category=spending_by_category,
         balance=balance,
     )

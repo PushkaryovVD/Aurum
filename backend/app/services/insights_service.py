@@ -28,6 +28,7 @@ from app.services.budget_service import get_budget_status
 from app.services.dashboard_service import get_dashboard_summary
 from app.services.envelope_service import get_status as get_envelope_status
 from app.services.net_worth_service import get_net_worth_summary
+from app.services.reporting_currency import reporting_converter
 from app.services.settings_service import get_or_create_app_settings
 
 MAX_LOOKBACK_MONTHS = 24
@@ -49,7 +50,9 @@ async def _negative_cash_flow_streak(session: AsyncSession, context: RequestWork
     streak = 0
     for _ in range(MAX_LOOKBACK_MONTHS):
         summary = await get_dashboard_summary(session, year, month, context)
-        if summary.net >= 0:
+        # A month whose net could not be converted is not evidence of a
+        # negative month — the streak stops there.
+        if summary.net is None or summary.net >= 0:
             break
         streak += 1
         year, month = _previous_month(year, month)
@@ -65,6 +68,9 @@ def _net_worth_decline_streak(summary: NetWorthSummary) -> int:
     month_end: dict[tuple[int, int], Decimal] = {}
     for point in summary.series:
         if (point.date.year, point.date.month) == (today.year, today.month):
+            continue
+        if point.value is None:
+            # No rate for that day — not a value to compare against.
             continue
         month_end[(point.date.year, point.date.month)] = point.value
 
@@ -135,13 +141,19 @@ async def _idle_cash_account_count(
         touch(account_id, tx_date)
         touch(transfer_account_id, tx_date)
 
+    # Balances above are KZT; the threshold is in the reporting currency
+    # (see AppSettings.idle_cash_threshold_amount), so each balance converts
+    # at today's rate before the comparison. No rate means no alert.
+    converter = await reporting_converter(session, context.workspace_id)
     cutoff = date.today() - timedelta(days=threshold_days)
-    return sum(
-        1
-        for account_id in eligible_ids
-        if balances.get(account_id, Decimal("0")) >= threshold_amount
-        and last_activity.get(account_id, cutoff) <= cutoff
-    )
+    count = 0
+    for account_id in eligible_ids:
+        if last_activity.get(account_id, cutoff) > cutoff:
+            continue
+        balance = await converter.convert(balances.get(account_id, Decimal("0")), converter.today)
+        if balance is not None and balance >= threshold_amount:
+            count += 1
+    return count
 
 
 async def get_financial_alerts(session: AsyncSession, context: RequestWorkspace) -> AlertsResponse:

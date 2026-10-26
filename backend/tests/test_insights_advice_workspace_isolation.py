@@ -6,6 +6,7 @@ from uuid import uuid4
 from httpx import AsyncClient
 from sqlalchemy import text
 
+from tests.helpers import pin_reporting_currency
 from tests.test_core_workspace_isolation import (
     _bootstrap_user,
     _login,
@@ -85,6 +86,10 @@ async def test_authenticated_insights_and_advice_ignore_other_workspace_financia
     csrf = await _login(workspace_client, "insights-owner@example.com")
     second_headers = _write_headers(csrf, second_workspace)
     first_headers = {"X-Aurum-Workspace": str(first_workspace)}
+    # The raw-SQL workspaces have no settings row; pin both to KZT so the
+    # KZT-denominated thresholds below compare without any rate lookup.
+    for headers in (_write_headers(csrf, first_workspace), second_headers):
+        await pin_reporting_currency(workspace_client, headers)
 
     idle_account = await _create_account(workspace_client, second_headers, "Second idle cash")
     income_category = await _create_category(workspace_client, second_headers, "Second income", "income")

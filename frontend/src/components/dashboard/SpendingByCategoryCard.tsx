@@ -4,7 +4,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CategoryBreakdownModal } from "@/components/categories/CategoryBreakdownModal";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+import { formatReportingAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { CategoryBreakdownItem } from "@/types";
@@ -12,23 +12,33 @@ import type { QueryDisplayState } from "@/lib/queryDisplayState";
 
 interface SpendingByCategoryCardProps {
   items?: CategoryBreakdownItem[];
+  /** DashboardSummary.reporting_currency — the currency `items` are in. */
+  currency: string;
   state: QueryDisplayState;
 }
 
-function DonutTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: CategoryBreakdownItem }> }) {
+function DonutTooltip({
+  active,
+  payload,
+  currency,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: CategoryBreakdownItem }>;
+  currency: string;
+}) {
   if (!active || !payload?.length) return null;
   const item = payload[0].payload;
   return (
     <div className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm shadow-md">
       <p className="font-medium text-text-primary">{translateCategoryName(item.name)}</p>
       <p className="text-text-secondary">
-        {formatCurrency(item.amount)} · {item.percent.toFixed(1)}%
+        {formatReportingAmount(item.amount, currency)} · {item.percent.toFixed(1)}%
       </p>
     </div>
   );
 }
 
-export function SpendingByCategoryCard({ items = [], state }: SpendingByCategoryCardProps) {
+export function SpendingByCategoryCard({ items = [], currency, state }: SpendingByCategoryCardProps) {
   const { t } = useTranslation();
   // The breakdown lives in a modal, not expanded inline — a category with
   // many subcategories (or many split purchases) would otherwise push this
@@ -37,8 +47,10 @@ export function SpendingByCategoryCard({ items = [], state }: SpendingByCategory
   const [breakdownItem, setBreakdownItem] = useState<CategoryBreakdownItem | null>(null);
   const hasData = items.length > 0;
   // Recharts needs a numeric dataKey — API amounts arrive as strings (Decimal
-  // is serialized as string to avoid float precision loss).
-  const chartData = items.map((item) => ({ ...item, amount: Number(item.amount) }));
+  // is serialized as string to avoid float precision loss). Slices are sized
+  // by `percent`, which the backend computes from the KZT sums: exact even
+  // when an amount could not be converted into the reporting currency.
+  const chartData = items.map((item) => ({ ...item, share: item.percent }));
 
   return (
     <Card>
@@ -59,7 +71,7 @@ export function SpendingByCategoryCard({ items = [], state }: SpendingByCategory
                 <PieChart>
                   <Pie
                     data={chartData}
-                    dataKey="amount"
+                    dataKey="share"
                     nameKey="name"
                     innerRadius="62%"
                     outerRadius="100%"
@@ -72,7 +84,7 @@ export function SpendingByCategoryCard({ items = [], state }: SpendingByCategory
                       <Cell key={item.category_id ?? "other"} fill={item.color} />
                     ))}
                   </Pie>
-                  <Tooltip content={<DonutTooltip />} />
+                  <Tooltip content={<DonutTooltip currency={currency} />} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -109,7 +121,7 @@ export function SpendingByCategoryCard({ items = [], state }: SpendingByCategory
                       {translateCategoryName(item.name)}
                     </span>
                     <span className="shrink-0 text-sm font-medium tabular-nums text-text-primary">
-                      {formatCurrency(item.amount)}
+                      {formatReportingAmount(item.amount, currency)}
                     </span>
                   </li>
                 );
@@ -126,6 +138,7 @@ export function SpendingByCategoryCard({ items = [], state }: SpendingByCategory
           categoryId={breakdownItem.category_id}
           categoryName={breakdownItem.name}
           totalAmount={breakdownItem.amount}
+          currency={currency}
           children={breakdownItem.children}
         />
       )}

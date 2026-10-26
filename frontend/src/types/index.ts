@@ -315,12 +315,17 @@ export interface RecurringTransactionInput {
 // of a CategoryBreakdownItem's total. Populated only when more than one
 // distinct category fed the slice — a single-source category (the common
 // case) leaves this off the parent item entirely.
+/** A KZT ledger sum converted by the backend into the response's
+ * `reporting_currency`; null when no exchange rate was available — render it
+ * as unknown, never as zero or as the raw KZT figure. */
+export type ReportingAmount = string | null;
+
 export interface CategoryBreakdownChildItem {
   category_id: number;
   name: string;
   color: string;
   icon: string | null;
-  amount: string;
+  amount: ReportingAmount;
 }
 
 export interface CategoryBreakdownItem {
@@ -328,7 +333,7 @@ export interface CategoryBreakdownItem {
   name: string;
   color: string;
   icon: string | null;
-  amount: string;
+  amount: ReportingAmount;
   percent: number;
   children: CategoryBreakdownChildItem[];
 }
@@ -356,10 +361,14 @@ export interface BalanceSummary {
 export interface DashboardSummary {
   year: number;
   month: number;
-  real_income: string;
-  spent: string;
-  net: string;
-  transferred_out: string;
+  // Currency of every month amount below (the workspace reporting currency).
+  reporting_currency: string;
+  // True when some amount had no exchange rate and is therefore null.
+  incomplete: boolean;
+  real_income: ReportingAmount;
+  spent: ReportingAmount;
+  net: ReportingAmount;
+  transferred_out: ReportingAmount;
   spending_by_category: CategoryBreakdownItem[];
   // All-time rather than month-scoped: the money currently in the accounts.
   balance: BalanceSummary;
@@ -447,7 +456,7 @@ export interface AssetValuationInput {
 
 export interface NetWorthPoint {
   date: string;
-  value: string;
+  value: ReportingAmount;
 }
 
 export interface NetWorthBreakdownItem {
@@ -455,7 +464,7 @@ export interface NetWorthBreakdownItem {
   name: string;
   color: string;
   icon: string;
-  amount: string;
+  amount: ReportingAmount;
   percent: number;
 }
 
@@ -463,7 +472,7 @@ export interface CapitalRoleSummary {
   role: CapitalRole;
   label: string;
   color: string;
-  total_value: string;
+  total_value: ReportingAmount;
   monthly_cash_flow: string;
   count: number;
 }
@@ -471,7 +480,7 @@ export interface CapitalRoleSummary {
 export interface RiskLevelItem {
   key: string;
   name: string;
-  amount: string;
+  amount: ReportingAmount;
   percent: number;
 }
 
@@ -479,15 +488,17 @@ export interface RiskLevelSummary {
   risk_level: RiskLevel;
   label: string;
   color: string;
-  total_value: string;
+  total_value: ReportingAmount;
   percent: number;
   items: RiskLevelItem[];
 }
 
 export interface NetWorthSummary {
   range: NetWorthRange;
-  current: string;
-  change_amount: string;
+  reporting_currency: string;
+  incomplete: boolean;
+  current: ReportingAmount;
+  change_amount: ReportingAmount;
   change_percent: number | null;
   series: NetWorthPoint[];
   breakdown: NetWorthBreakdownItem[];
@@ -498,7 +509,7 @@ export interface NetWorthSummary {
 export interface CategorySpendingPoint {
   year: number;
   month: number;
-  amount: string;
+  amount: ReportingAmount;
 }
 
 export interface CategorySpendingReport {
@@ -508,6 +519,8 @@ export interface CategorySpendingReport {
   category_icon: string | null;
   start_date: string | null;
   end_date: string | null;
+  reporting_currency: string;
+  incomplete: boolean;
   total_amount: string;
   transaction_count: number;
   average_per_month: string;
@@ -517,14 +530,17 @@ export interface CategorySpendingReport {
 export interface CashFlowPoint {
   year: number;
   month: number;
-  income: string;
-  expense: string;
-  net: string;
+  income: ReportingAmount;
+  expense: ReportingAmount;
+  net: ReportingAmount;
 }
 
 export interface CashFlowResponse {
   start_date: string | null;
   end_date: string | null;
+  reporting_currency: string;
+  // True when some month had no rate — totals then cover only the others.
+  incomplete: boolean;
   points: CashFlowPoint[];
   total_income: string;
   total_expense: string;
@@ -536,7 +552,7 @@ export interface CategoryRankingChildItem {
   name: string;
   color: string;
   icon: string | null;
-  amount: string;
+  amount: ReportingAmount;
 }
 
 export interface CategoryRankingItem {
@@ -544,7 +560,7 @@ export interface CategoryRankingItem {
   name: string;
   color: string;
   icon: string | null;
-  amount: string;
+  amount: ReportingAmount;
   percent: number;
   transaction_count: number;
   children: CategoryRankingChildItem[];
@@ -553,7 +569,9 @@ export interface CategoryRankingItem {
 export interface CategoryRankingReport {
   start_date: string | null;
   end_date: string | null;
-  total_amount: string;
+  reporting_currency: string;
+  incomplete: boolean;
+  total_amount: ReportingAmount;
   items: CategoryRankingItem[];
 }
 
@@ -600,16 +618,20 @@ export interface BudgetStatus {
   category_name: string;
   category_color: string;
   category_icon: string | null;
+  // Typed by the user in the reporting currency; `spent` is converted into
+  // the same currency by the backend, so the two compare like for like.
   monthly_limit: string;
-  spent: string;
-  remaining: string;
-  percent: number;
+  spent: ReportingAmount;
+  remaining: ReportingAmount;
+  percent: number | null;
   is_over_budget: boolean;
 }
 
 export interface BudgetStatusResponse {
   year: number;
   month: number;
+  reporting_currency: string;
+  incomplete: boolean;
   items: BudgetStatus[];
 }
 
@@ -656,6 +678,9 @@ export interface EnvelopeMonth {
   year: number;
   month: number;
   tracking_start: EnvelopeMonthRef | null;
+  // Currency of every amount in this month (allocations are typed in it and
+  // ledger activity is converted into it by the backend).
+  reporting_currency: string;
   is_closed: boolean;
   has_ledger_drift: boolean;
   fx_incomplete: boolean;
@@ -735,6 +760,9 @@ export interface AdviceItem {
 }
 
 export interface AdviceResponse {
+  // Currency of every money param (amount/current/average) in `items`.
+  reporting_currency: string;
+  incomplete: boolean;
   items: AdviceItem[];
 }
 

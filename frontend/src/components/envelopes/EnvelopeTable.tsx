@@ -12,6 +12,8 @@ interface EnvelopeTableProps {
   items: EnvelopeItem[];
   categories?: Category[];
   isClosed: boolean;
+  /** EnvelopeMonth.reporting_currency; defaults to the settings currency. */
+  currency?: string;
   onAssign: (item: EnvelopeItem) => void;
   onMove: (item: EnvelopeItem) => void;
 }
@@ -82,8 +84,9 @@ function Progress({ item }: { item: EnvelopeItem }) {
   );
 }
 
-export function EnvelopeTable({ items, categories = [], isClosed, onAssign, onMove }: EnvelopeTableProps) {
-  const { t } = useTranslation();
+export function EnvelopeTable({ items, categories = [], isClosed, currency: monthCurrency, onAssign, onMove }: EnvelopeTableProps) {
+  const { t, currency: settingsCurrency } = useTranslation();
+  const currency = monthCurrency ?? settingsCurrency;
   if (items.length === 0) {
     return <p className="py-8 text-center text-sm text-text-muted">{t("envelope.empty")}</p>;
   }
@@ -104,10 +107,10 @@ export function EnvelopeTable({ items, categories = [], isClosed, onAssign, onMo
               <StatusPills item={item} />
             </div>
             <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-              <div><dt className="text-xs text-text-muted">{t("envelope.column.planned")}</dt><dd className="tabular-nums">{formatCurrency(item.planned_amount)}</dd></div>
-              <div><dt className="text-xs text-text-muted">{t("envelope.column.assigned")}</dt><dd className="tabular-nums">{formatCurrency(item.assigned_amount)}</dd></div>
+              <div><dt className="text-xs text-text-muted">{t("envelope.column.planned")}</dt><dd className="tabular-nums">{formatCurrency(item.planned_amount, currency)}</dd></div>
+              <div><dt className="text-xs text-text-muted">{t("envelope.column.assigned")}</dt><dd className="tabular-nums">{formatCurrency(item.assigned_amount, currency)}</dd></div>
               <div><dt className="text-xs text-text-muted">{t("envelope.column.activity")}</dt><dd className="tabular-nums">{formatSignedCurrency(item.activity)}</dd></div>
-              <div><dt className="text-xs text-text-muted">{t("envelope.column.available")}</dt><dd className={cn("font-semibold tabular-nums", item.is_overspent && "text-danger")}>{formatCurrency(item.available)}</dd></div>
+              <div><dt className="text-xs text-text-muted">{t("envelope.column.available")}</dt><dd className={cn("font-semibold tabular-nums", item.is_overspent && "text-danger")}>{formatCurrency(item.available, currency)}</dd></div>
             </dl>
             <Progress item={item} />
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -132,10 +135,10 @@ export function EnvelopeTable({ items, categories = [], isClosed, onAssign, onMo
             {orderedItems.map(({ item, depth }) => (
               <tr key={item.category_id}>
                 <td className="py-3 pr-3"><CategoryLabel item={item} depth={depth} /><div className="mt-1 pl-10"><StatusPills item={item} /></div></td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.planned_amount)}</td>
-                <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.assigned_amount)}</td>
+                <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.planned_amount, currency)}</td>
+                <td className="px-3 py-3 text-right tabular-nums">{formatCurrency(item.assigned_amount, currency)}</td>
                 <td className="px-3 py-3 text-right tabular-nums">{formatSignedCurrency(item.activity)}</td>
-                <td className={cn("px-3 py-3 text-right font-semibold tabular-nums", item.is_overspent && "text-danger")}>{formatCurrency(item.available)}<Progress item={item} /></td>
+                <td className={cn("px-3 py-3 text-right font-semibold tabular-nums", item.is_overspent && "text-danger")}>{formatCurrency(item.available, currency)}<Progress item={item} /></td>
                 <td className="py-3 pl-3"><div className="flex justify-end gap-1">
                   <button type="button" disabled={isClosed} aria-label={t("envelope.action.planCategory", { category: translateCategoryName(item.category_name) })} onClick={() => onAssign(item)} className="rounded-md p-2 text-text-muted hover:bg-surface-2 disabled:opacity-40"><Pencil size={15} /></button>
                   <button type="button" disabled={isClosed || !item.has_row} aria-label={t("envelope.action.moveCategory", { category: translateCategoryName(item.category_name) })} onClick={() => onMove(item)} className="rounded-md p-2 text-text-muted hover:bg-surface-2 disabled:opacity-40"><ArrowLeftRight size={15} /></button>

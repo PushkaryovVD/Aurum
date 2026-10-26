@@ -1,14 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatCurrency } from "@/lib/format";
+import { formatReportingAmount } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { RiskLevelSummary } from "@/types";
 
 interface RiskAllocationCardProps {
   riskLevels: RiskLevelSummary[];
+  /** NetWorthSummary.reporting_currency — the currency the amounts are in. */
+  currency: string;
   isLoading: boolean;
 }
 
-export function RiskAllocationCard({ riskLevels, isLoading }: RiskAllocationCardProps) {
+export function RiskAllocationCard({ riskLevels, currency, isLoading }: RiskAllocationCardProps) {
   const { t } = useTranslation();
 
   return (
@@ -28,7 +30,7 @@ export function RiskAllocationCard({ riskLevels, isLoading }: RiskAllocationCard
                   {t(`netWorth.riskLevel.${tier.risk_level}` as TranslationKey)}
                 </p>
                 <p className="mt-1.5 text-xl font-semibold tabular-nums text-text-primary">
-                  {formatCurrency(tier.total_value)}
+                  {formatReportingAmount(tier.total_value, currency)}
                 </p>
                 <p className="mt-1 text-xs text-text-muted">{tier.percent.toFixed(1)}% {t("netWorth.riskAllocationOfCapital")}</p>
 

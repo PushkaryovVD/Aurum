@@ -1,6 +1,13 @@
 import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatCurrency, formatSignedCurrency, getIntlLocale } from "@/lib/format";
+import {
+  formatCurrency,
+  formatReportingAmount,
+  formatSignedCurrency,
+  formatSignedReportingAmount,
+  getIntlLocale,
+} from "@/lib/format";
+import { ReportingCurrencyNote } from "@/components/ui/ReportingCurrencyNote";
 import { useTranslation } from "@/lib/i18n";
 import type { QueryDisplayState } from "@/lib/queryDisplayState";
 import type { CashFlowResponse } from "@/types";
@@ -36,11 +43,16 @@ function computeYearTicks(keys: string[]): string[] {
   return ticks;
 }
 
+// null = that month had money but no exchange rate (see CashFlowPoint).
 interface ChartPoint {
   key: string;
-  income: number;
-  expense: number;
-  net: number;
+  income: number | null;
+  expense: number | null;
+  net: number | null;
+}
+
+function toNumber(value: string | null): number | null {
+  return value === null ? null : Number(value);
 }
 
 function ChartTooltip({
@@ -49,12 +61,14 @@ function ChartTooltip({
   incomeLabel,
   expenseLabel,
   netLabel,
+  currency,
 }: {
   active?: boolean;
   payload?: Array<{ payload: ChartPoint }>;
   incomeLabel: string;
   expenseLabel: string;
   netLabel: string;
+  currency: string;
 }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
@@ -62,20 +76,22 @@ function ChartTooltip({
     <div className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm shadow-md">
       <p className="text-text-muted">{formatMonthLabel(point.key)}</p>
       <p className="text-success">
-        {incomeLabel}: {formatCurrency(point.income)}
+        {incomeLabel}: {formatReportingAmount(point.income, currency)}
       </p>
       <p className="text-danger">
-        {expenseLabel}: {formatCurrency(point.expense)}
+        {expenseLabel}: {formatReportingAmount(point.expense, currency)}
       </p>
       <p className="font-medium text-text-primary">
-        {netLabel}: {formatSignedCurrency(point.net)}
+        {netLabel}: {formatSignedReportingAmount(point.net, currency)}
       </p>
     </div>
   );
 }
 
 export function CashFlowChart({ cashFlow, state }: CashFlowChartProps) {
-  const { t } = useTranslation();
+  const { t, currency: settingsCurrency } = useTranslation();
+  // Amounts are in the currency the backend converted them into.
+  const currency = cashFlow?.reporting_currency ?? settingsCurrency;
   const isLoading = state === "loading";
   const unavailable = state === "unavailable";
   const incomeLabel = t("cashFlow.income");
@@ -85,9 +101,9 @@ export function CashFlowChart({ cashFlow, state }: CashFlowChartProps) {
   const chartData: ChartPoint[] =
     cashFlow?.points.map((point) => ({
       key: monthKey(point.year, point.month),
-      income: Number(point.income),
-      expense: Number(point.expense),
-      net: Number(point.net),
+      income: toNumber(point.income),
+      expense: toNumber(point.expense),
+      net: toNumber(point.net),
     })) ?? [];
   const yearTicks = computeYearTicks(chartData.map((point) => point.key));
 
@@ -97,16 +113,16 @@ export function CashFlowChart({ cashFlow, state }: CashFlowChartProps) {
         <div>
           <CardTitle>{t("nav.cashFlow")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
-            {unavailable ? "—" : isLoading || !cashFlow ? "…" : formatSignedCurrency(cashFlow.total_net)}
+            {unavailable ? "—" : isLoading || !cashFlow ? "…" : formatSignedCurrency(cashFlow.total_net, currency)}
           </p>
           {cashFlow && (
             <p className="mt-1 text-sm">
               <span className="font-medium text-success">
-                {incomeLabel} {formatCurrency(cashFlow.total_income)}
+                {incomeLabel} {formatCurrency(cashFlow.total_income, currency)}
               </span>
               <span className="text-text-muted"> · </span>
               <span className="font-medium text-danger">
-                {expenseLabel} {formatCurrency(cashFlow.total_expense)}
+                {expenseLabel} {formatCurrency(cashFlow.total_expense, currency)}
               </span>
             </p>
           )}
@@ -138,7 +154,14 @@ export function CashFlowChart({ cashFlow, state }: CashFlowChartProps) {
                   />
                 )}
                 <Tooltip
-                  content={<ChartTooltip incomeLabel={incomeLabel} expenseLabel={expenseLabel} netLabel={netLabel} />}
+                  content={
+                    <ChartTooltip
+                      incomeLabel={incomeLabel}
+                      expenseLabel={expenseLabel}
+                      netLabel={netLabel}
+                      currency={currency}
+                    />
+                  }
                   cursor={{ fill: "var(--surface-2)" }}
                 />
                 <Legend
@@ -158,6 +181,9 @@ export function CashFlowChart({ cashFlow, state }: CashFlowChartProps) {
             <span>{formatMonthLabel(chartData[0].key)}</span>
             <span>{formatMonthLabel(chartData[chartData.length - 1].key)}</span>
           </div>
+        )}
+        {cashFlow && (
+          <ReportingCurrencyNote currency={cashFlow.reporting_currency} incomplete={cashFlow.incomplete} className="mt-2" />
         )}
       </CardContent>
     </Card>

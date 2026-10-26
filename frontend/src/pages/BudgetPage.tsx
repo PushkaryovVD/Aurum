@@ -11,13 +11,14 @@ import { ContextualHelp } from "@/components/help/ContextualHelp";
 import { useBudgets, useBudgetStatus, useDeleteBudget } from "@/hooks/useBudgets";
 import { useTransactionYears } from "@/hooks/useTransactions";
 import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
+import { ReportingCurrencyNote } from "@/components/ui/ReportingCurrencyNote";
 import { useTranslation } from "@/lib/i18n";
 import { queryDisplayState } from "@/lib/queryDisplayState";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { Budget, BudgetStatus } from "@/types";
 
 export function BudgetPage() {
-  const { t } = useTranslation();
+  const { t, currency } = useTranslation();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -84,7 +85,21 @@ export function BudgetPage() {
           {displayState === "loading" ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : displayState === "unavailable" ? null : (
-            <BudgetList items={status?.items ?? []} onEdit={openEditModal} onDelete={handleDelete} />
+            <>
+              <BudgetList
+                items={status?.items ?? []}
+                currency={status?.reporting_currency ?? currency}
+                onEdit={openEditModal}
+                onDelete={handleDelete}
+              />
+              {status && (
+                <ReportingCurrencyNote
+                  currency={status.reporting_currency}
+                  incomplete={status.incomplete}
+                  className="mt-3"
+                />
+              )}
+            </>
           )}
         </CardContent>
       </Card>

@@ -13,6 +13,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker-entrypoint.d/20-basic-auth.sh /docker-entrypoint.d/20-basic-auth.sh
 COPY docker-entrypoint.d/25-allowed-hosts.sh /docker-entrypoint.d/25-allowed-hosts.sh
+COPY docker-entrypoint.d/27-trusted-tls-proxy.sh /docker-entrypoint.d/27-trusted-tls-proxy.sh
 COPY docker-entrypoint.d/30-proxy-identity.sh /docker-entrypoint.d/30-proxy-identity.sh
 # sed strips any stray CR: cloned on Windows with core.autocrlf=true the
 # scripts arrive as CRLF, the kernel reads the shebang as "/bin/sh\r", and
@@ -20,9 +21,12 @@ COPY docker-entrypoint.d/30-proxy-identity.sh /docker-entrypoint.d/30-proxy-iden
 # at the repository level; this line covers checkouts that predate it.
 # The empty .conf files matter: nginx.conf includes both unconditionally, and
 # an include of a missing file is a startup error.
-RUN sed -i 's/\r$//' /docker-entrypoint.d/20-basic-auth.sh /docker-entrypoint.d/25-allowed-hosts.sh /docker-entrypoint.d/30-proxy-identity.sh \
-    && chmod +x /docker-entrypoint.d/20-basic-auth.sh /docker-entrypoint.d/25-allowed-hosts.sh /docker-entrypoint.d/30-proxy-identity.sh \
-    && touch /etc/nginx/basic-auth.conf /etc/nginx/allowed-hosts.conf /etc/nginx/proxy-identity.conf
+# trusted-tls-proxy.conf defines variables nginx.conf uses, so it cannot be
+# empty: the build pre-generates the safe default, the entrypoint regenerates it.
+RUN sed -i 's/\r$//' /docker-entrypoint.d/20-basic-auth.sh /docker-entrypoint.d/25-allowed-hosts.sh /docker-entrypoint.d/27-trusted-tls-proxy.sh /docker-entrypoint.d/30-proxy-identity.sh \
+    && chmod +x /docker-entrypoint.d/20-basic-auth.sh /docker-entrypoint.d/25-allowed-hosts.sh /docker-entrypoint.d/27-trusted-tls-proxy.sh /docker-entrypoint.d/30-proxy-identity.sh \
+    && touch /etc/nginx/basic-auth.conf /etc/nginx/allowed-hosts.conf /etc/nginx/proxy-identity.conf \
+    && AURUM_TRUSTED_TLS_PROXY=none /docker-entrypoint.d/27-trusted-tls-proxy.sh
 
 EXPOSE 80
 

@@ -196,6 +196,9 @@ services:
       # Hostnames this instance answers to — anything else gets a 421.
       # See frontend/docker-entrypoint.d/25-allowed-hosts.sh.
       AURUM_ALLOWED_HOSTS: ${AURUM_ALLOWED_HOSTS:-*}
+      # "cloudflare" when published through Cloudflare Tunnel (HTTPS ends at
+      # Cloudflare). See frontend/docker-entrypoint.d/27-trusted-tls-proxy.sh.
+      AURUM_TRUSTED_TLS_PROXY: ${AURUM_TRUSTED_TLS_PROXY:-none}
       AURUM_AUTH_PROXY_SHARED_SECRET_FILE: /run/aurum-secrets/proxy_shared_secret
     volumes:
       - aurum_auth_secrets:/run/aurum-secrets:ro

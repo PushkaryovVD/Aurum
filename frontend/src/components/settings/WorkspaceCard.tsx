@@ -25,6 +25,9 @@ export function WorkspaceCard() {
   const [issued, setIssued] = useState<WorkspaceInvitation | null>(null);
   const active = workspace?.activeWorkspace;
   const canAdminister = active?.kind === "household" && active.role === "owner";
+  // Invitations grant access to a family space; only its owner may issue them.
+  // Personal spaces cannot be shared: every invited person gets their own.
+  const ownedHouseholds = workspace?.workspaces.filter((item) => item.kind === "household" && item.role === "owner") ?? [];
   const members = useQuery({
     queryKey: ["workspace-members", active?.id],
     queryFn: () => fetchWorkspaceMembers(active!.id),
@@ -38,7 +41,8 @@ export function WorkspaceCard() {
   const create = useMutation({ mutationFn: createWorkspace, onSuccess: refreshSession });
   const accept = useMutation({ mutationFn: acceptWorkspaceInvitation, onSuccess: async (value) => workspace?.replaceSession(parseSession(value)) });
   const invite = useMutation({
-    mutationFn: ({ recipient, role }: { recipient: string; role: "editor" | "viewer" }) => createWorkspaceInvitation(active!.id, recipient, role),
+    mutationFn: ({ workspaceId, recipient, role }: { workspaceId: string; recipient: string; role: "editor" | "viewer" }) =>
+      createWorkspaceInvitation(workspaceId, recipient, role),
     onSuccess: setIssued,
   });
   const update = useMutation({
@@ -76,6 +80,34 @@ export function WorkspaceCard() {
         <Button className="self-end" variant="secondary" disabled={accept.isPending}>{t("workspace.accept")}</Button>
       </form>
 
+      <section className="space-y-4 border-t border-border pt-5" aria-labelledby="invite-heading">
+        <div>
+          <h4 id="invite-heading" className="font-medium">{t("workspace.inviteTitle")}</h4>
+          <p className="mt-1 text-sm text-text-secondary">{t("workspace.inviteExplain")}</p>
+        </div>
+        {ownedHouseholds.length === 0 ? <p className="text-sm text-text-muted">{t("workspace.inviteNeedsHousehold")}</p> :
+        <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_9rem_auto]" onSubmit={submit((data) => invite.mutate({
+          workspaceId: String(data.get("workspace")),
+          recipient: String(data.get("recipient") ?? "").trim(),
+          role: String(data.get("role")) as "editor" | "viewer",
+        }))}>
+          <div><Label htmlFor="invite-recipient">{t("workspace.inviteRecipient")}</Label><Input id="invite-recipient" name="recipient" type="email" inputMode="email" autoComplete="off" placeholder="name@example.com" required maxLength={320} /></div>
+          <div><Label htmlFor="invite-workspace">{t("workspace.inviteWorkspace")}</Label><Select id="invite-workspace" name="workspace" className="min-h-11" defaultValue={canAdminister ? active.id : ownedHouseholds[0].id}>{ownedHouseholds.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</Select></div>
+          <div><Label htmlFor="invite-role">{t("workspace.memberRole")}</Label><Select id="invite-role" name="role" className="min-h-11"><option value="editor">{t("workspace.role.editor")}</option><option value="viewer">{t("workspace.role.viewer")}</option></Select></div>
+          <Button className="self-end" disabled={invite.isPending}>{t("workspace.inviteCreate")}</Button>
+        </form>}
+        {issued && <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
+          {issued.email_sent && <p className="mb-2 text-sm font-medium text-success" role="status">{t("workspace.inviteEmailSent", { recipient: issued.recipient })}</p>}
+          <p className="text-sm font-medium">{t("workspace.tokenOnce")}</p>
+          <p className="mt-2 text-xs text-text-secondary">{t("workspace.inviteLinkHint")}</p>
+          <code className="mt-2 block break-all text-xs">{invitationLink(issued.token)}</code>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" onClick={() => void navigator.clipboard?.writeText(invitationLink(issued.token))}>{t("workspace.copyLink")}</Button>
+            <Button type="button" variant="secondary" onClick={() => void navigator.clipboard?.writeText(issued.token)}>{t("workspace.copy")}</Button>
+          </div>
+        </div>}
+      </section>
+
       {canAdminister && <section className="space-y-4 border-t border-border pt-5">
         <h4 className="font-medium">{t("workspace.members")}</h4>
         {members.isLoading && <p className="text-sm text-text-muted">{t("common.loading")}</p>}
@@ -89,21 +121,6 @@ export function WorkspaceCard() {
             </>}
           </li>)}
         </ul>
-        <form className="grid gap-3 sm:grid-cols-[1fr_9rem_auto]" onSubmit={submit((data) => invite.mutate({ recipient: String(data.get("recipient") ?? "").trim(), role: String(data.get("role")) as "editor" | "viewer" }))}>
-          <div><Label htmlFor="invite-recipient">{t("workspace.inviteRecipient")}</Label><Input id="invite-recipient" name="recipient" required maxLength={320} /></div>
-          <div><Label htmlFor="invite-role">{t("workspace.memberRole")}</Label><Select id="invite-role" name="role" className="min-h-11"><option value="editor">{t("workspace.role.editor")}</option><option value="viewer">{t("workspace.role.viewer")}</option></Select></div>
-          <Button className="self-end" disabled={invite.isPending}>{t("workspace.invite")}</Button>
-        </form>
-        {issued && <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
-          {issued.email_sent && <p className="mb-2 text-sm font-medium text-success" role="status">{t("workspace.inviteEmailSent", { recipient: issued.recipient })}</p>}
-          <p className="text-sm font-medium">{t("workspace.tokenOnce")}</p>
-          <p className="mt-2 text-xs text-text-secondary">{t("workspace.inviteLinkHint")}</p>
-          <code className="mt-2 block break-all text-xs">{invitationLink(issued.token)}</code>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="button" onClick={() => void navigator.clipboard?.writeText(invitationLink(issued.token))}>{t("workspace.copyLink")}</Button>
-            <Button type="button" variant="secondary" onClick={() => void navigator.clipboard?.writeText(issued.token)}>{t("workspace.copy")}</Button>
-          </div>
-        </div>}
       </section>}
       {error && <p className="text-sm text-danger" role="alert">{t("workspace.actionError")}</p>}
     </CardContent>

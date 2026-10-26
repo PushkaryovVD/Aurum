@@ -34,7 +34,9 @@ def test_tls_proxy_uses_an_internal_port_instead_of_trusting_client_forwarded_pr
     assert "reverse_proxy web:8080" in caddy
     assert "header_up X-Real-IP {remote_host}" in caddy
     assert "8080 $http_x_real_ip;" in nginx
-    assert "default $remote_addr;" in nginx
+    assert "default $aurum_port80_client;" in nginx
+    assert "default $aurum_port80_proto;" in nginx
+    assert "include /etc/nginx/trusted-tls-proxy.conf;" in nginx
     assert "limit_req_zone $aurum_forwarded_client" in nginx
     assert "proxy_set_header X-Real-IP $aurum_forwarded_client;" in nginx
     assert (
@@ -96,3 +98,18 @@ def test_operator_guidance_matches_default_required_auth_boundary() -> None:
     assert "readiness-blocked with `503`" in docs
     assert "Required application authentication always suppresses" in env_example
     assert "Basic Auth perimeter is disabled" in entrypoint
+
+
+def test_forwarded_proto_is_trusted_only_by_explicit_cloudflare_opt_in() -> None:
+    script = (ROOT / "frontend/docker-entrypoint.d/27-trusted-tls-proxy.sh").read_text(encoding="utf-8")
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
+
+    assert "AURUM_TRUSTED_TLS_PROXY: ${AURUM_TRUSTED_TLS_PROXY:-none}" in compose
+    assert 'MODE="${AURUM_TRUSTED_TLS_PROXY:-none}"' in script
+    cloudflare, rest = script.split("  none|\"\")", 1)
+    # Client headers appear only in the cloudflare branch.
+    assert "$http_x_forwarded_proto" in cloudflare and "$http_cf_connecting_ip" in cloudflare
+    safe_branch = rest.split("  *)", 1)[0]
+    assert "$http_" not in safe_branch
+    assert "AURUM_TRUSTED_TLS_PROXY=none /docker-entrypoint.d/27-trusted-tls-proxy.sh" in dockerfile

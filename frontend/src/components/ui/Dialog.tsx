@@ -41,7 +41,7 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
             type="button"
             onClick={onClose}
             aria-label={t("common.close")}
-            className="rounded-md p-1 text-text-muted hover:bg-surface-2"
+            className="-mr-2 flex min-h-11 min-w-11 items-center justify-center rounded-md text-text-muted hover:bg-surface-2"
           >
             <X size={18} />
           </button>

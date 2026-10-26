@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
-import { NAV_ITEMS } from "@/lib/navigation";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { visibleNavItems } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 
@@ -13,10 +14,11 @@ interface NavListProps {
 
 function NavList({ collapsed, onNavigate }: NavListProps) {
   const { t } = useTranslation();
+  const isAdmin = useWorkspace()?.user.is_admin ?? false;
 
   return (
     <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-2">
-      {NAV_ITEMS.map((item) => {
+      {visibleNavItems(isAdmin).map((item) => {
         const Icon = item.icon;
         const label = t(item.labelKey);
         if (item.disabled) {

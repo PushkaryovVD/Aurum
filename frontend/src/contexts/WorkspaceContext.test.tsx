@@ -6,10 +6,10 @@ import { api, setApiSessionContext } from "@/api/client";
 import { useWorkspace, WorkspaceProvider } from "./WorkspaceContext";
 import type { IdentitySession } from "@/lib/authSession";
 
-const one = { id: "workspace-one", display_name: "One", kind: "personal", role: "owner" } as const;
-const two = { id: "workspace-two", display_name: "Two", kind: "household", role: "viewer" } as const;
+const one = { id: "workspace-one", display_name: "One", kind: "personal", role: "owner", status: "active" } as const;
+const two = { id: "workspace-two", display_name: "Two", kind: "household", role: "viewer", status: "active" } as const;
 const session: IdentitySession = {
-  user: { id: "user-one", identifier: "owner@example.com", display_name: "Owner" },
+  user: { id: "user-one", identifier: "owner@example.com", display_name: "Owner", is_admin: false },
   csrf_token: "csrf-one",
   workspaces: [one, two],
   active_workspace: one,
@@ -97,4 +97,35 @@ it("signs out with CSRF and clears protected query data", async () => {
   expect(headers.get("X-CSRF-Token")).toBe("csrf-one");
   expect(headers.get("X-Aurum-Workspace")).toBe("workspace-one");
   expect(client.getQueryData(["private"])).toBeUndefined();
+});
+
+it("marks the active workspace blocked when the server answers 423 and refuses to switch into it", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Workspace is blocked" }), { status: 423 })));
+  let current: ReturnType<typeof useWorkspace> = null;
+  function Consumer() {
+    current = useWorkspace();
+    const query = useQuery({ queryKey: ["blocked-probe"], queryFn: () => api.get("/accounts") });
+    return <span>{current!.activeWorkspace.status}:{query.isError ? "error" : "pending"}</span>;
+  }
+  setApiSessionContext({ csrfToken: session.csrf_token, workspaceId: session.active_workspace.id });
+  await act(async () => { root.render(<Harness><Consumer /></Harness>); });
+  await act(async () => { await vi.waitFor(() => expect(container.textContent).toBe("blocked:error")); });
+  expect(current!.workspaces.find((item) => item.id === "workspace-one")?.status).toBe("blocked");
+
+  act(() => current!.setWorkspaceStatus("workspace-two", "blocked"));
+  await expect(current!.switchWorkspace("workspace-two")).rejects.toThrow("blocked");
+});
+
+it("forgets a deleted workspace and falls back to an open one", async () => {
+  let current: ReturnType<typeof useWorkspace> = null;
+  function Consumer() {
+    current = useWorkspace();
+    return <span>{current!.activeWorkspace.id}:{current!.workspaces.length}</span>;
+  }
+  const familyFirst = { ...session, active_workspace: two };
+  await act(async () => {
+    root.render(<QueryClientProvider client={client}><WorkspaceProvider session={familyFirst} onSessionEnded={() => undefined}><Consumer /></WorkspaceProvider></QueryClientProvider>);
+  });
+  await act(async () => { await current!.dropWorkspace("workspace-two"); });
+  expect(container.textContent).toBe("workspace-one:1");
 });

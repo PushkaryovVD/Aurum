@@ -11,6 +11,9 @@ export function setApiSessionContext(context: ApiSessionContext | null) {
   sessionContext = context;
 }
 
+/** Fired when the server reports that the active workspace was blocked (HTTP 423). */
+export const WORKSPACE_BLOCKED_EVENT = "aurum:workspace-blocked";
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -42,6 +45,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (typeof parsed.detail === "string") message = parsed.detail;
     } catch {
       // body wasn't JSON — fall back to the raw text set above
+    }
+    if (response.status === 423 && sessionContext && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(WORKSPACE_BLOCKED_EVENT, { detail: sessionContext.workspaceId }));
     }
     throw new ApiError(response.status, message);
   }

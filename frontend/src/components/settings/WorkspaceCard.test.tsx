@@ -9,10 +9,12 @@ vi.hoisted(() => {
 });
 
 const createWorkspaceInvitation = vi.fn();
+const deleteHouseholdWorkspace = vi.fn();
 vi.mock("@/api/workspaces", () => ({
   acceptWorkspaceInvitation: vi.fn(),
   createWorkspace: vi.fn(),
   createWorkspaceInvitation: (...args: unknown[]) => createWorkspaceInvitation(...args),
+  deleteHouseholdWorkspace: (...args: unknown[]) => deleteHouseholdWorkspace(...args),
   fetchIdentitySession: vi.fn(),
   fetchWorkspaceMembers: vi.fn().mockResolvedValue([]),
   removeWorkspaceMember: vi.fn(),
@@ -84,4 +86,31 @@ it("invites into a chosen owned family space even while a personal space is acti
   expect(createWorkspaceInvitation).toHaveBeenCalledWith("ws-parents", "guest@example.com", "viewer");
   expect(view.textContent).toContain("The invitation was e-mailed to guest@example.com");
   expect(view.textContent).toContain("/login#invite=test-only-token");
+});
+
+it("lets a household owner delete it only after typing the exact name", async () => {
+  setWorkspaces([personal, family], family);
+  const dropWorkspace = vi.fn();
+  workspaceValue = { ...workspaceValue!, dropWorkspace };
+  deleteHouseholdWorkspace.mockResolvedValue(undefined);
+  const view = await render();
+  const open = Array.from(view.querySelectorAll("button")).find((button) => button.textContent === "Delete workspace")!;
+  await act(async () => { open.click(); });
+  const confirm = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Delete permanently")!;
+  expect(confirm.disabled).toBe(true);
+  const input = document.querySelector<HTMLInputElement>('[name="confirm_name"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Family");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(confirm.disabled).toBe(false);
+  await act(async () => { confirm.click(); });
+  expect(deleteHouseholdWorkspace).toHaveBeenCalledWith("ws-family", "Family");
+  expect(dropWorkspace).toHaveBeenCalledWith("ws-family");
+});
+
+it("never offers deletion for a personal space or to a non-owner", async () => {
+  setWorkspaces([personal, friends], friends);
+  const view = await render();
+  expect(view.textContent).not.toContain("Delete workspace");
 });

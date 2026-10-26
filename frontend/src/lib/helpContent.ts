@@ -17,7 +17,8 @@ export type HelpTopicId =
   | "recurring"
   | "goals"
   | "advice"
-  | "settings";
+  | "settings"
+  | "admin";
 
 export interface LocalizedText {
   ru: string;
@@ -187,6 +188,14 @@ export const HELP_TOPICS: HelpTopic[] = [
     whenToUse: { ru: "Настройте интерфейс при первом запуске и экспортируйте копию перед рискованными изменениями.", en: "Set up the interface on first use and export a backup before risky changes." },
     example: { ru: "Можно выбрать English, тёмную тему и KZT как основную валюту отображения.", en: "You can choose Russian, dark mode, and KZT as the primary display currency." },
     misunderstanding: { ru: "Смена основной валюты меняет отображение, но не переписывает исходные суммы операций.", en: "Changing the primary currency changes display, not the original amounts of past transactions." },
+  },  {
+    id: "admin",
+    path: "/admin",
+    title: { ru: "Администрирование", en: "Administration" },
+    purpose: { ru: "Виден только администраторам установки: список пользователей и пространств, блокировка и удаление семейных пространств.", en: "Visible only to installation administrators: lists users and workspaces, blocks them, and deletes household workspaces." },
+    whenToUse: { ru: "Когда нужно закрыть доступ человеку или пространству, не удаляя данных, либо навсегда удалить ненужное семейное пространство.", en: "When a person or a workspace must lose access without losing data, or an unused household workspace must be deleted for good." },
+    example: { ru: "Заблокированный пользователь сразу теряет все сессии и не может войти ни в приложение, ни через Telegram.", en: "A blocked user loses every session at once and cannot sign in to the app or through Telegram." },
+    misunderstanding: { ru: "Администратор не видит чужие финансы: только логины, роли и пространства. Личные пространства не удаляются — только блокируются.", en: "Administrators never see other people's finances, only logins, roles and workspaces. Personal workspaces are never deleted, only blocked." },
   },
 ];
 

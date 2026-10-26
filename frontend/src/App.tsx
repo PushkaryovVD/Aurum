@@ -3,9 +3,12 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { RouteBoundary } from "@/components/layout/RouteBoundary";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { WorkspaceBlockedNotice } from "@/components/workspace/WorkspaceBlockedNotice";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { useAppSettings } from "@/hooks/useSettings";
 import { setCurrency } from "@/lib/i18n";
+const AdminPage = lazy(() => import("@/pages/AdminPage").then((m) => ({ default: m.AdminPage })));
 const AccountsPage = lazy(() => import("@/pages/AccountsPage").then((m) => ({ default: m.AccountsPage })));
 const AdvicePage = lazy(() => import("@/pages/AdvicePage").then((m) => ({ default: m.AdvicePage })));
 const BudgetPage = lazy(() => import("@/pages/BudgetPage").then((m) => ({ default: m.BudgetPage })));
@@ -38,6 +41,9 @@ function FinancialShell() {
   const [collapsed, setCollapsed] = useLocalStorageState("aurum:sidebar-collapsed", false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { pathname } = useLocation();
+  const workspace = useWorkspace();
+  // Administration and help never read the active space's finances.
+  const blocked = workspace?.activeWorkspace.status === "blocked" && !["/admin", "/help"].includes(pathname);
 
   // Primary currency is server-persisted, unlike language — sync the
   // client-side reactive mirror (lib/i18n's getCurrency/formatCurrency)
@@ -64,7 +70,7 @@ function FinancialShell() {
             content off the sidebar/viewport edges. */}
         <main className="w-full min-w-0 px-page-inline py-page-block">
           <RouteBoundary key={pathname}>
-          <Routes>
+          {blocked ? <WorkspaceBlockedNotice /> : <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/net-worth" element={<NetWorthPage />} />
             <Route path="/crypto" element={<CryptoPage />} />
@@ -86,7 +92,8 @@ function FinancialShell() {
             <Route path="/recurring" element={<RecurringPage />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
+            <Route path="/admin" element={<AdminPage />} />
+          </Routes>}
           </RouteBoundary>
         </main>
       </div>

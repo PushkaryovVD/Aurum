@@ -21,6 +21,7 @@ from app.models.workspace import (
     WorkspaceKind,
     WorkspaceMembership,
     WorkspaceRole,
+    WorkspaceStatus,
 )
 from app.security.auth import capability_hmac
 
@@ -31,6 +32,10 @@ class InvitationUnavailable(Exception):
 
 class FirstOwnerBootstrapUnavailable(Exception):
     """The one-time first-owner setup code cannot be consumed."""
+
+
+class WorkspaceBlocked(Exception):
+    """An administrator blocked the workspace; it cannot be managed or joined."""
 
 
 PRIVATE_WORKSPACE_SUFFIX = "'s private workspace"
@@ -119,6 +124,8 @@ async def require_household_owner(
         raise ValueError("personal workspace cannot be member-managed")
     if membership.role != WorkspaceRole.OWNER:
         raise PermissionError("owner role required")
+    if workspace.status == WorkspaceStatus.BLOCKED:
+        raise WorkspaceBlocked
     return workspace
 
 
@@ -216,7 +223,11 @@ async def lock_available_invitation(
     ):
         raise InvitationUnavailable
     workspace = await session.get(Workspace, record.workspace_id)
-    if workspace is None or workspace.kind != WorkspaceKind.HOUSEHOLD:
+    if (
+        workspace is None
+        or workspace.kind != WorkspaceKind.HOUSEHOLD
+        or workspace.status == WorkspaceStatus.BLOCKED
+    ):
         raise InvitationUnavailable
     return record
 
@@ -350,7 +361,13 @@ async def bootstrap_first_owner(
     if normalized is None or safe_display_name is None:
         raise FirstOwnerBootstrapUnavailable
 
-    user = User(normalized_login=normalized, display_name=safe_display_name, password_hash=password_hash)
+    # The first owner of an installation is also its first administrator.
+    user = User(
+        normalized_login=normalized,
+        display_name=safe_display_name,
+        password_hash=password_hash,
+        is_admin=True,
+    )
     session.add(user)
     await session.flush()
     workspace = Workspace(

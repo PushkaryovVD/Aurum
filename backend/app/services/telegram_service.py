@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.auth import TelegramIdentity, TelegramLinkCode
-from app.models.workspace import User, UserStatus, WorkspaceMembership
+from app.models.workspace import User, UserStatus, Workspace, WorkspaceMembership, WorkspaceStatus
 from app.security.auth import capability_hmac
 
 
@@ -120,11 +120,13 @@ async def consume_link_code(
         await session.execute(
             select(WorkspaceMembership)
             .join(User, User.id == WorkspaceMembership.user_id)
+            .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
             .where(
                 WorkspaceMembership.user_id == record.user_id,
                 WorkspaceMembership.workspace_id == record.workspace_id,
                 WorkspaceMembership.revoked_at.is_(None),
                 User.status == UserStatus.ACTIVE,
+                Workspace.status == WorkspaceStatus.ACTIVE,
             )
         )
     ).scalar_one_or_none()

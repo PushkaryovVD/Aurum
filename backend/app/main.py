@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
     accounts,
+    admin,
     advice,
     assets,
     auth,
@@ -108,6 +109,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     configured_app.include_router(telegram.router, prefix="/api")
     configured_app.include_router(workspaces.router, prefix="/api")
     protected = [Depends(require_finance_access)]
+    # Admin routes read the post-migration identity schema, so they share the gate.
+    configured_app.include_router(admin.router, prefix="/api", dependencies=protected)
     for route in (
         dashboard,
         accounts,

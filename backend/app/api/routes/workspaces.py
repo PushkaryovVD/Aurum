@@ -9,6 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
+    WORKSPACE_BLOCKED_DETAIL,
+    WORKSPACE_BLOCKED_STATUS,
     AuthenticatedSession,
     auth_session_service,
     client_signal,
@@ -24,9 +26,11 @@ from app.api.routes.auth import (
     parse_invitation_token,
     read_auth_json,
 )
+from app.api.routes.admin import audit_event, delete_workspace_permanently
 from app.core.config import Settings
 from app.models.auth import SecurityAuditEvent, UserSession
 from app.models.workspace import User, Workspace, WorkspaceMembership, WorkspaceRole
+from app.schemas.admin import WorkspaceDeleteRequest
 from app.schemas.auth import AuthSessionResponse
 from app.schemas.workspace import (
     HouseholdCreate,
@@ -39,6 +43,7 @@ from app.services.auth_rate_limit_service import AuthRateLimiter
 from app.services.email_service import InvitationEmail, invitation_link, send_invitation_email
 from app.services.workspace_service import (
     InvitationUnavailable,
+    WorkspaceBlocked,
     accept_for_existing_user,
     create_household,
     create_invitation,
@@ -50,6 +55,8 @@ GENERIC_INVITATION_ERROR = "Invitation is not available"
 
 
 def _raise_owner_error(error: Exception) -> None:
+    if isinstance(error, WorkspaceBlocked):
+        raise HTTPException(status_code=WORKSPACE_BLOCKED_STATUS, detail=WORKSPACE_BLOCKED_DETAIL) from error
     if isinstance(error, LookupError):
         raise HTTPException(status_code=404, detail="Workspace not found") from error
     if isinstance(error, PermissionError):
@@ -126,6 +133,39 @@ async def create_workspace(
     )
 
 
+@router.post("/{workspace_id}/delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_household(
+    workspace_id: UUID,
+    payload: WorkspaceDeleteRequest,
+    authenticated: AuthenticatedSession = Depends(require_authenticated_session),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Let a household owner permanently delete it, after typing its name."""
+    # Read before any rollback: a rollback expires the loaded user row.
+    actor_id = authenticated.user.id
+    try:
+        await require_household_owner(session, workspace_id=workspace_id, user_id=actor_id)
+    except (LookupError, PermissionError, ValueError, WorkspaceBlocked) as exc:
+        await session.rollback()
+        audit_event(
+            session,
+            actor_id=actor_id,
+            event_type="workspace_deleted",
+            outcome="failure",
+            target_type="workspace",
+            target_id=workspace_id,
+        )
+        await session.commit()
+        _raise_owner_error(exc)
+    await delete_workspace_permanently(
+        session,
+        actor_id=actor_id,
+        workspace_id=workspace_id,
+        confirm_name=payload.confirm_name,
+        event_type="workspace_deleted",
+    )
+
+
 @router.get("/{workspace_id}/members", response_model=list[MembershipResponse])
 async def list_members(
     workspace_id: UUID,
@@ -138,7 +178,7 @@ async def list_members(
             workspace_id=workspace_id,
             user_id=authenticated.user.id,
         )
-    except (LookupError, PermissionError, ValueError) as exc:
+    except (LookupError, PermissionError, ValueError, WorkspaceBlocked) as exc:
         _raise_owner_error(exc)
     rows = (
         await session.execute(
@@ -174,7 +214,7 @@ async def update_member(
 ) -> MembershipResponse:
     try:
         await require_household_owner(session, workspace_id=workspace_id, user_id=authenticated.user.id)
-    except (LookupError, PermissionError, ValueError) as exc:
+    except (LookupError, PermissionError, ValueError, WorkspaceBlocked) as exc:
         _raise_owner_error(exc)
     membership = (
         await session.execute(
@@ -213,7 +253,7 @@ async def remove_member(
 ) -> None:
     try:
         await require_household_owner(session, workspace_id=workspace_id, user_id=authenticated.user.id)
-    except (LookupError, PermissionError, ValueError) as exc:
+    except (LookupError, PermissionError, ValueError, WorkspaceBlocked) as exc:
         _raise_owner_error(exc)
     membership = (
         await session.execute(
@@ -279,7 +319,7 @@ async def issue_invitation(
             expires_in_seconds=expires_in_seconds,
             hmac_secret=settings.auth_hmac_secret.get_secret_value(),
         )
-    except (LookupError, PermissionError, ValueError) as exc:
+    except (LookupError, PermissionError, ValueError, WorkspaceBlocked) as exc:
         session.add(
             SecurityAuditEvent(
                 actor_user_id=authenticated.user.id,
@@ -337,7 +377,7 @@ async def revoke_invitation(
 ) -> None:
     try:
         await require_household_owner(session, workspace_id=workspace_id, user_id=authenticated.user.id)
-    except (LookupError, PermissionError, ValueError) as exc:
+    except (LookupError, PermissionError, ValueError, WorkspaceBlocked) as exc:
         session.add(
             SecurityAuditEvent(
                 actor_user_id=authenticated.user.id,

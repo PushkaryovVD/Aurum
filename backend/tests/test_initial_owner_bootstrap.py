@@ -58,6 +58,8 @@ async def test_initial_owner_bootstrap_is_atomic_audited_and_preserves_legacy_na
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["user"]["identifier"] == "owner@example.com"
+    # The first owner is the installation's first administrator.
+    assert body["user"]["is_admin"] is True
     assert body["csrf_token"]
     assert "set-cookie" in response.headers
     authenticated = await auth_client.get("/auth/me")
@@ -70,6 +72,7 @@ async def test_initial_owner_bootstrap_is_atomic_audited_and_preserves_legacy_na
         membership = (await session.execute(select(WorkspaceMembership))).scalar_one()
         audit = (await session.execute(select(SecurityAuditEvent))).scalar_one()
         assert user.normalized_login == "owner@example.com"
+        assert user.is_admin is True
         assert user.personal_workspace_id == workspace.id
         assert workspace.personal_owner_user_id == user.id
         assert membership.user_id == user.id and membership.workspace_id == workspace.id

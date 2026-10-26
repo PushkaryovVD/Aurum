@@ -20,7 +20,7 @@ from app.models.account import Account
 from app.models.auth import TelegramIdentity, TelegramTransactionDraft
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
-from app.models.workspace import User, UserStatus, Workspace, WorkspaceMembership, WorkspaceRole
+from app.models.workspace import User, UserStatus, Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceStatus
 from app.services.telegram_service import consume_link_code
 
 logging.basicConfig(level=logging.INFO)
@@ -101,11 +101,19 @@ class TelegramBot:
         ).one_or_none()
 
     async def memberships(self, session, user_id: UUID) -> list[tuple[WorkspaceMembership, Workspace]]:
-        """Every space this Aurum user can currently open, personal first."""
+        """Every space this Aurum user can currently open, personal first.
+
+        Spaces blocked by an administrator are left out, so neither the picker
+        nor a stale button can switch quick entry into them.
+        """
         rows = await session.execute(
             select(WorkspaceMembership, Workspace)
             .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
-            .where(WorkspaceMembership.user_id == user_id, WorkspaceMembership.revoked_at.is_(None))
+            .where(
+                WorkspaceMembership.user_id == user_id,
+                WorkspaceMembership.revoked_at.is_(None),
+                Workspace.status == WorkspaceStatus.ACTIVE,
+            )
             .order_by(Workspace.kind.desc(), Workspace.display_name)
         )
         return [(membership, workspace) for membership, workspace in rows.all()]
@@ -235,6 +243,13 @@ class TelegramBot:
                 await self.send(client, chat_id, "Сначала привяжите аккаунт командой /link КОД.")
                 return True
             identity, user, membership, workspace = linked
+            if workspace.status == WorkspaceStatus.BLOCKED:
+                await self.send(
+                    client,
+                    chat_id,
+                    f"Пространство «{workspace.display_name}» заблокировано администратором. Выберите другое: /space",
+                )
+                return True
             if membership.role == WorkspaceRole.VIEWER:
                 await self.send(
                     client,
@@ -374,6 +389,7 @@ class TelegramBot:
                             TelegramTransactionDraft.expires_at > datetime.now(UTC),
                             User.status == UserStatus.ACTIVE,
                             WorkspaceMembership.revoked_at.is_(None),
+                            Workspace.status == WorkspaceStatus.ACTIVE,
                         )
                         .with_for_update()
                     )
@@ -475,6 +491,11 @@ class TelegramBot:
                 )
             identity, _user, _membership, workspace = linked
             account = await session.get(Account, identity.default_account_id) if identity.default_account_id else None
+        if workspace.status == WorkspaceStatus.BLOCKED:
+            return text + (
+                f"\n\nПространство «{workspace.display_name}» заблокировано администратором — "
+                "выберите другое командой /space."
+            )
         target = f"\n\nСейчас транзакции записываются в пространство «{workspace.display_name}»"
         if account is not None and account.workspace_id == workspace.id and not account.is_archived:
             target += f", счёт «{account.name} · {account.currency}»."

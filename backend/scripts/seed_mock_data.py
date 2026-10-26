@@ -1,331 +1,251 @@
-"""Fills the database with realistic mock data for local UI testing.
+"""Fills Aurum with a realistic demo dataset for local UI testing.
 
-Run it against a running stack with:
+The data goes through the public REST API, exactly like the web app, so it
+always matches the current schema: multi-currency fields, workspace scope,
+categorization and validation are all applied by the server itself.
 
-    docker compose exec backend python -m scripts.seed_mock_data
+Run it against a running stack, for example from the backend container:
 
-It replaces any existing transactions/assets/extra accounts with a fresh,
-deterministic (random.seed'd) five-month dataset — the default "Main
-Account" and the auto-seeded categories are kept. Safe to re-run any time
-you want a clean demo dataset again.
+    docker compose exec backend python -m scripts.seed_mock_data --login you@example.com
+
+or from your machine against the web port:
+
+    python -m scripts.seed_mock_data --base-url http://localhost:3000 --login you@example.com
+
+The password is read from AURUM_SEED_PASSWORD or asked interactively; it is
+never stored. With accounts enabled the data is written into a separate
+family space (default "Demo data", created when missing), so your real spaces
+are never touched. Re-running replaces only what this script created before:
+accounts named "Demo · …", their transactions and assets named "Demo · …".
+In legacy auth-disabled mode the same prefix rule protects existing data.
 """
-import asyncio
+from __future__ import annotations
+
+import argparse
+import getpass
+import os
 import random
+import sys
 from datetime import date
 from decimal import Decimal
+from urllib.parse import urlsplit
 
-from sqlalchemy import delete, select
+import httpx
 
-from app.db.session import AsyncSessionLocal
-from app.models import Account, Asset, AssetValuation, Category, Transaction
-from app.models.enums import AccountType, AssetClass, TransactionType
-
-random.seed(42)
-
-TODAY = date.today()
+PREFIX = "Demo · "
+MARKER = "[aurum-demo-seed]"
+# Amounts below are written in "USD-sized" units and scaled per currency so
+# the demo looks plausible whatever the account currency is.
+CURRENCY_SCALE = {"KZT": Decimal("500"), "RUB": Decimal("90"), "UAH": Decimal("40")}
 
 
 def _shift_month(d: date, months: int) -> date:
-    month_index = d.month - 1 + months
-    return date(d.year + month_index // 12, month_index % 12 + 1, 1)
+    index = d.month - 1 + months
+    return date(d.year + index // 12, index % 12 + 1, 1)
 
 
-# Five months of history, ending with the current (partial) month.
-_current_month_start = date(TODAY.year, TODAY.month, 1)
-MONTH_STARTS = [_shift_month(_current_month_start, -i) for i in range(4, -1, -1)]
+class Seeder:
+    def __init__(self, base_url: str, currency: str, months: int, seed: int) -> None:
+        parts = urlsplit(base_url)
+        self.origin = f"{parts.scheme}://{parts.netloc}"
+        self.client = httpx.Client(base_url=f"{self.origin}/api", timeout=60, headers={"Origin": self.origin})
+        self.currency = currency.upper()
+        self.scale = CURRENCY_SCALE.get(self.currency, Decimal("1"))
+        self.today = date.today()
+        current = date(self.today.year, self.today.month, 1)
+        self.month_starts = [_shift_month(current, -i) for i in range(months - 1, -1, -1)]
+        self.random = random.Random(seed)
+
+    # --- HTTP helpers -------------------------------------------------------
+    def request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        response = self.client.request(method, path, **kwargs)
+        if response.status_code >= 400:
+            raise SystemExit(f"{method} {path} failed with {response.status_code}: {response.text[:300]}")
+        return response
+
+    def use_session(self, session: dict, workspace_id: str) -> None:
+        self.client.headers["X-CSRF-Token"] = session["csrf_token"]
+        self.client.headers["X-Aurum-Workspace"] = workspace_id
+
+    # --- Authentication and target space ------------------------------------
+    def sign_in_and_pick_space(self, login: str | None, password: str | None, space_name: str) -> str:
+        status = self.request("GET", "/auth/status").json()
+        if not status["app_auth_required"]:
+            print("Accounts are disabled on this instance: writing into the legacy installation.")
+            return "legacy installation"
+        if not login or not password:
+            raise SystemExit("This instance requires sign-in: pass --login and provide the password.")
+        session = self.request("POST", "/auth/session", json={"identifier": login, "password": password}).json()
+        space = next(
+            (item for item in session["workspaces"] if item["display_name"] == space_name and item["kind"] == "household"),
+            None,
+        )
+        if space is None:
+            self.client.headers["X-CSRF-Token"] = session["csrf_token"]
+            space = self.request("POST", "/workspaces", json={"display_name": space_name}).json()
+            session = self.request("GET", "/auth/me").json()
+        if space.get("role") not in {None, "owner", "editor"}:
+            raise SystemExit(f"You cannot write into the '{space_name}' space.")
+        self.use_session(session, space["id"])
+        return space_name
+
+    # --- Data ----------------------------------------------------------------
+    def money(self, low: float, high: float) -> str:
+        value = Decimal(str(round(self.random.uniform(low, high), 2))) * self.scale
+        return str(value.quantize(Decimal("0.01")))
+
+    def fixed(self, value: str) -> str:
+        return str((Decimal(value) * self.scale).quantize(Decimal("0.01")))
+
+    def day(self, month_start: date, day: int) -> date | None:
+        try:
+            value = date(month_start.year, month_start.month, day)
+        except ValueError:
+            return None
+        return value if value <= self.today else None
+
+    def wipe_previous_demo(self) -> None:
+        accounts = self.request("GET", "/accounts", params={"include_archived": "true"}).json()
+        demo_accounts = [item for item in accounts if item["name"].startswith(PREFIX)]
+        for account in demo_accounts:
+            while True:
+                page = self.request(
+                    "GET", "/transactions", params={"account_id": account["id"], "page_size": 200, "page": 1}
+                ).json()
+                if not page["items"]:
+                    break
+                for item in page["items"]:
+                    self.request("DELETE", f"/transactions/{item['id']}")
+        for asset in self.request("GET", "/assets").json():
+            if asset["name"].startswith(PREFIX):
+                self.request("DELETE", f"/assets/{asset['id']}")
+        for account in demo_accounts:
+            self.request("DELETE", f"/accounts/{account['id']}")
+
+    def category_ids(self) -> dict[str, int]:
+        wanted = {
+            "Salary": "income", "Freelance": "income", "Housing & Utilities": "expense",
+            "Groceries": "expense", "Dining Out": "expense", "Transportation": "expense",
+            "Health & Fitness": "expense", "Entertainment": "expense", "Subscriptions": "expense",
+            "Shopping": "expense",
+        }
+        existing = {item["name"]: item for item in self.request("GET", "/categories").json()}
+        ids: dict[str, int] = {}
+        for name, kind in wanted.items():
+            item = existing.get(name)
+            if item is None:
+                item = self.request("POST", "/categories", json={"name": name, "kind": kind}).json()
+            ids[name] = item["id"]
+        return ids
+
+    def create_account(self, name: str, kind: str, color: str) -> int:
+        body = {"name": f"{PREFIX}{name}", "type": kind, "currency": self.currency, "color": color}
+        return self.request("POST", "/accounts", json=body).json()["id"]
+
+    def transactions(self, main: int, savings: int, card: int, categories: dict[str, int]) -> list[dict]:
+        items: list[dict] = []
+
+        def add(account: int, category: str | None, kind: str, value: str, text: str, when: date | None, **extra):
+            if when is None:
+                return
+            items.append({
+                "account_id": account,
+                "category_id": categories[category] if category else None,
+                "type": kind,
+                "amount": value,
+                "description": text,
+                "date": when.isoformat(),
+                "notes": MARKER,
+                **extra,
+            })
+
+        for month in self.month_starts:
+            add(main, "Salary", "income", self.money(8200, 8800), "Salary", self.day(month, 1))
+            if month.month % 2 == 0:
+                add(main, "Freelance", "income", self.money(500, 1500), "Freelance project", self.day(month, 15))
+            add(main, "Housing & Utilities", "expense", self.money(2500, 2750), "Rent & utilities", self.day(month, 2))
+            for day in (4, 11, 18, 25):
+                add(main, "Groceries", "expense", self.money(45, 95), "Groceries", self.day(month, day))
+            for day, text in [(3, "Restaurant"), (9, "Coffee shop"), (16, "Restaurant"), (23, "Takeout")]:
+                add(main, "Dining Out", "expense", self.money(15, 70), text, self.day(month, day))
+            for day in (5, 15, 25):
+                add(main, "Transportation", "expense", self.money(35, 90), "Gas", self.day(month, day))
+            add(main, "Health & Fitness", "expense", self.money(50, 90), "Gym membership", self.day(month, 6))
+            add(main, "Entertainment", "expense", self.money(15, 55), "Movies", self.day(month, 22))
+            for text, value in [("Netflix", "15.99"), ("Spotify", "10.99"), ("Cloud storage", "9.99")]:
+                add(main, "Subscriptions", "expense", self.fixed(value), text, self.day(month, 1))
+            add(card, "Shopping", "expense", self.money(60, 220), "Online shopping", self.day(month, 20))
+            add(card, "Dining Out", "expense", self.money(20, 60), "Dinner out", self.day(month, 10))
+            transfer = self.money(800, 1500)
+            # Same-currency transfer: the destination receives exactly the amount sent.
+            add(main, None, "transfer", transfer, "Move to savings", self.day(month, 27),
+                transfer_account_id=savings, transfer_amount=transfer)
+        return items
+
+    def assets(self) -> None:
+        first, last = self.month_starts[0], self.today
+        plans = [
+            ("Brokerage account", "investments", ["380000", "392000", "405000", "415000", "428500"]),
+            ("Bitcoin", "crypto", ["3000", "3800", "3200", "4100", "3900"]),
+            ("Apartment", "real_estate", ["345000", "348000", "350000"]),
+            ("Car", "vehicles", ["24000", "23200", "22500"]),
+            ("Gold coins", "other", ["1500", "2000"]),
+        ]
+        for name, asset_class, values in plans:
+            dates = [self.month_starts[min(i, len(self.month_starts) - 1)] for i in range(len(values))]
+            dates[-1] = last
+            created = self.request("POST", "/assets", json={
+                "name": f"{PREFIX}{name}",
+                "asset_class": asset_class,
+                "currency": self.currency,
+                "value": self.fixed(values[0]),
+                "as_of_date": max(dates[0], first).isoformat(),
+                "notes": MARKER,
+            }).json()
+            seen = {dates[0]}
+            for when, value in zip(dates[1:], values[1:]):
+                if when in seen:
+                    continue
+                seen.add(when)
+                self.request("POST", f"/assets/{created['id']}/valuations", json={
+                    "value": self.fixed(value),
+                    "as_of_date": when.isoformat(),
+                })
 
 
-def day_in_month(month_start: date, day: int) -> date | None:
-    try:
-        d = date(month_start.year, month_start.month, day)
-    except ValueError:
-        return None
-    return d if d <= TODAY else None
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--base-url", default=os.environ.get("AURUM_SEED_BASE_URL", "http://localhost:8000"))
+    parser.add_argument("--login", default=os.environ.get("AURUM_SEED_LOGIN"))
+    parser.add_argument("--space", default="Demo data", help="family space to fill (created when missing)")
+    parser.add_argument("--currency", default="KZT", help="currency of the demo accounts and assets")
+    parser.add_argument("--months", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=42, help="random seed for a reproducible dataset")
+    args = parser.parse_args(argv)
 
+    seeder = Seeder(args.base_url, args.currency, max(1, args.months), args.seed)
+    password = os.environ.get("AURUM_SEED_PASSWORD")
+    status = seeder.request("GET", "/auth/status").json()
+    if status["app_auth_required"] and not password:
+        password = getpass.getpass(f"Aurum password for {args.login}: ")
+    target = seeder.sign_in_and_pick_space(args.login, password, args.space)
 
-def amount(lo: float, hi: float) -> Decimal:
-    return Decimal(str(round(random.uniform(lo, hi), 2)))
-
-
-async def wipe_mock_data(session) -> Account:
-    """Clears prior transactions/assets/extra accounts, keeps the default
-    seeded account + categories."""
-    await session.execute(delete(Transaction))
-    await session.execute(delete(AssetValuation))
-    await session.execute(delete(Asset))
-    await session.execute(delete(Account).where(Account.name != "Main Account"))
-    await session.commit()
-
-    result = await session.execute(select(Account).where(Account.name == "Main Account"))
-    main_account = result.scalar_one_or_none()
-    if main_account is None:
-        main_account = Account(name="Main Account", type=AccountType.CHECKING, currency="USD", color="#2a78d6")
-        session.add(main_account)
-        await session.flush()
-    return main_account
-
-
-async def seed_transactions(session, main_account: Account, savings: Account, credit_card: Account) -> None:
-    categories_result = await session.execute(select(Category))
-    categories = {c.name: c for c in categories_result.scalars().all()}
-
-    for month_start in MONTH_STARTS:
-        # --- income ---
-        salary_date = day_in_month(month_start, 1)
-        if salary_date:
-            session.add(
-                Transaction(
-                    account_id=main_account.id,
-                    category_id=categories["Salary"].id,
-                    type=TransactionType.INCOME,
-                    amount=amount(8200, 8800),
-                    description="Salary",
-                    date=salary_date,
-                )
-            )
-        freelance_date = day_in_month(month_start, 15)
-        if freelance_date and month_start.month % 2 == 0:
-            session.add(
-                Transaction(
-                    account_id=main_account.id,
-                    category_id=categories["Freelance"].id,
-                    type=TransactionType.INCOME,
-                    amount=amount(500, 1500),
-                    description="Freelance project",
-                    date=freelance_date,
-                )
-            )
-
-        # --- expenses on the main (cash) account ---
-        rent_date = day_in_month(month_start, 2)
-        if rent_date:
-            session.add(
-                Transaction(
-                    account_id=main_account.id,
-                    category_id=categories["Housing & Utilities"].id,
-                    type=TransactionType.EXPENSE,
-                    amount=amount(2500, 2750),
-                    description="Rent & utilities",
-                    date=rent_date,
-                )
-            )
-
-        for day, desc in [(4, "Groceries"), (11, "Groceries"), (18, "Groceries"), (25, "Groceries")]:
-            d = day_in_month(month_start, day)
-            if d:
-                session.add(
-                    Transaction(
-                        account_id=main_account.id,
-                        category_id=categories["Groceries"].id,
-                        type=TransactionType.EXPENSE,
-                        amount=amount(45, 95),
-                        description=desc,
-                        date=d,
-                    )
-                )
-
-        for day, desc in [(3, "Restaurant"), (9, "Coffee shop"), (16, "Restaurant"), (23, "Takeout")]:
-            d = day_in_month(month_start, day)
-            if d:
-                session.add(
-                    Transaction(
-                        account_id=main_account.id,
-                        category_id=categories["Dining Out"].id,
-                        type=TransactionType.EXPENSE,
-                        amount=amount(15, 70),
-                        description=desc,
-                        date=d,
-                    )
-                )
-
-        for day in (5, 15, 25):
-            d = day_in_month(month_start, day)
-            if d:
-                session.add(
-                    Transaction(
-                        account_id=main_account.id,
-                        category_id=categories["Transportation"].id,
-                        type=TransactionType.EXPENSE,
-                        amount=amount(35, 90),
-                        description="Gas",
-                        date=d,
-                    )
-                )
-
-        gym_date = day_in_month(month_start, 6)
-        if gym_date:
-            session.add(
-                Transaction(
-                    account_id=main_account.id,
-                    category_id=categories["Health & Fitness"].id,
-                    type=TransactionType.EXPENSE,
-                    amount=amount(50, 90),
-                    description="Gym membership",
-                    date=gym_date,
-                )
-            )
-
-        movie_date = day_in_month(month_start, 22)
-        if movie_date:
-            session.add(
-                Transaction(
-                    account_id=main_account.id,
-                    category_id=categories["Entertainment"].id,
-                    type=TransactionType.EXPENSE,
-                    amount=amount(15, 55),
-                    description="Movies",
-                    date=movie_date,
-                )
-            )
-
-        subs_date = day_in_month(month_start, 1)
-        if subs_date:
-            for desc, value in [("Netflix", "15.99"), ("Spotify", "10.99"), ("Cloud storage", "9.99")]:
-                session.add(
-                    Transaction(
-                        account_id=main_account.id,
-                        category_id=categories["Subscriptions"].id,
-                        type=TransactionType.EXPENSE,
-                        amount=Decimal(value),
-                        description=desc,
-                        date=subs_date,
-                    )
-                )
-
-        # --- expenses on the credit card (excluded from Net Worth's Cash total) ---
-        cc_shopping_date = day_in_month(month_start, 20)
-        if cc_shopping_date:
-            session.add(
-                Transaction(
-                    account_id=credit_card.id,
-                    category_id=categories["Shopping"].id,
-                    type=TransactionType.EXPENSE,
-                    amount=amount(60, 220),
-                    description="Online shopping",
-                    date=cc_shopping_date,
-                )
-            )
-        cc_dining_date = day_in_month(month_start, 10)
-        if cc_dining_date:
-            session.add(
-                Transaction(
-                    account_id=credit_card.id,
-                    category_id=categories["Dining Out"].id,
-                    type=TransactionType.EXPENSE,
-                    amount=amount(20, 60),
-                    description="Dinner out",
-                    date=cc_dining_date,
-                )
-            )
-
-        # --- monthly transfer to savings ---
-        transfer_date = day_in_month(month_start, 27)
-        if transfer_date:
-            session.add(
-                Transaction(
-                    account_id=main_account.id,
-                    transfer_account_id=savings.id,
-                    type=TransactionType.TRANSFER,
-                    amount=amount(800, 1500),
-                    description="Move to savings",
-                    date=transfer_date,
-                )
-            )
-
-    await session.commit()
-
-
-async def seed_assets(session) -> None:
-    def d(year: int, month: int, day: int) -> date:
-        return min(date(year, month, day), TODAY)
-
-    assets_plan = [
-        (
-            "Brokerage account",
-            AssetClass.INVESTMENTS,
-            [
-                (d(2026, 4, 1), "380000.00"),
-                (d(2026, 5, 1), "392000.00"),
-                (d(2026, 6, 1), "405000.00"),
-                (d(2026, 7, 1), "415000.00"),
-                (d(2026, 8, 1), "422910.43"),
-                (d(2026, 8, 14), "428500.00"),
-            ],
-        ),
-        (
-            "Bitcoin",
-            AssetClass.CRYPTO,
-            [
-                (d(2026, 4, 1), "3000.00"),
-                (d(2026, 5, 1), "3800.00"),
-                (d(2026, 6, 1), "3200.00"),
-                (d(2026, 7, 1), "4100.00"),
-                (d(2026, 8, 1), "3500.00"),
-                (d(2026, 8, 14), "3900.00"),
-            ],
-        ),
-        (
-            "Apartment",
-            AssetClass.REAL_ESTATE,
-            [
-                (d(2026, 4, 1), "345000.00"),
-                (d(2026, 7, 1), "348000.00"),
-                (d(2026, 8, 1), "350000.00"),
-            ],
-        ),
-        (
-            "Car",
-            AssetClass.VEHICLES,
-            [
-                (d(2026, 4, 1), "24000.00"),
-                (d(2026, 6, 1), "23200.00"),
-                (d(2026, 8, 1), "22500.00"),
-            ],
-        ),
-        (
-            "Emergency fund (gold coins)",
-            AssetClass.OTHER,
-            [
-                (d(2026, 4, 1), "1500.00"),
-                (d(2026, 8, 1), "2000.00"),
-            ],
-        ),
-    ]
-
-    for name, asset_class, valuations in assets_plan:
-        asset = Asset(name=name, asset_class=asset_class, currency="USD")
-        session.add(asset)
-        await session.flush()
-        seen_dates: set[date] = set()
-        for as_of_date, value in valuations:
-            if as_of_date in seen_dates:
-                continue
-            seen_dates.add(as_of_date)
-            session.add(AssetValuation(asset_id=asset.id, value=Decimal(value), as_of_date=as_of_date))
-
-    await session.commit()
-
-
-async def main() -> None:
-    async with AsyncSessionLocal() as session:
-        print("Wiping prior mock data (transactions, assets, extra accounts)...")
-        main_account = await wipe_mock_data(session)
-
-        savings = Account(name="Savings", type=AccountType.SAVINGS, currency="USD", color="#1baf7a")
-        credit_card = Account(name="Credit Card", type=AccountType.CREDIT_CARD, currency="USD", color="#e34948")
-        session.add_all([savings, credit_card])
-        await session.commit()
-        await session.refresh(savings)
-        await session.refresh(credit_card)
-
-        print(f"Seeding transactions for {len(MONTH_STARTS)} months...")
-        await seed_transactions(session, main_account, savings, credit_card)
-
-        print("Seeding assets and valuation history...")
-        await seed_assets(session)
-
-        print("Done.")
+    print(f"Replacing previous demo data in {target}...")
+    seeder.wipe_previous_demo()
+    categories = seeder.category_ids()
+    main_id = seeder.create_account("Main account", "checking", "#2a78d6")
+    savings_id = seeder.create_account("Savings", "savings", "#1baf7a")
+    card_id = seeder.create_account("Credit card", "credit_card", "#e34948")
+    items = seeder.transactions(main_id, savings_id, card_id, categories)
+    print(f"Creating {len(items)} transactions over {len(seeder.month_starts)} months...")
+    seeder.request("POST", "/transactions/bulk", json={"items": items})
+    print("Creating assets and valuation history...")
+    seeder.assets()
+    print("Done.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)

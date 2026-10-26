@@ -29,6 +29,7 @@ from app.schemas.envelope import (
     MonthRef,
 )
 from app.services.currency import split_amount_kzt, transaction_amount_kzt
+from app.services.reporting_currency import reporting_converter, reporting_currency_for
 
 ZERO = Decimal("0.00")
 MonthKey = tuple[int, int]
@@ -196,6 +197,7 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
             year=year,
             month=month,
             tracking_start=None if tracking_start is None else MonthRef(year=tracking_start[0], month=tracking_start[1]),
+            reporting_currency=await reporting_currency_for(session, _workspace_id(context)),
             is_closed=bool(target_row and target_row.is_closed),
             has_ledger_drift=False,
             fx_incomplete=False,
@@ -213,14 +215,31 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
         if key >= tracking_start:
             allocations_by_month[key][allocation.category_id] = allocation
 
+    # Ledger rows are in KZT; allocations are typed in the reporting currency.
+    # Each month's KZT flows are summed first and converted once, at the
+    # official rate for that month's last day, so the envelope arithmetic below
+    # runs in one currency. KZT reporting passes through unchanged.
+    converter = await reporting_converter(session, _workspace_id(context))
+    rate_missing = False
+
+    async def to_reporting(amount_kzt: Decimal, key: MonthKey) -> Decimal:
+        nonlocal rate_missing
+        converted = await converter.convert_month(amount_kzt, key[0], key[1])
+        if converted is None:
+            # Same treatment as a ledger row with no KZT amount: it cannot be
+            # counted, and the month says its FX coverage is incomplete.
+            rate_missing = True
+            return ZERO
+        return converted
+
     plain_by_month: dict[MonthKey, list] = defaultdict(list)
     split_by_month: dict[MonthKey, list] = defaultdict(list)
-    income_before = ZERO
+    income_before_kzt: dict[MonthKey, Decimal] = defaultdict(lambda: ZERO)
     earliest_income_before: date | None = None
     for tx in plain_rows:
         key = _month_key(tx.date)
         if key < tracking_start and tx.type == TransactionType.INCOME and tx.kind in {None, CategoryKind.INCOME} and tx.amount_kzt is not None:
-            income_before += tx.amount_kzt
+            income_before_kzt[key] += tx.amount_kzt
             earliest_income_before = min(earliest_income_before or tx.date, tx.date)
         if tracking_start <= key <= target:
             plain_by_month[key].append(tx)
@@ -228,6 +247,9 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
         key = _month_key(split.date)
         if tracking_start <= key <= target:
             split_by_month[key].append(split)
+    income_before = ZERO
+    for key, amount in income_before_kzt.items():
+        income_before += await to_reporting(amount, key)
 
     carry: dict[int, Decimal] = defaultdict(lambda: ZERO)
     policy: dict[int, tuple[bool, bool]] = defaultdict(lambda: (True, True))
@@ -241,9 +263,11 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
     for key in _months(tracking_start, target):
         current_rows = allocations_by_month.get(key, {})
         assigned = sum((row.assigned_amount for row in current_rows.values()), ZERO)
+        # Accumulated in KZT, converted below once the month is summed.
         income = ZERO
         stray_refunds = ZERO
         activity: dict[int, Decimal] = defaultdict(lambda: ZERO)
+        month_stray_refunds: dict[int, Decimal] = defaultdict(lambda: ZERO)
         fx_incomplete = False
 
         def resolve_envelope(category_id: int | None, parent_id: int | None) -> int | None:
@@ -282,7 +306,7 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
                     else:
                         stray_refunds += tx.amount_kzt
                         if key == target and tx.category_id is not None:
-                            target_stray_refunds[tx.category_id] += tx.amount_kzt
+                            month_stray_refunds[tx.category_id] += tx.amount_kzt
 
         for split in split_by_month.get(key, []):
             if split.amount_kzt is None:
@@ -292,6 +316,13 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
                 resolved = resolve_envelope(split.category_id, split.parent_id)
                 if resolved is not None:
                     activity[resolved] -= split.amount_kzt
+
+        income = await to_reporting(income, key)
+        stray_refunds = await to_reporting(stray_refunds, key)
+        for category_id in list(activity):
+            activity[category_id] = await to_reporting(activity[category_id], key)
+        for category_id, amount in month_stray_refunds.items():
+            target_stray_refunds[category_id] += await to_reporting(amount, key)
 
         cumulative_unassigned += income + stray_refunds - assigned
         category_ids = set(carry) | set(current_rows) | set(activity)
@@ -319,6 +350,9 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
             target_income = income
             target_assigned = assigned
             target_fx_incomplete = fx_incomplete
+    # A month with no reporting-currency rate leaves every later month's carry
+    # and available-to-assign short too, so the target month says so.
+    target_fx_incomplete = target_fx_incomplete or rate_missing
 
     items: list[EnvelopeItem] = []
     warnings: list[EnvelopeWarning] = []
@@ -386,6 +420,7 @@ async def get_status(session: AsyncSession, year: int, month: int, context: Requ
         year=year,
         month=month,
         tracking_start=MonthRef(year=tracking_start[0], month=tracking_start[1]),
+        reporting_currency=converter.currency,
         is_closed=bool(target_row and target_row.is_closed),
         has_ledger_drift=has_drift,
         fx_incomplete=target_fx_incomplete,

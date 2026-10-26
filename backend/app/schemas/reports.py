@@ -13,13 +13,15 @@ class CategoryRankingChildItem(BaseModel):
     name: str
     color: str
     icon: str | None
-    amount: Decimal
+    amount: Decimal | None
 
 
 class CategorySpendingPoint(BaseModel):
     year: int
     month: int
-    amount: Decimal
+    # In the report's reporting_currency at the rate for the month's last
+    # day; None when that month had spending but no rate.
+    amount: Decimal | None
 
 
 class CategorySpendingReport(BaseModel):
@@ -29,6 +31,10 @@ class CategorySpendingReport(BaseModel):
     category_icon: str | None
     start_date: date_ | None
     end_date: date_ | None
+    # Every amount in this report is in this currency; `incomplete` means
+    # some month could not be converted and is left out of the totals.
+    reporting_currency: str
+    incomplete: bool = False
     total_amount: Decimal
     transaction_count: int
     average_per_month: Decimal
@@ -40,7 +46,7 @@ class CategoryRankingItem(BaseModel):
     name: str
     color: str
     icon: str | None
-    amount: Decimal
+    amount: Decimal | None
     percent: float
     transaction_count: int
     # Populated only when this category's spend came from more than one
@@ -52,5 +58,9 @@ class CategoryRankingItem(BaseModel):
 class CategoryRankingReport(BaseModel):
     start_date: date_ | None
     end_date: date_ | None
-    total_amount: Decimal
+    # Period totals convert once, at the official rate for the period's end
+    # (end_date, or today when it is open-ended or still in the future).
+    reporting_currency: str
+    incomplete: bool = False
+    total_amount: Decimal | None
     items: list[CategoryRankingItem]

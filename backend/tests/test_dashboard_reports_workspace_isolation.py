@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
-from tests.helpers import money
+from tests.helpers import money, pin_reporting_currency
 from tests.test_core_workspace_isolation import (
     _bootstrap_user,
     _create_core_records,
@@ -42,6 +42,10 @@ async def test_dashboard_and_reports_exclude_foreign_and_legacy_financial_rows(
     records_b = await _create_core_records(workspace_client, csrf, workspace_b, "dashboard B")
     headers_a = _write_headers(csrf, workspace_a)
     headers_b = _write_headers(csrf, workspace_b)
+    # These raw-SQL workspaces have no settings row yet; pin them to KZT so the
+    # amounts below are the ledger's own (no conversion, no rate lookup).
+    for headers in (headers_a, headers_b):
+        await pin_reporting_currency(workspace_client, headers)
 
     async with test_sessionmaker() as session:
         legacy_account_id = (

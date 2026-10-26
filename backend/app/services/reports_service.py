@@ -26,6 +26,7 @@ from app.schemas.reports import (
 )
 from app.services.category_rollup import rollup_spending_by_top_level_category
 from app.services.currency import split_amount_kzt, transaction_amount_kzt
+from app.services.reporting_currency import reporting_converter
 
 
 def _next_month(year: int, month: int) -> tuple[int, int]:
@@ -92,6 +93,7 @@ async def get_category_spending_report(
         (r[0], r[1], r[2]) for r in split_rows if r[2] is not None
     ]
 
+    converter = await reporting_converter(session, context.workspace_id)
     empty = CategorySpendingReport(
         category_id=category.id,
         category_name=category.name,
@@ -99,6 +101,7 @@ async def get_category_spending_report(
         category_icon=category.icon,
         start_date=start_date,
         end_date=end_date,
+        reporting_currency=converter.currency,
         total_amount=Decimal("0"),
         transaction_count=0,
         average_per_month=Decimal("0"),
@@ -115,7 +118,6 @@ async def get_category_spending_report(
     for _, txn_date, amount in contributions:
         by_month[(txn_date.year, txn_date.month)] += amount
 
-    total_amount = sum((amount for _, _, amount in contributions), Decimal("0"))
     # Distinct transactions, not rows — a transaction split across two of
     # these categories (e.g. parent + one of its children) must count once,
     # the same as a plain transaction filed under just one of them.
@@ -124,8 +126,15 @@ async def get_category_spending_report(
     series: list[CategorySpendingPoint] = []
     year, month = effective_start.year, effective_start.month
     while (year, month) <= (effective_end.year, effective_end.month):
-        series.append(CategorySpendingPoint(year=year, month=month, amount=by_month.get((year, month), Decimal("0"))))
+        # Summed in KZT, converted once per month at that month's end rate.
+        amount = await converter.convert_month(by_month.get((year, month), Decimal("0")), year, month)
+        series.append(CategorySpendingPoint(year=year, month=month, amount=amount))
         year, month = _next_month(year, month)
+
+    # The total is the sum of the bars the chart draws, so the two always
+    # agree; a month without a rate is left out and flagged as incomplete.
+    total_amount = sum((point.amount for point in series if point.amount is not None), Decimal("0"))
+    await converter.commit_fetched()
 
     months_count = len(series)
     average_per_month = (total_amount / months_count).quantize(Decimal("0.01")) if months_count else Decimal("0")
@@ -137,6 +146,8 @@ async def get_category_spending_report(
         category_icon=category.icon,
         start_date=effective_start,
         end_date=effective_end,
+        reporting_currency=converter.currency,
+        incomplete=converter.incomplete,
         total_amount=total_amount,
         transaction_count=total_count,
         average_per_month=average_per_month,
@@ -177,7 +188,13 @@ async def get_category_ranking_report(
     total_amount = sum((row.amount for row in rows), Decimal("0"))
 
     def _percent(amount: Decimal) -> float:
+        # A ratio of two KZT sums — exact in any reporting currency.
         return float(amount / total_amount * 100) if total_amount else 0.0
+
+    # One rate for the whole period: its end (today when open-ended or still
+    # running).
+    converter = await reporting_converter(session, context.workspace_id)
+    period_end = end_date or converter.today
 
     items = [
         CategoryRankingItem(
@@ -185,18 +202,27 @@ async def get_category_ranking_report(
             name=row.name,
             color=row.color,
             icon=row.icon,
-            amount=row.amount,
+            amount=await converter.convert(row.amount, period_end),
             percent=_percent(row.amount),
             transaction_count=row.transaction_count,
             children=[
                 CategoryRankingChildItem(
                     category_id=child.category_id, name=child.name, color=child.color, icon=child.icon,
-                    amount=child.amount,
+                    amount=await converter.convert(child.amount, period_end),
                 )
                 for child in row.children
             ],
         )
         for row in rows
     ]
+    total_reporting = await converter.convert(total_amount, period_end)
+    await converter.commit_fetched()
 
-    return CategoryRankingReport(start_date=start_date, end_date=end_date, total_amount=total_amount, items=items)
+    return CategoryRankingReport(
+        start_date=start_date,
+        end_date=end_date,
+        reporting_currency=converter.currency,
+        incomplete=converter.incomplete,
+        total_amount=total_reporting,
+        items=items,
+    )

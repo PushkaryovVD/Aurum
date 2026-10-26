@@ -16,6 +16,7 @@ from app.models.account import Account
 from app.models.transaction import Transaction
 from app.schemas.cash_flow import CashFlowPoint, CashFlowResponse
 from app.services.currency import transaction_amount_kzt
+from app.services.reporting_currency import reporting_converter
 
 
 def _next_month(year: int, month: int) -> tuple[int, int]:
@@ -39,10 +40,12 @@ async def get_cash_flow(
 
     effective_start = start_date or min_date
     effective_end = end_date or max_date
+    converter = await reporting_converter(session, context.workspace_id)
 
     empty = CashFlowResponse(
         start_date=effective_start,
         end_date=effective_end,
+        reporting_currency=converter.currency,
         points=[],
         total_income=Decimal("0"),
         total_expense=Decimal("0"),
@@ -78,17 +81,22 @@ async def get_cash_flow(
     year, month = effective_start.year, effective_start.month
     while (year, month) <= (effective_end.year, effective_end.month):
         totals = by_month.get((year, month), {})
-        income = totals.get(TransactionType.INCOME, Decimal("0"))
-        expense = totals.get(TransactionType.EXPENSE, Decimal("0"))
-        points.append(CashFlowPoint(year=year, month=month, income=income, expense=expense, net=income - expense))
+        # Summed in KZT, converted once per month at that month's end rate.
+        income = await converter.convert_month(totals.get(TransactionType.INCOME, Decimal("0")), year, month)
+        expense = await converter.convert_month(totals.get(TransactionType.EXPENSE, Decimal("0")), year, month)
+        net = income - expense if income is not None and expense is not None else None
+        points.append(CashFlowPoint(year=year, month=month, income=income, expense=expense, net=net))
         year, month = _next_month(year, month)
 
-    total_income = sum((p.income for p in points), Decimal("0"))
-    total_expense = sum((p.expense for p in points), Decimal("0"))
+    total_income = sum((p.income for p in points if p.income is not None), Decimal("0"))
+    total_expense = sum((p.expense for p in points if p.expense is not None), Decimal("0"))
+    await converter.commit_fetched()
 
     return CashFlowResponse(
         start_date=effective_start,
         end_date=effective_end,
+        reporting_currency=converter.currency,
+        incomplete=converter.incomplete,
         points=points,
         total_income=total_income,
         total_expense=total_expense,

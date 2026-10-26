@@ -22,6 +22,7 @@ from app.models.transaction import Transaction
 from app.schemas.advice import AdviceItem, AdviceResponse
 from app.services.dashboard_service import get_dashboard_summary
 from app.services.currency import transaction_amount_kzt
+from app.services.reporting_currency import ReportingConverter, reporting_converter
 
 TRAILING_MONTHS = 3
 RISING_CATEGORY_THRESHOLD_PERCENT = 25
@@ -38,8 +39,11 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
 
 
 async def _category_expense_totals(
-    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace, converter: ReportingConverter
 ) -> dict[int, Decimal]:
+    """Each category's month spend in the reporting currency (KZT sums,
+    converted at the month's end rate). A category whose total has no rate is
+    left out — the converter remembers the answer is incomplete."""
     start, end = _month_bounds(year, month)
     stmt = (
         select(Transaction.category_id, func.sum(transaction_amount_kzt()))
@@ -54,15 +58,20 @@ async def _category_expense_totals(
     )
     stmt = scope_to_workspace(stmt, Transaction, context)
     stmt = scope_to_workspace(stmt, Account, context)
-    return {row[0]: row[1] for row in (await session.execute(stmt)).all()}
+    totals: dict[int, Decimal] = {}
+    for category_id, amount_kzt in (await session.execute(stmt)).all():
+        amount = await converter.convert_month(amount_kzt, year, month)
+        if amount is not None:
+            totals[category_id] = amount
+    return totals
 
 
 async def _rising_category_advice(
-    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace, converter: ReportingConverter
 ) -> AdviceItem | None:
     """The expense category furthest above its own trailing-3-month average,
     if that's at least RISING_CATEGORY_THRESHOLD_PERCENT higher."""
-    current_totals = await _category_expense_totals(session, year, month, context)
+    current_totals = await _category_expense_totals(session, year, month, context, converter)
     if not current_totals:
         return None
 
@@ -70,7 +79,7 @@ async def _rising_category_advice(
     y, m = year, month
     for _ in range(TRAILING_MONTHS):
         y, m = _previous_month(y, m)
-        for cat_id, amount in (await _category_expense_totals(session, y, m, context)).items():
+        for cat_id, amount in (await _category_expense_totals(session, y, m, context, converter)).items():
             trailing_totals[cat_id] += amount
 
     best: tuple[float, int, Decimal, Decimal] | None = None
@@ -105,10 +114,10 @@ async def _rising_category_advice(
 
 
 async def _unbudgeted_top_category_advice(
-    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace, converter: ReportingConverter
 ) -> AdviceItem | None:
     """This month's highest-spending expense category that has no budget."""
-    current_totals = await _category_expense_totals(session, year, month, context)
+    current_totals = await _category_expense_totals(session, year, month, context, converter)
     if not current_totals:
         return None
 
@@ -135,7 +144,7 @@ async def _unbudgeted_top_category_advice(
 
 
 async def _savings_rate_trend_advice(
-    session: AsyncSession, year: int, month: int, context: RequestWorkspace
+    session: AsyncSession, year: int, month: int, context: RequestWorkspace, converter: ReportingConverter
 ) -> AdviceItem | None:
     """This month's savings rate (net / real_income) vs. last month's, when
     the swing is large enough to be worth mentioning."""
@@ -143,6 +152,10 @@ async def _savings_rate_trend_advice(
     prev_year, prev_month = _previous_month(year, month)
     previous = await get_dashboard_summary(session, prev_year, prev_month, context)
 
+    if current.incomplete or previous.incomplete:
+        # A month without a rate has no reporting-currency totals to compare.
+        converter.incomplete = True
+        return None
     if current.real_income <= 0 or previous.real_income <= 0:
         return None
 
@@ -163,11 +176,15 @@ async def _savings_rate_trend_advice(
 async def get_advice(session: AsyncSession, context: RequestWorkspace) -> AdviceResponse:
     today = date.today()
     generators = (_rising_category_advice, _unbudgeted_top_category_advice, _savings_rate_trend_advice)
+    # One converter for the whole response, so every money param is in the
+    # same reporting currency and a month's rate is looked up once.
+    converter = await reporting_converter(session, context.workspace_id, today=today)
 
     items: list[AdviceItem] = []
     for generate in generators:
-        item = await generate(session, today.year, today.month, context)
+        item = await generate(session, today.year, today.month, context, converter)
         if item is not None:
             items.append(item)
+    await converter.commit_fetched()
 
-    return AdviceResponse(items=items)
+    return AdviceResponse(reporting_currency=converter.currency, incomplete=converter.incomplete, items=items)

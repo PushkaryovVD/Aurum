@@ -36,6 +36,7 @@ from app.schemas.net_worth import (
     RiskLevelItem,
     RiskLevelSummary,
 )
+from app.services.reporting_currency import ReportingConverter, reporting_converter
 
 CASH_ACCOUNT_TYPES = {
     AccountType.CHECKING,
@@ -282,6 +283,31 @@ def _resolve_start_date(range_key: str, cash_events: list[tuple[date_, Decimal]]
     return min(all_dates) if all_dates else today
 
 
+async def _capital_roles_in_reporting(
+    converter: ReportingConverter, roles: list[CapitalRoleSummary], as_of: date_
+) -> list[CapitalRoleSummary]:
+    # Only total_value is ledger-derived (KZT); monthly_cash_flow is the
+    # user's own estimate and is left exactly as entered.
+    return [
+        role.model_copy(update={"total_value": await converter.convert(role.total_value, as_of)})
+        for role in roles
+    ]
+
+
+async def _risk_levels_in_reporting(
+    converter: ReportingConverter, tiers: list[RiskLevelSummary], as_of: date_
+) -> list[RiskLevelSummary]:
+    converted: list[RiskLevelSummary] = []
+    for tier in tiers:
+        items = [
+            item.model_copy(update={"amount": await converter.convert(item.amount, as_of)}) for item in tier.items
+        ]
+        converted.append(
+            tier.model_copy(update={"total_value": await converter.convert(tier.total_value, as_of), "items": items})
+        )
+    return converted
+
+
 async def get_net_worth_summary(session: AsyncSession, range_key: str, context: RequestWorkspace) -> NetWorthSummary:
     today = date_.today()
     cash_events = await _cash_cumulative_events(session, context)
@@ -292,14 +318,21 @@ async def get_net_worth_summary(session: AsyncSession, range_key: str, context: 
 
     cash_series = _daily_series(cash_events, start, today)
     asset_series = _daily_series(asset_events, start, today)
+    # Everything above is KZT. Each point converts at its own day's official
+    # rate, so the line shows what the wealth was worth in the reporting
+    # currency on that day (KZT reporting passes through unchanged).
+    converter = await reporting_converter(session, context.workspace_id, today=today)
     series = [
-        NetWorthPoint(date=c.date, value=c.value + a.value) for c, a in zip(cash_series, asset_series, strict=True)
+        NetWorthPoint(date=c.date, value=await converter.convert(c.value + a.value, c.date))
+        for c, a in zip(cash_series, asset_series, strict=True)
     ]
 
     current = series[-1].value if series else Decimal("0")
     start_value = series[0].value if series else Decimal("0")
-    change_amount = current - start_value
-    change_percent = float(change_amount / start_value * 100) if start_value else None
+    change_amount = current - start_value if current is not None and start_value is not None else None
+    change_percent = (
+        float(change_amount / start_value * 100) if change_amount is not None and start_value else None
+    )
 
     # cash_events entries are already cumulative — the last one *is* today's total.
     cash_today = cash_events[-1][1] if cash_events else Decimal("0")
@@ -312,16 +345,30 @@ async def get_net_worth_summary(session: AsyncSession, range_key: str, context: 
 
     breakdown = []
     name, color, icon = _CLASS_META["cash"]
-    breakdown.append(NetWorthBreakdownItem(key="cash", name=name, color=color, icon=icon, amount=cash_today, percent=_percent(cash_today)))
+    breakdown.append(
+        NetWorthBreakdownItem(
+            key="cash", name=name, color=color, icon=icon,
+            amount=await converter.convert(cash_today, today), percent=_percent(cash_today),
+        )
+    )
     for asset_class in AssetClass:
         name, color, icon = _CLASS_META[asset_class.value]
         amount = class_totals.get(asset_class, Decimal("0"))
         breakdown.append(
-            NetWorthBreakdownItem(key=asset_class.value, name=name, color=color, icon=icon, amount=amount, percent=_percent(amount))
+            NetWorthBreakdownItem(
+                key=asset_class.value, name=name, color=color, icon=icon,
+                amount=await converter.convert(amount, today), percent=_percent(amount),
+            )
         )
+
+    capital_roles = await _capital_roles_in_reporting(converter, capital_roles, today)
+    risk_levels = await _risk_levels_in_reporting(converter, risk_levels, today)
+    await converter.commit_fetched()
 
     return NetWorthSummary(
         range=range_key,
+        reporting_currency=converter.currency,
+        incomplete=converter.incomplete,
         current=current,
         change_amount=change_amount,
         change_percent=change_percent,

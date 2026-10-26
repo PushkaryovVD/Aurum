@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
-from tests.helpers import money
+from tests.helpers import money, pin_reporting_currency
 from tests.test_asset_crypto_investment_workspace_isolation import _second_workspace
 from tests.test_core_workspace_isolation import (
     _bootstrap_user,
@@ -16,6 +16,7 @@ from tests.test_core_workspace_isolation import (
 
 
 async def _report_data(client, headers: dict[str, str], suffix: str, income: str, expense: str, asset_value: str) -> None:
+    await pin_reporting_currency(client, headers)
     account = await client.post(
         "/accounts",
         json={"name": f"Cash {suffix}", "type": "cash", "currency": "KZT"},

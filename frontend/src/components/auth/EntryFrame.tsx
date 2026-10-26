@@ -11,7 +11,7 @@ export function EntryFrame({ children }: { children: ReactNode }) {
   const { t, language, setLanguage } = useTranslation();
   const { theme, setTheme } = useTheme();
   return (
-    <div className="min-h-dvh bg-surface-0 text-text-primary">
+    <div className="pt-safe min-h-dvh bg-surface-0 text-text-primary">
       <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-6 sm:px-8">
         <Link to="/login" className="flex min-h-11 items-center gap-2 text-lg font-semibold tracking-tight focus-visible:outline-2 focus-visible:outline-focus"><span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-lg bg-text-primary text-surface-1">A</span>Aurum</Link>
         <div className="flex flex-wrap gap-3">

@@ -6,17 +6,7 @@ import { sessionTransportAllowed, type AppAuthStatus } from "@/lib/appAuth";
 import { parseSession, type IdentitySession } from "@/lib/authSession";
 import { entryButton, entryControl } from "./EntryFrame";
 
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp?: {
-        initData?: string;
-        ready?: () => void;
-        expand?: () => void;
-      };
-    };
-  }
-}
+// window.Telegram is typed in lib/telegram.ts, which also sets up the Mini App shell.
 
 async function currentSession(signal: AbortSignal): Promise<IdentitySession | null> {
   const response = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store", signal });

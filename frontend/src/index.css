@@ -187,6 +187,28 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
+/* Telegram Mini App (lib/telegram.ts). Telegram publishes its insets as CSS
+   variables. In full screen its Close/menu buttons float over the top of the
+   page, so content starts below both the device inset and that overlay. */
+.tg-app body {
+  padding-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+}
+
+.tg-fullscreen .pt-safe {
+  padding-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+}
+
+/* An app, not a web page: no text selection on taps and no grey tap flash. */
+.tg-app {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+.tg-app :where(button, a, nav, header) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 * {
   border-color: var(--color-border);
 }

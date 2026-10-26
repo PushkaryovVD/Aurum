@@ -246,6 +246,13 @@ password again. The code is single-use and expires after ten minutes. Telegram
 requires an HTTPS URL for Mini Apps; the same Aurum instance can still remain
 available over plain HTTP on the trusted LAN.
 
+Inside Telegram the Mini App behaves like a standalone app: on phones it opens
+full screen, Telegram's header and background take Aurum's colours (and follow
+the light/dark theme), swipe-to-close is disabled while scrolling, Telegram's
+native Back button follows in-app navigation, and content stays clear of
+Telegram's floating buttons and the device notch. Desktop Telegram keeps the
+regular expanded panel.
+
 In the private bot chat, send `-2500 coffee` to prepare an expense or
 `+500000 salary` to prepare income. The bot shows the amount, currency and
 account first; nothing is written until the confirmation button is pressed.

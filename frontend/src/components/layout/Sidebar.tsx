@@ -170,7 +170,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobil
             role="dialog"
             aria-modal="true"
             aria-label={t("topbar.openMenu")}
-            className="absolute inset-y-0 left-0 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-surface-1 shadow-elevation-lg"
+            className="pt-safe absolute inset-y-0 left-0 flex w-[min(18rem,calc(100vw-2rem))] flex-col bg-surface-1 shadow-elevation-lg"
           >
             <div className="flex items-center justify-between gap-2 px-4 py-4">
               <span className="flex items-center gap-2 text-lg font-semibold tracking-tight text-text-primary">

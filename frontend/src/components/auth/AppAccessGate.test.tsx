@@ -205,7 +205,8 @@ it.each(["/", "/net-worth", "/crypto", "/investments", "/roi", "/accounts", "/ca
   await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>); });
   expect(fetcher.mock.calls.map(([url]) => url)).toEqual(["/api/auth/status", "/api/auth/me"]);
   expect(container.textContent).toContain("Financial space is not open yet");
-});
+// The first case imports the whole lazily split App cold; allow for that on slow machines.
+}, 30_000);
 it("does not mistake a POST body for an accepted cookie session", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(reply(required)).mockResolvedValueOnce(reply({}, 401))
     .mockResolvedValueOnce(reply(session)).mockResolvedValueOnce(reply({}, 401)));

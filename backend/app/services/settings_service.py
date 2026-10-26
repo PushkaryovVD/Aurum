@@ -3,7 +3,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RequestWorkspace
+from app.core.config import get_settings
 from app.models.settings import AppSettings
+
+
+def _default_currency() -> str:
+    # A missing row must start in the configured currency, not the column
+    # default (USD), or a KZT installation would silently report in dollars.
+    return get_settings().default_currency.strip().upper() or "KZT"
 
 
 async def get_or_create_app_settings(session: AsyncSession, context: RequestWorkspace) -> AppSettings:
@@ -17,7 +24,7 @@ async def get_or_create_app_settings(session: AsyncSession, context: RequestWork
         settings = await session.get(AppSettings, 1)
         if settings is not None:
             return settings
-        settings = AppSettings(id=1)
+        settings = AppSettings(id=1, currency=_default_currency())
     else:
         settings = (
             await session.execute(
@@ -26,7 +33,7 @@ async def get_or_create_app_settings(session: AsyncSession, context: RequestWork
         ).scalar_one_or_none()
         if settings is not None:
             return settings
-        settings = AppSettings(workspace_id=context.workspace_id)
+        settings = AppSettings(workspace_id=context.workspace_id, currency=_default_currency())
 
     try:
         async with session.begin_nested():

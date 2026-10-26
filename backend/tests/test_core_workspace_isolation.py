@@ -24,6 +24,8 @@ PASSWORD = "correct horse battery staple"
 def workspace_auth_settings() -> Settings:
     return Settings(
         _env_file=None,
+        # Strict transport is exercised here; the product default allows HTTP.
+        allow_insecure_http=False,
         environment="development",
         app_auth_required=True,
         auth_hmac_secret=HMAC_SECRET,

@@ -35,6 +35,7 @@ def test_invalid_password_hash_is_rejected_without_leaking_library_errors():
 def test_authentication_remains_disabled_by_default():
     settings = Settings(_env_file=None)
     assert settings.app_auth_required is False
+    assert settings.allow_insecure_http is True
     assert settings.auth_hmac_secret.get_secret_value() == ""
     assert settings.docs_enabled is True
 

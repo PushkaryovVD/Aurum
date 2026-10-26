@@ -56,6 +56,8 @@ def test_invalid_proxy_identity_cannot_assert_forwarded_https() -> None:
     settings = Settings(
         _env_file=None,
         environment="production",
+        # Strict transport: the product default allows plain HTTP.
+        allow_insecure_http=False,
         app_auth_required=True,
         auth_hmac_secret="hmac-test-secret-with-at-least-32-bytes",
         auth_proxy_shared_secret=PROXY_SECRET,

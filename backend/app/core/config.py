@@ -65,7 +65,9 @@ class Settings(BaseSettings):
     # Self-hosted installations commonly terminate TLS at Cloudflare, a NAS
     # gateway, or not at all on a trusted LAN. Keep the transport policy
     # explicit instead of inferring it from the deployment environment.
-    allow_insecure_http: bool = False
+    # Plain HTTP is allowed by default (matching docker-compose.yml); set
+    # AURUM_ALLOW_INSECURE_HTTP=false for an HTTPS-only deployment.
+    allow_insecure_http: bool = True
 
     environment: Literal["development", "test", "production"] = "development"
     auth_hmac_secret: SecretStr = SecretStr("")

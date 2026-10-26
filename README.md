@@ -185,10 +185,6 @@ git pull && docker compose up -d --build   # update to newer code
 
 Your data lives in a Docker named volume (`aurum_pgdata`), not in the repo folder — it survives `docker compose down`, image rebuilds, and `git pull`. It's only gone if you explicitly run `docker compose down -v` or delete the volume yourself. For anything short of that, use the in-app **Settings → Backup & Restore** to export a JSON snapshot of everything before making risky changes.
 
-### iOS app
-
-A native iOS shell around your own Aurum instance lives in [`ios-app/`](ios-app/README.md). Open it in Xcode on a Mac; the server address is supplied at build time and never stored in the repo.
-
 ## 🔌 API
 
 Aurum's financial features have a JSON REST API documented in

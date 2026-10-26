@@ -48,7 +48,7 @@ export function AssetRevaluationReminderCard({ reminder, asset, isPending, onAcc
 }
 
 export function NetWorthPage() {
-  const { t } = useTranslation();
+  const { t, currency } = useTranslation();
   // Defaults to 5 years: a short window can show a dip whenever spending
   // briefly outpaces recorded income, which reads as decline even though
   // the long-run trend is up — 5y is long enough to make that trend visible.
@@ -117,11 +117,23 @@ export function NetWorthPage() {
       {/* Without data the breakdown cards would render as an empty portfolio, so they are hidden. */}
       {summaryState !== "unavailable" && (
         <>
-          <AssetAllocationCard breakdown={summary?.breakdown ?? []} isLoading={isSummaryLoading} />
+          <AssetAllocationCard
+            breakdown={summary?.breakdown ?? []}
+            currency={summary?.reporting_currency ?? currency}
+            isLoading={isSummaryLoading}
+          />
 
-          <CapitalRoleSummaryCard roles={summary?.capital_roles ?? []} isLoading={isSummaryLoading} />
+          <CapitalRoleSummaryCard
+            roles={summary?.capital_roles ?? []}
+            currency={summary?.reporting_currency ?? currency}
+            isLoading={isSummaryLoading}
+          />
 
-          <RiskAllocationCard riskLevels={summary?.risk_levels ?? []} isLoading={isSummaryLoading} />
+          <RiskAllocationCard
+            riskLevels={summary?.risk_levels ?? []}
+            currency={summary?.reporting_currency ?? currency}
+            isLoading={isSummaryLoading}
+          />
         </>
       )}
 

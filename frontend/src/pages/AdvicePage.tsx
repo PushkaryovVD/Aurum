@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { useAdvice } from "@/hooks/useAdvice";
 import { formatCurrency } from "@/lib/format";
 import { QueryStateNotice } from "@/components/ui/QueryStateNotice";
+import { ReportingCurrencyNote } from "@/components/ui/ReportingCurrencyNote";
 import { useTranslation } from "@/lib/i18n";
 import { queryDisplayState } from "@/lib/queryDisplayState";
 import { translateCategoryName } from "@/lib/categoryLabels";
@@ -23,20 +24,21 @@ const TONE_ICONS: Record<AdviceItem["tone"], typeof Lightbulb> = {
 // Each advice key needs its own params → translated message mapping since
 // some params (amounts) must be currency-formatted and category names
 // translated before interpolation — unlike AlertBanner's alerts, which only
-// ever interpolate raw numbers.
-function adviceMessage(item: AdviceItem, t: ReturnType<typeof useTranslation>["t"]): string {
+// ever interpolate raw numbers. Money params are in the response's
+// reporting_currency, passed in as `currency`.
+function adviceMessage(item: AdviceItem, t: ReturnType<typeof useTranslation>["t"], currency: string): string {
   switch (item.key) {
     case "rising_category":
       return t("advice.risingCategory", {
         category: translateCategoryName(String(item.params.category)),
         percent: item.params.percent,
-        current: formatCurrency(Number(item.params.current)),
-        average: formatCurrency(Number(item.params.average)),
+        current: formatCurrency(Number(item.params.current), currency),
+        average: formatCurrency(Number(item.params.average), currency),
       });
     case "unbudgeted_top_category":
       return t("advice.unbudgetedTopCategory", {
         category: translateCategoryName(String(item.params.category)),
-        amount: formatCurrency(Number(item.params.amount)),
+        amount: formatCurrency(Number(item.params.amount), currency),
       });
     case "savings_rate_trend": {
       const diff = Number(item.params.diff);
@@ -48,8 +50,9 @@ function adviceMessage(item: AdviceItem, t: ReturnType<typeof useTranslation>["t
 }
 
 export function AdvicePage() {
-  const { t } = useTranslation();
+  const { t, currency: settingsCurrency } = useTranslation();
   const { data, isLoading, isError } = useAdvice();
+  const currency = data?.reporting_currency ?? settingsCurrency;
   const displayState = queryDisplayState(data !== undefined, isLoading, isError);
   const items = data?.items ?? [];
 
@@ -80,11 +83,14 @@ export function AdvicePage() {
                     className={`flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm ${TONE_STYLES[item.tone]}`}
                   >
                     <Icon size={16} className="mt-0.5 shrink-0" />
-                    <span>{adviceMessage(item, t)}</span>
+                    <span>{adviceMessage(item, t, currency)}</span>
                   </div>
                 );
               })}
             </div>
+          )}
+          {data && (
+            <ReportingCurrencyNote currency={data.reporting_currency} incomplete={data.incomplete} className="mt-3" />
           )}
         </CardContent>
       </Card>

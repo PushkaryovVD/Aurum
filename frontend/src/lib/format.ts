@@ -56,6 +56,17 @@ export function formatCryptoAmount(amount: number | string, currency: string = g
   return createCurrencyFormatter(currency, maximumFractionDigits).format(value);
 }
 
+/** A backend aggregate already converted into `currency` (the response's own
+ * `reporting_currency`). `null` means the backend had no exchange rate for it:
+ * that is shown as "—", never as 0 or as the raw KZT sum. */
+export function formatReportingAmount(amount: string | number | null | undefined, currency: string): string {
+  return amount === null || amount === undefined ? "—" : formatCurrency(amount, currency);
+}
+
+export function formatSignedReportingAmount(amount: string | number | null | undefined, currency: string): string {
+  return amount === null || amount === undefined ? "—" : formatSignedCurrency(amount, currency);
+}
+
 export function formatSignedCurrency(amount: number | string, currency: string = getCurrency()): string {
   const value = typeof amount === "string" ? Number(amount) : amount;
   const sign = value > 0 ? "+" : "";

@@ -3,13 +3,18 @@ import { SquareDivide } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CategoryBreakdownModal } from "@/components/categories/CategoryBreakdownModal";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+import { formatReportingAmount } from "@/lib/format";
+import { ReportingCurrencyNote } from "@/components/ui/ReportingCurrencyNote";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { CategoryRankingItem } from "@/types";
 
 interface CategoryRankingCardProps {
   items: CategoryRankingItem[];
+  /** CategoryRankingReport.reporting_currency — the currency `items` are in. */
+  currency: string;
+  /** The ranking's `incomplete` flag: some amount had no exchange rate. */
+  incomplete?: boolean;
   isLoading: boolean;
   /** Request failed with no cached data: show "—" instead of an empty ranking. */
   unavailable?: boolean;
@@ -22,7 +27,15 @@ interface CategoryRankingCardProps {
  * detail chart below (locked to one category), this is "which category
  * costs the most" across the whole range at once. Clicking a row drills
  * into that category in the detail chart/transaction list below. */
-export function CategoryRankingCard({ items, isLoading, unavailable = false, selectedCategoryId, onSelectCategory }: CategoryRankingCardProps) {
+export function CategoryRankingCard({
+  items,
+  currency,
+  incomplete = false,
+  isLoading,
+  unavailable = false,
+  selectedCategoryId,
+  onSelectCategory,
+}: CategoryRankingCardProps) {
   const { t } = useTranslation();
   // The subcategory breakdown lives in a modal, not expanded inline — a
   // category with many subcategories would otherwise push the whole ranking
@@ -97,7 +110,7 @@ export function CategoryRankingCard({ items, isLoading, unavailable = false, sel
                         </span>
                       </span>
                       <span className="shrink-0 text-sm font-medium tabular-nums text-text-primary">
-                        {formatCurrency(item.amount)}
+                        {formatReportingAmount(item.amount, currency)}
                       </span>
                     </button>
                   </div>
@@ -105,6 +118,9 @@ export function CategoryRankingCard({ items, isLoading, unavailable = false, sel
               );
             })}
           </ul>
+        )}
+        {!isLoading && !unavailable && items.length > 0 && (
+          <ReportingCurrencyNote currency={currency} incomplete={incomplete} className="mt-3" />
         )}
       </CardContent>
 
@@ -115,6 +131,7 @@ export function CategoryRankingCard({ items, isLoading, unavailable = false, sel
           categoryId={breakdownItem.category_id}
           categoryName={breakdownItem.name}
           totalAmount={breakdownItem.amount}
+          currency={currency}
           children={breakdownItem.children}
         />
       )}

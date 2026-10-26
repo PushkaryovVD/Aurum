@@ -1,11 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+import { formatReportingAmount } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { NetWorthBreakdownItem } from "@/types";
 
 interface AssetAllocationCardProps {
   breakdown: NetWorthBreakdownItem[];
+  /** NetWorthSummary.reporting_currency — the currency the amounts are in. */
+  currency: string;
   isLoading: boolean;
 }
 
@@ -16,15 +18,18 @@ function breakdownLabelKey(key: string): TranslationKey {
   return `netWorth.assetClass.${key}` as TranslationKey;
 }
 
-export function AssetAllocationCard({ breakdown, isLoading }: AssetAllocationCardProps) {
+export function AssetAllocationCard({ breakdown, currency, isLoading }: AssetAllocationCardProps) {
   const { t } = useTranslation();
-  const total = breakdown.reduce((sum, item) => sum + Number(item.amount), 0);
+  // An amount the backend could not convert makes the total unknown too.
+  const total = breakdown.some((item) => item.amount === null)
+    ? null
+    : breakdown.reduce((sum, item) => sum + Number(item.amount), 0);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>
-          {t("netWorth.assetsTitlePrefix")} · {formatCurrency(total)}
+          {t("netWorth.assetsTitlePrefix")} · {formatReportingAmount(total, currency)}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -82,7 +87,7 @@ export function AssetAllocationCard({ breakdown, isLoading }: AssetAllocationCar
                       {item.percent.toFixed(0)}%
                     </span>
                     <span className="shrink-0 text-sm font-medium tabular-nums text-text-primary">
-                      {formatCurrency(item.amount)}
+                      {formatReportingAmount(item.amount, currency)}
                     </span>
                   </li>
                 );

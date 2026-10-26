@@ -29,7 +29,7 @@ function combineStates(...states: QueryDisplayState[]): QueryDisplayState {
 }
 
 export function ReportsPage() {
-  const { t, language } = useTranslation();
+  const { t, language, currency } = useTranslation();
   const now = new Date();
   const RANGE_OPTIONS: Array<{ value: RangePreset; label: string }> = [
     { value: "all", label: t("reports.rangeAll") },
@@ -165,6 +165,8 @@ export function ReportsPage() {
 
       <CategoryRankingCard
         items={ranking?.items ?? []}
+        currency={ranking?.reporting_currency ?? currency}
+        incomplete={ranking?.incomplete ?? false}
         isLoading={isRankingLoading}
         unavailable={rankingState === "unavailable"}
         selectedCategoryId={categoryId}

@@ -28,6 +28,7 @@ const month: EnvelopeMonth = {
   year: 2026,
   month: 8,
   tracking_start: { year: 2026, month: 8 },
+  reporting_currency: "KZT",
   is_closed: false,
   has_ledger_drift: false,
   fx_incomplete: false,

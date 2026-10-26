@@ -9,6 +9,8 @@ interface AvailableToAssignCardProps {
 
 export function AvailableToAssignCard({ month }: AvailableToAssignCardProps) {
   const { t } = useTranslation();
+  // Allocations and converted ledger income share the month's reporting currency.
+  const currency = month.reporting_currency;
   const isNegative = month.available_to_assign.trim().startsWith("-");
 
   return (
@@ -18,16 +20,16 @@ export function AvailableToAssignCard({ month }: AvailableToAssignCardProps) {
       </CardHeader>
       <CardContent>
         <p className={`text-3xl font-semibold tabular-nums ${isNegative ? "text-danger" : "text-success"}`}>
-          {formatCurrency(month.available_to_assign)}
+          {formatCurrency(month.available_to_assign, currency)}
         </p>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-lg bg-surface-2 p-3">
             <dt className="text-xs text-text-muted">{t("envelope.available.income")}</dt>
-            <dd className="mt-1 font-medium tabular-nums text-text-primary">{formatCurrency(month.income)}</dd>
+            <dd className="mt-1 font-medium tabular-nums text-text-primary">{formatCurrency(month.income, currency)}</dd>
           </div>
           <div className="rounded-lg bg-surface-2 p-3">
             <dt className="text-xs text-text-muted">{t("envelope.available.assigned")}</dt>
-            <dd className="mt-1 font-medium tabular-nums text-text-primary">{formatCurrency(month.assigned)}</dd>
+            <dd className="mt-1 font-medium tabular-nums text-text-primary">{formatCurrency(month.assigned, currency)}</dd>
           </div>
         </dl>
         <p className="mt-3 text-xs text-text-muted">{t("envelope.available.cumulativeHint")}</p>

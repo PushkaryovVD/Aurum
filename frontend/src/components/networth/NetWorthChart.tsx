@@ -2,7 +2,9 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { RangeSelector } from "@/components/layout/RangeSelector";
-import { formatCurrency, formatSignedCurrency, getIntlLocale } from "@/lib/format";
+import { formatReportingAmount, formatSignedReportingAmount, getIntlLocale } from "@/lib/format";
+import { ReportingCurrencyNote } from "@/components/ui/ReportingCurrencyNote";
+import { getCurrency } from "@/lib/i18n";
 import { useTranslation } from "@/lib/i18n";
 import type { NetWorthRange, NetWorthSummary } from "@/types";
 
@@ -41,22 +43,35 @@ function computeYearTicks(dates: string[]): string[] {
   return ticks;
 }
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { date: string; value: number } }> }) {
+function ChartTooltip({
+  active,
+  payload,
+  currency,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: { date: string; value: number | null } }>;
+  currency: string;
+}) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
     <div className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm shadow-md">
       <p className="text-text-muted">{formatAxisDate(point.date)}</p>
-      <p className="font-medium text-text-primary">{formatCurrency(point.value)}</p>
+      <p className="font-medium text-text-primary">{formatReportingAmount(point.value, currency)}</p>
     </div>
   );
 }
 
 export function NetWorthChart({ summary, isLoading, unavailable = false, range, onRangeChange }: NetWorthChartProps) {
   const { t } = useTranslation();
-  const isPositive = summary ? Number(summary.change_amount) >= 0 : true;
+  // The figures are in the currency the backend converted them into; the
+  // settings value only stands in before the first response arrives.
+  const currency = summary?.reporting_currency ?? getCurrency();
+  const isPositive = summary && summary.change_amount !== null ? Number(summary.change_amount) >= 0 : true;
   const trendColor = isPositive ? "var(--success)" : "var(--danger)";
-  const chartData = summary?.series.map((point) => ({ date: point.date, value: Number(point.value) })) ?? [];
+  // A day without a rate stays a gap (null) rather than dropping to zero.
+  const chartData =
+    summary?.series.map((point) => ({ date: point.date, value: point.value === null ? null : Number(point.value) })) ?? [];
   const yearTicks = computeYearTicks(chartData.map((point) => point.date));
 
   return (
@@ -65,7 +80,7 @@ export function NetWorthChart({ summary, isLoading, unavailable = false, range, 
         <div>
           <CardTitle>{t("nav.netWorth")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
-            {isLoading ? "…" : unavailable ? "—" : formatCurrency(summary?.current ?? 0)}
+            {isLoading ? "…" : unavailable ? "—" : formatReportingAmount(summary ? summary.current : 0, currency)}
           </p>
           {summary && (
             <p
@@ -73,7 +88,7 @@ export function NetWorthChart({ summary, isLoading, unavailable = false, range, 
               style={{ color: trendColor }}
             >
               {isPositive ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
-              {formatSignedCurrency(summary.change_amount)}
+              {formatSignedReportingAmount(summary.change_amount, currency)}
               {summary.change_percent !== null && ` (${isPositive ? "+" : ""}${summary.change_percent.toFixed(1)}%)`}
               <span className="font-normal text-text-muted">{t("netWorth.periodSuffix")}</span>
             </p>
@@ -109,7 +124,7 @@ export function NetWorthChart({ summary, isLoading, unavailable = false, range, 
                     interval="preserveStartEnd"
                   />
                 )}
-                <Tooltip content={<ChartTooltip />} cursor={{ stroke: "var(--gridline)", strokeWidth: 1 }} />
+                <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: "var(--gridline)", strokeWidth: 1 }} />
                 <Area
                   type="monotone"
                   dataKey="value"
@@ -128,6 +143,9 @@ export function NetWorthChart({ summary, isLoading, unavailable = false, range, 
             <span>{formatAxisDate(chartData[0].date)}</span>
             <span>{formatAxisDate(chartData[chartData.length - 1].date)}</span>
           </div>
+        )}
+        {summary && (
+          <ReportingCurrencyNote currency={summary.reporting_currency} incomplete={summary.incomplete} className="mt-2" />
         )}
       </CardContent>
     </Card>

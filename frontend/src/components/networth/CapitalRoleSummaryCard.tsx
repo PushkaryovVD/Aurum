@@ -1,10 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatCurrency, pluralizeRu } from "@/lib/format";
+import { formatCurrency, formatReportingAmount, pluralizeRu } from "@/lib/format";
 import { useTranslation, type Language, type TranslationKey } from "@/lib/i18n";
 import type { CapitalRoleSummary } from "@/types";
 
 interface CapitalRoleSummaryCardProps {
   roles: CapitalRoleSummary[];
+  /** NetWorthSummary.reporting_currency — the currency the amounts are in. */
+  currency: string;
   isLoading: boolean;
 }
 
@@ -13,7 +15,7 @@ function assetsCountLabel(count: number, language: Language): string {
   return count === 1 ? "asset" : "assets";
 }
 
-export function CapitalRoleSummaryCard({ roles, isLoading }: CapitalRoleSummaryCardProps) {
+export function CapitalRoleSummaryCard({ roles, currency, isLoading }: CapitalRoleSummaryCardProps) {
   const { t, language } = useTranslation();
 
   return (
@@ -35,7 +37,7 @@ export function CapitalRoleSummaryCard({ roles, isLoading }: CapitalRoleSummaryC
                     {t(`netWorth.capitalRole.${role.role}` as TranslationKey)}
                   </p>
                   <p className="mt-1.5 text-xl font-semibold tabular-nums text-text-primary">
-                    {formatCurrency(role.total_value)}
+                    {formatReportingAmount(role.total_value, currency)}
                   </p>
                   <p className="mt-1 text-xs text-text-muted">
                     {role.count} {assetsCountLabel(role.count, language)} ·{" "}

@@ -1,6 +1,7 @@
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatCurrency, getIntlLocale, pluralizeRu } from "@/lib/format";
+import { formatCurrency, formatReportingAmount, getIntlLocale, pluralizeRu } from "@/lib/format";
+import { ReportingCurrencyNote } from "@/components/ui/ReportingCurrencyNote";
 import { useTranslation, type Language } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { CategorySpendingReport } from "@/types";
@@ -42,22 +43,33 @@ function computeYearTicks(keys: string[]): string[] {
   return ticks;
 }
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { key: string; amount: number } }> }) {
+function ChartTooltip({
+  active,
+  payload,
+  currency,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: { key: string; amount: number | null } }>;
+  currency: string;
+}) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
     <div className="rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm shadow-md">
       <p className="text-text-muted">{formatMonthLabel(point.key)}</p>
-      <p className="font-medium text-text-primary">{formatCurrency(point.amount)}</p>
+      <p className="font-medium text-text-primary">{formatReportingAmount(point.amount, currency)}</p>
     </div>
   );
 }
 
 export function CategorySpendingChart({ report, isLoading, unavailable = false }: CategorySpendingChartProps) {
-  const { t, language } = useTranslation();
+  const { t, language, currency: settingsCurrency } = useTranslation();
+  // Amounts are in the currency the backend converted them into.
+  const currency = report?.reporting_currency ?? settingsCurrency;
   const chartData = report?.series.map((point) => ({
     key: monthKey(point.year, point.month),
-    amount: Number(point.amount),
+    // A month without a rate stays an empty bar, not a fake zero-spend month.
+    amount: point.amount === null ? null : Number(point.amount),
   })) ?? [];
   const yearTicks = computeYearTicks(chartData.map((point) => point.key));
 
@@ -67,11 +79,11 @@ export function CategorySpendingChart({ report, isLoading, unavailable = false }
         <div>
           <CardTitle>{report ? translateCategoryName(report.category_name) : t("reports.defaultChartTitle")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
-            {unavailable ? "—" : isLoading || !report ? "…" : formatCurrency(report.total_amount)}
+            {unavailable ? "—" : isLoading || !report ? "…" : formatCurrency(report.total_amount, currency)}
           </p>
           {report && (
             <p className="mt-1 text-sm text-text-muted">
-              {t("reports.averagePerMonth", { amount: formatCurrency(report.average_per_month) })} ·{" "}
+              {t("reports.averagePerMonth", { amount: formatCurrency(report.average_per_month, currency) })} ·{" "}
               {report.transaction_count} {transactionsCountLabel(report.transaction_count, language)}
             </p>
           )}
@@ -98,7 +110,7 @@ export function CategorySpendingChart({ report, isLoading, unavailable = false }
                     interval="preserveStartEnd"
                   />
                 )}
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-2)" }} />
+                <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ fill: "var(--surface-2)" }} />
                 <Bar dataKey="amount" fill={report.category_color} radius={[2, 2, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
@@ -110,6 +122,7 @@ export function CategorySpendingChart({ report, isLoading, unavailable = false }
             <span>{formatMonthLabel(chartData[chartData.length - 1].key)}</span>
           </div>
         )}
+        {report && <ReportingCurrencyNote currency={report.reporting_currency} incomplete={report.incomplete} className="mt-2" />}
       </CardContent>
     </Card>
   );

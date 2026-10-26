@@ -23,10 +23,13 @@ const WARNING_TONES = new Set<EnvelopeWarning["code"]>([
 
 interface EnvelopeWarningsProps {
   warnings: EnvelopeWarning[];
+  /** EnvelopeMonth.reporting_currency; defaults to the settings currency. */
+  currency?: string;
 }
 
-export function EnvelopeWarnings({ warnings }: EnvelopeWarningsProps) {
-  const { t } = useTranslation();
+export function EnvelopeWarnings({ warnings, currency: monthCurrency }: EnvelopeWarningsProps) {
+  const { t, currency: settingsCurrency } = useTranslation();
+  const currency = monthCurrency ?? settingsCurrency;
   if (warnings.length === 0) return null;
 
   return (
@@ -46,7 +49,7 @@ export function EnvelopeWarnings({ warnings }: EnvelopeWarningsProps) {
             }`}
           >
             <Icon size={17} className="mt-0.5 shrink-0" />
-            <span>{t(WARNING_KEYS[warning.code], amount ? { amount: formatCurrency(amount) } : undefined)}</span>
+            <span>{t(WARNING_KEYS[warning.code], amount ? { amount: formatCurrency(amount, currency) } : undefined)}</span>
           </div>
         );
       })}
